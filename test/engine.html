@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<title>DuckQ 엔진 검증</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; font: 15px/1.4 -apple-system, system-ui, sans-serif; background: #111; color: #eee; padding: 12px; padding-bottom: 40vh; user-select: none; -webkit-user-select: none; }
+  h1 { font-size: 18px; margin: 0 0 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  button { font: inherit; padding: 10px 14px; border: 0; border-radius: 8px; background: #333; color: #eee; cursor: pointer; }
+  button:active { background: #555; }
+  button.primary { background: #2a6; color: #000; font-weight: 700; }
+  button.danger { background: #a33; }
+  button:disabled { opacity: .4; }
+  label.file { display: inline-block; padding: 10px 14px; background: #36a; border-radius: 8px; cursor: pointer; }
+  label.file input { display: none; }
+  .stat { background: #222; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+  .stat.warn { background: #a52; }
+  .stat.bad { background: #a22; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; margin: 12px 0; }
+  .pad { position: relative; height: 84px; border-radius: 10px; background: #2a2a2a; border: 2px solid #444; overflow: hidden; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 6px; cursor: pointer; touch-action: manipulation; }
+  .pad.sfx { border-color: #38a; }
+  .pad.long { border-color: #a83; }
+  .pad.playing { border-color: #fff; background: #3a3a3a; box-shadow: 0 0 0 2px #fff inset; }
+  .pad.fading { border-color: #fa0; }
+  .pad .name { font-size: 12px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
+  .pad .meta { font-size: 10px; color: #aaa; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .pad .bar { position: absolute; left: 0; bottom: 0; height: 4px; background: #2a6; width: 0; }
+  #log { position: fixed; left: 0; right: 0; bottom: 0; height: 36vh; background: #000; color: #9f9; font: 11px/1.35 ui-monospace, Menlo, monospace; overflow-y: auto; padding: 8px; border-top: 1px solid #333; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
+  #log .e { color: #f66; } #log .w { color: #fc6; } #log .i { color: #9cf; }
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; z-index: 9; }
+  #overlay button { font-size: 28px; padding: 30px 60px; }
+</style>
+</head>
+<body>
+<div id="overlay"><button class="primary" id="btnStart">▶ 시작 (오디오 켜기)</button></div>
+
+<h1>DuckQ 엔진 검증 <small id="ver" style="color:#888;font-weight:400"></small></h1>
+
+<div class="row">
+  <label class="file">＋ 파일 넣기<input type="file" id="files" multiple accept="audio/*,video/*,.m4a,.mp3,.wav,.aac,.ogg"></label>
+  <button id="btnStopAll" class="danger">■ 전체 정지</button>
+  <button id="btnFadeAll">◣ 전체 페이드</button>
+  <button id="btnClear">DB 비우기</button>
+</div>
+<div class="row">
+  <span class="stat" id="stCtx">ctx: -</span>
+  <span class="stat" id="stLoad">적재: 0 MB</span>
+  <span class="stat" id="stWake">wake: -</span>
+  <span class="stat" id="stLat">지연 효과음 avg - / max - (n=0)</span>
+  <span class="stat" id="stLatL">지연 긴곡 avg - / max - (n=0)</span>
+  <span class="stat" id="stJank">메인스레드 멈춤(>100ms): 0</span>
+  <span class="stat" id="stPlaying">재생 중 0</span>
+</div>
+<div class="row">
+  <button id="btnBurst">자동 연타 300회</button>
+  <button id="btnBurstStop" disabled>연타 중지</button>
+  <button id="btnPress">압박: 효과음 +100MB 적재</button>
+  <button id="btnCopy">로그 복사</button>
+  <button id="btnDl">로그 저장</button>
+  <button id="btnMark">마크 찍기</button>
+</div>
+
+<div id="grid"></div>
+<div id="log"></div>
+
+<script>
+'use strict';
+const VER = 'engine-test 0.1 (2026-09-21)';
+const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
+const FADE_SEC = 2;
+const WARN_BYTES = 300 * 1024 * 1024;
+const $ = id => document.getElementById(id);
+$('ver').textContent = VER;
+
+// ---------- 로그 ----------
+const logLines = [];
+const t0 = performance.now();
+function log(msg, cls) {
+  const t = ((performance.now() - t0) / 1000).toFixed(3).padStart(9);
+  const line = `[${t}] ${msg}`;
+  logLines.push(line);
+  const el = document.createElement('div');
+  if (cls) el.className = cls;
+  el.textContent = line;
+  const box = $('log');
+  const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
+  box.appendChild(el);
+  if (box.childElementCount > 800) box.removeChild(box.firstChild);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+window.addEventListener('error', e => log('JS 오류: ' + e.message + ' @' + e.lineno, 'e'));
+window.addEventListener('unhandledrejection', e => log('Promise 오류: ' + (e.reason && e.reason.message || e.reason), 'e'));
+
+log(VER, 'i');
+log('UA: ' + navigator.userAgent, 'i');
+log(`화면 ${screen.width}x${screen.height} dpr${devicePixelRatio} · standalone=${navigator.standalone === true || matchMedia('(display-mode: standalone)').matches} · mem=${navigator.deviceMemory || '?'}GB · cpu=${navigator.hardwareConcurrency || '?'}`, 'i');
+if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(e => log(`저장소 사용 ${(e.usage/1048576).toFixed(1)}MB / 한도 ${(e.quota/1048576).toFixed(0)}MB`, 'i'));
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(ok => log('persist 저장소 ' + (ok ? '허용' : '거부'), ok ? 'i' : 'w'));
+
+// ---------- IndexedDB ----------
+let db;
+function openDB() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open('duckq-engine-test', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('files', { keyPath: 'id' });
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+function idb(mode, fn) {
+  return new Promise((res, rej) => {
+    const tx = db.transaction('files', mode);
+    const st = tx.objectStore('files');
+    const req = fn(st);
+    tx.oncomplete = () => res(req && req.result);
+    tx.onerror = () => rej(tx.error);
+  });
+}
+
+// ---------- 오디오 엔진 ----------
+let ctx, master;
+const tracks = [];        // {id,name,size,dur,kind:'sfx'|'long',blob,buffer?,el?,node?,gain?,playing,startedAt,fading}
+let loadedBytes = 0;
+const lat = { sfx: [], long: [] };
+let jank = 0;
+
+function ensureCtx() {
+  if (!ctx) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+    master = ctx.createGain();
+    master.connect(ctx.destination);
+    ctx.onstatechange = () => {
+      log(`ctx.state → ${ctx.state}`, ctx.state === 'running' ? 'i' : 'w');
+      if (ctx.state !== 'running' && ctx.state !== 'closed') {
+        ctx.resume().then(() => log('ctx.resume() 자동 복귀 OK'), e => log('ctx.resume() 실패: ' + e.message, 'e'));
+      }
+    };
+    log(`AudioContext 생성 sr=${ctx.sampleRate} base=${(ctx.baseLatency*1000).toFixed(1)}ms out=${((ctx.outputLatency||0)*1000).toFixed(1)}ms`, 'i');
+  }
+  return ctx.resume();
+}
+function updCtx() { $('stCtx').textContent = 'ctx: ' + (ctx ? ctx.state : '-'); }
+setInterval(updCtx, 500);
+
+function fmtMB(b) { return (b / 1048576).toFixed(1) + ' MB'; }
+function updLoad() {
+  const s = $('stLoad');
+  s.textContent = '적재: ' + fmtMB(loadedBytes);
+  s.className = 'stat' + (loadedBytes > WARN_BYTES ? ' bad' : loadedBytes > WARN_BYTES * .8 ? ' warn' : '');
+}
+function updLat() {
+  const f = (arr, el, label) => {
+    if (!arr.length) return;
+    const avg = arr.reduce((a, b) => a + b, 0) / arr.length, max = Math.max(...arr);
+    el.textContent = `지연 ${label} avg ${avg.toFixed(1)} / max ${max.toFixed(1)}ms (n=${arr.length})`;
+    const lim = label === '효과음' ? 20 : 100;
+    el.className = 'stat' + (avg > lim ? ' bad' : max > lim * 2.5 ? ' warn' : '');
+  };
+  f(lat.sfx, $('stLat'), '효과음'); f(lat.long, $('stLatL'), '긴곡');
+}
+function updPlaying() { $('stPlaying').textContent = '재생 중 ' + tracks.filter(t => t.playing).length; }
+
+function probeDuration(blob) {
+  return new Promise(res => {
+    const a = new Audio(); const u = URL.createObjectURL(blob);
+    const done = d => { URL.revokeObjectURL(u); a.src = ''; res(d); };
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => done(isFinite(a.duration) ? a.duration : 9999);
+    a.onerror = () => done(-1);
+    a.src = u;
+  });
+}
+
+async function addTrack(rec, fromDB) {
+  const t = { id: rec.id, name: rec.name, size: rec.size, blob: rec.blob, dur: rec.dur, kind: rec.kind, playing: false, fading: false };
+  const s = performance.now();
+  if (t.kind === 'sfx') {
+    try {
+      const buf = await ctx.decodeAudioData(await rec.blob.arrayBuffer());
+      t.buffer = buf;
+      const bytes = buf.length * buf.numberOfChannels * 4;
+      loadedBytes += bytes; updLoad();
+      log(`효과음 적재 "${t.name}" ${t.dur.toFixed(1)}s ${fmtMB(bytes)} (${(performance.now()-s).toFixed(0)}ms) 총 ${fmtMB(loadedBytes)}`);
+      if (loadedBytes > WARN_BYTES) log(`⚠ 적재 총량 ${fmtMB(loadedBytes)} > 300MB 경고`, 'w');
+    } catch (e) { log(`디코딩 실패 "${t.name}": ${e.message}`, 'e'); return; }
+  } else {
+    t.url = URL.createObjectURL(rec.blob);
+    const el = new Audio(); el.preload = 'auto'; el.src = t.url; el.crossOrigin = 'anonymous';
+    ['stalled', 'waiting', 'suspend', 'error', 'ended'].forEach(ev => el.addEventListener(ev, () => {
+      if (ev === 'ended') { t.playing = false; setPad(t); updPlaying(); log(`끝남 "${t.name}"`); }
+      else if (ev === 'error') log(`<audio> error "${t.name}" code=${el.error && el.error.code}`, 'e');
+      else if (t.playing) log(`<audio> ${ev} "${t.name}" @${el.currentTime.toFixed(1)}s`, 'w');
+    }));
+    t.el = el;
+    t.node = ctx.createMediaElementSource(el);
+    t.gain = ctx.createGain(); t.node.connect(t.gain); t.gain.connect(master);
+    log(`긴 곡 등록 "${t.name}" ${(t.dur/60).toFixed(1)}분 ${fmtMB(t.size)} 스트리밍`);
+  }
+  tracks.push(t);
+  makePad(t);
+  return t;
+}
+
+function makePad(t) {
+  const d = document.createElement('div');
+  d.className = 'pad ' + t.kind; d.id = 'pad-' + t.id;
+  d.innerHTML = `<div class="name"></div><div class="meta"></div><div class="bar"></div>`;
+  d.querySelector('.name').textContent = t.name;
+  d.querySelector('.meta').textContent = (t.kind === 'sfx' ? t.dur.toFixed(1) + 's · 메모리' : (t.dur/60).toFixed(1) + '분 · 스트림');
+  d.addEventListener('pointerdown', e => { e.preventDefault(); tap(t); });
+  $('grid').appendChild(d);
+  t.pad = d;
+}
+function setPad(t) {
+  t.pad.classList.toggle('playing', t.playing);
+  t.pad.classList.toggle('fading', t.fading);
+  if (!t.playing) t.pad.querySelector('.bar').style.width = '0';
+}
+
+function tap(t) {
+  if (!ctx) return;
+  if (t.playing && !t.fading) return fadeOut(t);
+  if (t.playing && t.fading) return;   // 페이드 중엔 무시
+  play(t);
+}
+
+function play(t, offset) {
+  const tapPerf = performance.now();
+  if (ctx.state !== 'running') { log('탭 시 ctx.state=' + ctx.state + ' → resume', 'w'); ctx.resume(); }
+  t.playing = true; t.fading = false; t.startedAt = performance.now() - (offset || 0) * 1000;
+  if (t.kind === 'sfx') {
+    const src = ctx.createBufferSource(); src.buffer = t.buffer;
+    const g = ctx.createGain(); src.connect(g); g.connect(master);
+    t.src = src; t.gain = g;
+    src.onended = () => { if (t.src === src) { t.playing = false; t.fading = false; setPad(t); updPlaying(); } };
+    src.start();
+    // 지연 = 코드 실행까지 + 오디오 하드웨어 지연(base+output). 실제 스피커 소리와 가장 가까운 추정치.
+    const ms = (performance.now() - tapPerf) + (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000;
+    lat.sfx.push(ms); updLat();
+    log(`GO 효과음 "${t.name}" 지연 ${ms.toFixed(1)}ms`);
+  } else {
+    const el = t.el;
+    t.gain.gain.cancelScheduledValues(ctx.currentTime); t.gain.gain.setValueAtTime(1, ctx.currentTime);
+    if (offset != null) el.currentTime = offset; else if (el.ended || el.currentTime >= el.duration - 0.05) el.currentTime = 0;
+    const onPlaying = () => {
+      el.removeEventListener('playing', onPlaying);
+      const ms = (performance.now() - tapPerf) + (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000;
+      lat.long.push(ms); updLat();
+      log(`GO 긴 곡 "${t.name}" @${el.currentTime.toFixed(1)}s 지연 ${ms.toFixed(1)}ms`);
+    };
+    el.addEventListener('playing', onPlaying);
+    el.play().catch(e => { log(`play() 거부 "${t.name}": ${e.message}`, 'e'); t.playing = false; setPad(t); });
+  }
+  setPad(t); updPlaying();
+}
+
+function fadeOut(t) {
+  if (!t.playing) return;
+  t.fading = true; setPad(t);
+  const now = ctx.currentTime;
+  t.gain.gain.cancelScheduledValues(now);
+  t.gain.gain.setValueAtTime(t.gain.gain.value, now);
+  t.gain.gain.linearRampToValueAtTime(0, now + FADE_SEC);
+  log(`페이드아웃 ${FADE_SEC}s "${t.name}"`);
+  setTimeout(() => stop(t), FADE_SEC * 1000 + 50);
+}
+function stop(t) {
+  if (!t.playing) return;
+  if (t.kind === 'sfx') { try { t.src.stop(); } catch {} t.src = null; }
+  else { t.el.pause(); }
+  t.playing = false; t.fading = false; setPad(t); updPlaying();
+}
+$('btnStopAll').onclick = () => { log('■ 전체 정지', 'i'); tracks.forEach(stop); };
+$('btnFadeAll').onclick = () => { log('◣ 전체 페이드', 'i'); tracks.forEach(t => t.playing && !t.fading && fadeOut(t)); };
+
+// 진행 바
+setInterval(() => {
+  tracks.forEach(t => {
+    if (!t.playing) return;
+    const pos = t.kind === 'sfx' ? (performance.now() - t.startedAt) / 1000 : t.el.currentTime;
+    t.pad.querySelector('.bar').style.width = Math.min(100, pos / t.dur * 100) + '%';
+  });
+}, 200);
+
+// ---------- 파일 넣기 ----------
+$('files').addEventListener('change', async e => {
+  const list = [...e.target.files]; e.target.value = '';
+  log(`파일 ${list.length}개 선택`, 'i');
+  for (const f of list) {
+    const dur = await probeDuration(f);
+    if (dur < 0) { log(`재생 불가 형식 "${f.name}"`, 'e'); continue; }
+    const rec = { id: Date.now() + '-' + Math.random().toString(36).slice(2, 7), name: f.name, size: f.size, blob: f, dur, kind: dur <= SFX_MAX_SEC ? 'sfx' : 'long' };
+    const s = performance.now();
+    await idb('readwrite', st => st.put(rec));
+    log(`IDB 저장 "${f.name}" ${fmtMB(f.size)} (${(performance.now()-s).toFixed(0)}ms)`);
+    await addTrack(rec);
+  }
+});
+$('btnClear').onclick = async () => {
+  if (!confirm('저장된 음원을 모두 지울까요?')) return;
+  tracks.forEach(stop);
+  await idb('readwrite', st => st.clear());
+  localStorage.removeItem('duckq-engine-state');
+  location.reload();
+};
+
+// ---------- 자동 연타 ----------
+let burstTimer = null;
+$('btnBurst').onclick = () => {
+  const sfx = tracks.filter(t => t.kind === 'sfx');
+  if (!sfx.length) return log('효과음이 없어 연타 불가', 'w');
+  let n = 0; const before = lat.sfx.length;
+  $('btnBurst').disabled = true; $('btnBurstStop').disabled = false;
+  log('자동 연타 시작 (300회, 1초 간격)', 'i');
+  burstTimer = setInterval(() => {
+    const t = sfx[Math.floor(Math.random() * sfx.length)];
+    if (t.playing) stop(t);
+    play(t);
+    if (++n >= 300) stopBurst(before);
+  }, 1000);
+};
+function stopBurst(before) {
+  clearInterval(burstTimer); burstTimer = null;
+  $('btnBurst').disabled = false; $('btnBurstStop').disabled = true;
+  const arr = lat.sfx.slice(before || 0);
+  if (arr.length) log(`자동 연타 종료 n=${arr.length} avg ${(arr.reduce((a,b)=>a+b,0)/arr.length).toFixed(1)}ms max ${Math.max(...arr).toFixed(1)}ms`, 'i');
+}
+$('btnBurstStop').onclick = () => stopBurst();
+
+// ---------- 메모리 압박 ----------
+const pressureBufs = [];
+$('btnPress').onclick = async () => {
+  const sfx = tracks.filter(t => t.kind === 'sfx');
+  if (!sfx.length) return log('효과음이 없어 압박 불가', 'w');
+  let added = 0, i = 0;
+  const target = 100 * 1048576;
+  log('압박 적재 시작 (+100MB)', 'i');
+  while (added < target) {
+    const src = sfx[i++ % sfx.length];
+    try {
+      const buf = await ctx.decodeAudioData(await src.blob.arrayBuffer());
+      const bytes = buf.length * buf.numberOfChannels * 4;
+      pressureBufs.push(buf); added += bytes; loadedBytes += bytes; updLoad();
+    } catch (e) { log('압박 디코딩 실패: ' + e.message, 'e'); break; }
+  }
+  log(`압박 적재 +${fmtMB(added)} → 총 ${fmtMB(loadedBytes)}` + (loadedBytes > WARN_BYTES ? ' ⚠ 300MB 초과' : ''), loadedBytes > WARN_BYTES ? 'w' : 'i');
+};
+
+
+// ---------- Wake Lock ----------
+let wake = null;
+async function reqWake() {
+  if (!('wakeLock' in navigator)) { $('stWake').textContent = 'wake: 미지원'; $('stWake').className = 'stat warn'; return log('Wake Lock API 미지원', 'w'); }
+  try {
+    wake = await navigator.wakeLock.request('screen');
+    $('stWake').textContent = 'wake: ON'; $('stWake').className = 'stat';
+    log('Wake Lock 켬', 'i');
+    wake.addEventListener('release', () => { $('stWake').textContent = 'wake: 해제됨'; $('stWake').className = 'stat warn'; log('Wake Lock 해제됨', 'w'); });
+  } catch (e) { $('stWake').textContent = 'wake: 실패'; $('stWake').className = 'stat bad'; log('Wake Lock 실패: ' + e.message, 'e'); }
+}
+document.addEventListener('visibilitychange', () => {
+  log('visibility → ' + document.visibilityState, 'w');
+  if (document.visibilityState === 'visible') {
+    const hiddenFor = hiddenAt ? ((performance.now() - hiddenAt) / 1000).toFixed(1) : '?';
+    log(`복귀: 숨김 ${hiddenFor}초 · ctx=${ctx && ctx.state} · 재생중 ${tracks.filter(t=>t.playing).length}개`, 'i');
+    tracks.forEach(t => { if (t.playing && t.kind === 'long' && t.el.paused) log(`  ⚠ "${t.name}" 복귀 후 paused 상태 @${t.el.currentTime.toFixed(1)}s`, 'w'); });
+    if (ctx) ctx.resume();
+    reqWake();
+  } else hiddenAt = performance.now();
+});
+let hiddenAt = 0;
+window.addEventListener('pagehide', () => log('pagehide', 'w'));
+window.addEventListener('pageshow', e => log('pageshow persisted=' + e.persisted, 'w'));
+
+// ---------- 메인스레드 멈춤 감시 ----------
+(function watchJank() {
+  let last = performance.now();
+  setInterval(() => {
+    const now = performance.now(), gap = now - last; last = now;
+    if (gap > 600) { jank++; $('stJank').textContent = `메인스레드 멈춤(>100ms): ${jank}`; log(`메인스레드 멈춤 ${(gap-500).toFixed(0)}ms`, 'w'); }
+  }, 500);
+})();
+
+// ---------- 상태 자동 저장 / 복원 ----------
+function saveState() {
+  const st = { at: Date.now(), playing: tracks.filter(t => t.playing && t.kind === 'long').map(t => ({ id: t.id, pos: t.el.currentTime })) };
+  try { localStorage.setItem('duckq-engine-state', JSON.stringify(st)); } catch (e) { log('상태 저장 실패: ' + e.message, 'e'); }
+}
+
+async function restore() {
+  const s = performance.now();
+  const recs = await idb('readonly', st => st.getAll());
+  log(`IDB에서 ${recs.length}개 발견`, 'i');
+  for (const r of recs) await addTrack(r, true);
+  let st = null;
+  try { st = JSON.parse(localStorage.getItem('duckq-engine-state')); } catch {}
+  if (st && st.playing && st.playing.length) {
+    const ago = ((Date.now() - st.at) / 1000).toFixed(1);
+    log(`이전 상태: 긴 곡 ${st.playing.length}개 재생 중이었음 (${ago}초 전 저장) → 이어서 재생`, 'i');
+    for (const p of st.playing) { const t = tracks.find(x => x.id === p.id); if (t) play(t, p.pos + Number(ago)); }
+  }
+  const took = ((performance.now() - s) / 1000).toFixed(2);
+  const sincePage = ((performance.now() - t0) / 1000).toFixed(2);
+  log(`복귀 완료: 복원 ${took}초 · 페이지 열림부터 ${sincePage}초 · 적재 ${fmtMB(loadedBytes)}`, 'i');
+  setInterval(saveState, 1000);   // 복원 전에 저장하면 이전 상태를 덮어쓰므로 여기서 시작
+}
+
+// ---------- 시작 ----------
+$('btnStart').onclick = async () => {
+  $('btnStart').disabled = true;
+  try {
+    await ensureCtx();
+    log('ctx.state=' + ctx.state, 'i');
+    // iOS: 첫 제스처 안에서 무음 버퍼 한 번 재생해야 이후 자유롭게 소리 남
+    const b = ctx.createBuffer(1, 1, ctx.sampleRate); const s = ctx.createBufferSource(); s.buffer = b; s.connect(ctx.destination); s.start();
+    db = await openDB();
+    await reqWake();
+    $('overlay').remove();
+    await restore();
+  } catch (e) { log('시작 실패: ' + e.message, 'e'); $('btnStart').disabled = false; }
+};
+
+// ---------- 로그 내보내기 ----------
+function logText() { return logLines.join('\n'); }
+$('btnCopy').onclick = async () => {
+  try { await navigator.clipboard.writeText(logText()); log('로그 복사됨 (' + logLines.length + '줄)', 'i'); }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = logText(); document.body.appendChild(ta); ta.select();
+    const ok = document.execCommand('copy'); ta.remove(); log(ok ? '로그 복사됨(구형 방식)' : '복사 실패 — 로그 창을 길게 눌러 선택하세요', ok ? 'i' : 'e');
+  }
+};
+$('btnDl').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([logText()], { type: 'text/plain' }));
+  a.download = 'engine-log-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt'; a.click();
+};
+$('btnMark').onclick = () => { const m = prompt('마크 이름 (예: T3 시작)'); if (m) log('===== ' + m + ' =====', 'i'); };
+</script>
+</body>
+</html>
