@@ -242,18 +242,18 @@ function play(t, offset) {
     src.onended = () => { if (t.src === src) { t.playing = false; t.fading = false; setPad(t); updPlaying(); } };
     src.start();
     // 지연 = 코드 실행까지 + 오디오 하드웨어 지연(base+output). 실제 스피커 소리와 가장 가까운 추정치.
-    const ms = (performance.now() - tapPerf) + (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000;
+    const code = performance.now() - tapPerf, hw = (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000, ms = code + hw;
     lat.sfx.push(ms); updLat();
-    log(`GO 효과음 "${t.name}" 지연 ${ms.toFixed(1)}ms`);
+    log(`GO 효과음 "${t.name}" 지연 ${ms.toFixed(1)}ms (코드 ${code.toFixed(1)} + 장치 ${hw.toFixed(1)})`);
   } else {
     const el = t.el;
     t.gain.gain.cancelScheduledValues(ctx.currentTime); t.gain.gain.setValueAtTime(1, ctx.currentTime);
     if (offset != null) el.currentTime = offset; else if (el.ended || el.currentTime >= el.duration - 0.05) el.currentTime = 0;
     const onPlaying = () => {
       el.removeEventListener('playing', onPlaying);
-      const ms = (performance.now() - tapPerf) + (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000;
+      const code = performance.now() - tapPerf, hw = (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000, ms = code + hw;
       lat.long.push(ms); updLat();
-      log(`GO 긴 곡 "${t.name}" @${el.currentTime.toFixed(1)}s 지연 ${ms.toFixed(1)}ms`);
+      log(`GO 긴 곡 "${t.name}" @${el.currentTime.toFixed(1)}s 지연 ${ms.toFixed(1)}ms (코드 ${code.toFixed(1)} + 장치 ${hw.toFixed(1)})`);
     };
     el.addEventListener('playing', onPlaying);
     el.play().catch(e => { log(`play() 거부 "${t.name}": ${e.message}`, 'e'); t.playing = false; setPad(t); });
