@@ -71,3 +71,18 @@
 - `docs/reference/` — 소유자 영상(1:37)·캡처 7장. **git 제외**(큐 이름에 사람 별명 있음, 18MB).
 - `docs/SPEC-observed.md` — 위 자료에서 뽑은 관찰 사양. 1·2단계 기능 목록의 원본.
 - 0단계 테스트 음원 구성은 실제 판을 따른다: 긴 곡 3개(14분·10분·38분급) + 효과음 20개(1~5초). 총 5시간 분량이 무료판에서 문제없이 돌고 있으므로 스트리밍 구조가 같으면 웹도 된다는 것이 가설.
+
+## 7. q.deokgu.com 연결 — 남은 일 (2026-09-28)
+
+**이미 된 것**: 터널(Docker `C:\srv\local-backend`, 자동 재시작) · `q.deokgu.com` 연결 설정 · 문지기(로그인) · 엔진 페이지·로그 자동 전송 · 중계 Worker 초안(`worker/`, 미배포).
+**빠진 것**: 로그 서버(`test/log-server.py`)가 Docker 밖 파이썬이라 **자동으로 안 켜짐** → 지금 꺼져 있음(로그인 뒤 오류 화면).
+
+**정한 방법(소유자 선택 A)**: 로그 서버를 Docker 상자 `duckq`로 넣는다.
+1. `docker-compose.yml`·`cloudflared/config.yml`을 `backup/`에 `.bak-20260928`로 복사
+2. compose에 `duckq` 서비스 추가: `python:3.13-alpine@sha256:79e7a9b9ff1cbceff819f856fb374477792a5967759d94df266de7b7b4120e6f`(3.13.15), `restart: unless-stopped`, `command: python -u /app/test/log-server.py`, `TZ: Asia/Seoul`, 볼륨은 `duckq-board/test → /app/test:ro`, `duckq-board/logs → /app/logs` **두 개만**(영상·캡처 폴더가 주소로 안 보이게). tunnel의 depends_on에 duckq 추가, 맨 위 주석 "상자 5개"로
+3. `config.yml`의 q 줄 `service: http://host.docker.internal:8765` → `http://duckq:8765`
+4. `docker compose up -d` + `docker compose restart tunnel` (api·files가 몇 초 끊김) — **실행 중 서버 변경이라 자동 승인이 막음 → 소유자 승인 받고 실행**
+
+**끝 기준**: ① 아이패드 LTE로 `q.deokgu.com/test/engine.html` → 로그인 후 페이지 뜸 ② 버튼 누르면 `logs/engine-날짜.txt` 줄 늘어남 ③ PC 재시작해도 ①② 그대로.
+
+**버린 방법**: 윈도우 예약 작업으로 로그인 때 켜기(B) — 멈추면 안 살아나고 관리처가 둘로 나뉨. Worker 배포(PC 꺼짐 대비)는 PC 켜 두고 테스트하면 불필요 → 뒤로 미룸.
