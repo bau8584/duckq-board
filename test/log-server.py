@@ -15,6 +15,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=ROOT, **kw)
 
+    def do_GET(self):
+        # 주소만 치면 엔진 화면으로, 로그 폴더는 밖에서 못 보게
+        if self.path in ('/', '/index.html'):
+            self.send_response(302); self.send_header('Location', '/test/engine.html'); self.end_headers(); return
+        if self.path.startswith('/logs'):
+            self.send_error(404); return
+        super().do_GET()
+
     def do_POST(self):
         if self.path != '/log':
             self.send_error(404); return
