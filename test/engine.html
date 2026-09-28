@@ -117,7 +117,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.4.3 (2026-09-29)';
+const VER = 'engine-test 0.4.4 (2026-09-29)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -880,10 +880,29 @@ $('btnStart').onclick = async () => {
     db = await openDB();
     await reqWake();
     $('overlay').remove();
+    claimSole();
     await restore();
     missionOnOpen();
   } catch (e) { log('시작 실패: ' + e.message, 'e'); $('btnStart').disabled = false; }
 };
+
+// ---------- 한 번에 하나만 (0.4.4) ----------
+// 4회차: 앱을 위로 밀어 꺼도 소리 나던 페이지가 뒤에서 살아남아 계속 재생했다(T9).
+// 새로 연 페이지가 '나 열렸어'를 알리면, 뒤에 남은 옛 페이지는 소리를 모두 끄고 로그를 남긴다.
+const myId = Math.random().toString(36).slice(2, 7);
+function claimSole() {
+  if (!('BroadcastChannel' in window)) return log('BroadcastChannel 없음 — 옛 페이지 끄기 불가', 'w');
+  const bc = new BroadcastChannel('duckq-engine');
+  bc.onmessage = e => {
+    if (!e.data || e.data.type !== 'open' || e.data.id === myId) return;
+    const n = tracks.filter(t => t.playing).length;
+    log(`새 페이지(${e.data.id})가 열림 → 나(${myId})는 소리 ${n}개 끄고 멈춤 · 숨김 상태 ${document.visibilityState}`, 'w');
+    if (burstTimer) stopBurst(); if (cur) cur.running = false; tracks.forEach(stop);
+    if (ctx) ctx.suspend();
+  };
+  bc.postMessage({ type: 'open', id: myId });
+  log(`페이지 번호 ${myId} · 옛 페이지가 있으면 끄라고 알림`, 'i');
+}
 
 // ---------- 로그 내보내기 ----------
 function logText() { return logLines.join('\n'); }
