@@ -117,7 +117,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.4.2 (2026-09-29)';
+const VER = 'engine-test 0.4.3 (2026-09-29)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -687,7 +687,7 @@ class DStream {
           got = pk.length > 0;
         }
         if (got) continue;
-        if (this.t.loop) { this.reader = makeReader(this.t, 0); continue; }
+        if (this.t.loop) { this.loops = (this.loops || 0) + 1; log(`D 반복 ${this.loops}회째 이음새 "${this.t.name}" (약 ${(this.nextTime - ctx.currentTime + this.pendLen / sr).toFixed(1)}초 뒤 들림)`, 'i'); this.reader = makeReader(this.t, 0); continue; }
         this.eof = true;
         if (this.dec) { try { await this.dec.flush(); } catch {} }
         this.emitReady(true);
@@ -944,21 +944,29 @@ const MISSIONS = [
   { id: 'T3', name: '동시 재생 (자동)', goal: 60,
     guide: '긴 곡 3개 + 효과음 5개를 한꺼번에 1분 동안 틀어요.\n끊김·잡음이 들리는지 귀로 들어 주세요.',
     async run(m) {
-      const L = longList().slice(0, 3), S = sfxList().slice(0, 5);
-      if (!L.length || !S.length) throw new Error('긴 곡과 효과음이 모두 있어야 해요');
-      L.forEach(t => { if (!t.playing) play(t); });
-      for (let sec = 0; sec < m.goal && m.running; sec++) {
-        if (sec % 2 === 0) S.forEach(t => { if (t.playing) stop(t); play(t); });
-        m.prog(sec + 1); await sleep(1000);
-      }
-      tracks.forEach(stop);
+      const prev = longMode; setMode('D');   // 1단계 후보가 D라 남은 미션은 D로 (0.4.3)
+      try {
+        const L = [...longList().filter(t => t.d), ...longList().filter(t => !t.d)].slice(0, 3), S = sfxList().slice(0, 5);
+        if (!L.length || !S.length) throw new Error('긴 곡과 효과음이 모두 있어야 해요');
+        log(`T3 긴 곡: ${L.map(t => (t.d ? 'D ' : 'A ') + t.name).join(' · ')}`, 'i');
+        L.forEach(t => { if (!t.playing) play(t); });
+        for (let sec = 0; sec < m.goal && m.running; sec++) {
+          if (sec % 2 === 0) S.forEach(t => { if (t.playing) stop(t); play(t); });
+          m.prog(sec + 1); await sleep(1000);
+        }
+        tracks.forEach(stop);
+      } finally { setMode(prev); }
     } },
   { id: 'T4', name: '2시간 연속 (자동)', goal: 7200,
-    guide: '긴 곡을 반복 재생하면서 1초마다 효과음을 눌러요. 2시간 동안 그대로 두세요.\n(충전기 연결 · 화면 자동잠금 "안 함")\n10분마다 지연 평균을 기록해서 늘어나는지 봐요.',
+    guide: '긴 곡(D, 가장 짧은 곡)을 반복 재생하면서 1초마다 효과음을 눌러요. 2시간 동안 그대로 두세요.\n(충전기 연결 · 화면 자동잠금 "안 함")\n10분마다 지연 평균을 기록해서 늘어나는지 봐요.\n처음 한 바퀴는 곡 끝→처음 이음새를 귀로 들어 주세요(로그에 "이음새" 줄이 뜸).',
     async run(m) {
       const L = longList(), S = sfxList();
       if (!L.length || !S.length) throw new Error('긴 곡과 효과음이 모두 있어야 해요');
-      const bg = L[0]; if (longMode === 'A' || !bg.d) ensureEl(bg).loop = true; bg.loop = true; if (!bg.playing) play(bg);
+      const prev = longMode; setMode('D');
+      // 이음새를 자주 들으려고 D 되는 곡 중 가장 짧은 곡을 반복 (0.4.3)
+      const DL = L.filter(t => t.d).sort((a, b) => a.dur - b.dur), bg = DL[0] || L[0];
+      log(`T4 반복 곡: ${bg.d ? 'D' : 'A'} "${bg.name}" ${(bg.dur / 60).toFixed(1)}분`, 'i');
+      if (!bg.d) ensureEl(bg).loop = true; bg.loop = true; if (bg.playing) stop(bg); play(bg);
       const t0 = performance.now(); let mark = lat.sfx.length, lastLog = 0;
       while (m.running) {
         const sec = Math.floor((performance.now() - t0) / 1000);
@@ -972,7 +980,7 @@ const MISSIONS = [
         }
         await sleep(1000);
       }
-      if (bg.el) bg.el.loop = false; bg.loop = false; tracks.forEach(stop);
+      if (bg.el) bg.el.loop = false; bg.loop = false; tracks.forEach(stop); setMode(prev);
     } },
   { id: 'T5', name: '메모리 압박 (자동)', goal: 900,
     guide: '효과음 적재를 100MB씩 900MB까지 늘려요. 중간에 앱이 튕기면 정상이에요.\n튕기면 다시 열어 주세요. 어디까지 갔는지 페이지가 적어요. 300MB 이하에서 튕기면 불합격.',
