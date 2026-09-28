@@ -83,7 +83,7 @@
 3. `config.yml`의 q 줄 `service: http://host.docker.internal:8765` → `http://duckq:8765`
 4. `docker compose up -d` + `docker compose restart tunnel` (api·files가 몇 초 끊김) — **실행 중 서버 변경이라 자동 승인이 막음 → 소유자 승인 받고 실행**
 
-**끝 기준**: ① 아이패드 LTE로 `q.deokgu.com/test/engine.html` → 로그인 후 페이지 뜸 ② 버튼 누르면 `logs/engine-날짜.txt` 줄 늘어남 ③ PC 재시작해도 ①② 그대로.
+**끝 기준**: ① 아이패드(집 와이파이도 됨 — 주소가 Cloudflare를 거치므로)로 `q.deokgu.com/test/engine.html` → 로그인 후 페이지 뜸 ② 버튼 누르면 `logs/engine-날짜.txt` 줄 늘어남 ③ PC 재시작해도 ①② 그대로.
 
 **진행 (2026-09-28)**: 1~4 완료(4는 소유자가 터미널에서 실행). 상자 안에서 페이지 200·로그 쓰기 204로 ② 통과. ①③은 소유자 아이패드 확인 대기.
 
