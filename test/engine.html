@@ -117,7 +117,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.4.5 (2026-09-29)';
+const VER = 'engine-test 0.4.6 (2026-09-29)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -216,6 +216,19 @@ function ensureCtx() {
     log(`AudioContext 생성 sr=${ctx.sampleRate} base=${(ctx.baseLatency*1000).toFixed(1)}ms out=${((ctx.outputLatency||0)*1000).toFixed(1)}ms`, 'i');
   }
   return ctx.resume();
+}
+// 4회차 T8: 홈에 다녀오면 ctx가 'running'이라 말하면서 소리가 안 나감(A·D·효과음 모두) → 다녀오면 새로 만든다.
+// 새 ctx는 손 탭 안에서 만들어야 소리가 나므로, 돌아올 때는 표시만 하고 다음 탭에서 만든다.
+let needRebuild = false;
+function rebuildCtx() {
+  needRebuild = false;
+  const old = ctx, s = performance.now();
+  tracks.forEach(t => { stop(t); if (t.kind === 'long') dropEl(t); });
+  old.onstatechange = null; ctx = null; try { old.close(); } catch {}
+  ensureCtx();
+  const b = ctx.createBuffer(1, 1, ctx.sampleRate), z = ctx.createBufferSource(); z.buffer = b; z.connect(ctx.destination); z.start();
+  tracks.forEach(t => { if (t.kind === 'long') { t.gain = ctx.createGain(); t.gain.connect(master); if (longMode === 'A' || !t.d) ensureEl(t); } });
+  log(`소리 출구 새로 만듦 (${(performance.now() - s).toFixed(0)}ms)`, 'i');
 }
 function updCtx() { $('stCtx').textContent = 'ctx: ' + (ctx ? ctx.state : '-'); }
 setInterval(updCtx, 500);
@@ -336,6 +349,7 @@ function updUi() {
 
 function play(t, offset) {
   const tapPerf = performance.now();
+  if (needRebuild) rebuildCtx();
   if (ctx.state !== 'running') { log('탭 시 ctx.state=' + ctx.state + ' → resume', 'w'); ctx.resume(); }
   t.playing = true; t.fading = false; t.startedAt = performance.now() - (offset || 0) * 1000;
   if (t.kind === 'sfx') {
@@ -812,8 +826,11 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     const hiddenFor = hiddenAt ? ((performance.now() - hiddenAt) / 1000).toFixed(1) : '?';
     log(`복귀: 숨김 ${hiddenFor}초 · ctx=${ctx && ctx.state} · 재생중 ${tracks.filter(t=>t.playing).length}개`, 'i');
-    tracks.forEach(t => { if (t.playing && t.kind === 'long' && !t.ds && t.el && t.el.paused) log(`  ⚠ "${t.name}" 복귀 후 paused 상태 @${t.el.currentTime.toFixed(1)}s`, 'w'); });
-    if (ctx) ctx.resume();
+    // 소유자 결정: 돌아오면 이어서 틀지 않는다 → 모두 멈춤으로 표시, 다음 탭에서 소리 출구를 새로 만든다 (0.4.6)
+    const n = tracks.filter(t => t.playing).length;
+    if (burstTimer) stopBurst();
+    tracks.forEach(stop);
+    if (ctx) { needRebuild = true; log(`복귀 → 재생 중 ${n}개 멈춤 표시 · 다음 탭에서 소리 출구 새로 만듦`, 'i'); }
     reqWake();
   } else hiddenAt = performance.now();
 });
