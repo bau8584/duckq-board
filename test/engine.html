@@ -117,7 +117,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.4 (2026-09-29)';
+const VER = 'engine-test 0.4.1 (2026-09-29)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -262,22 +262,37 @@ async function addTrack(rec, fromDB) {
       if (loadedBytes > WARN_BYTES) log(`⚠ 적재 총량 ${fmtMB(loadedBytes)} > 300MB 경고`, 'w');
     } catch (e) { log(`디코딩 실패 "${t.name}": ${e.message}`, 'e'); return; }
   } else {
-    t.url = URL.createObjectURL(rec.blob);
-    const el = new Audio(); el.preload = 'auto'; el.src = t.url; el.crossOrigin = 'anonymous';
-    ['stalled', 'waiting', 'suspend', 'error', 'ended'].forEach(ev => el.addEventListener(ev, () => {
-      if (ev === 'ended') { t.playing = false; setPad(t); updPlaying(); log(`끝남 "${t.name}"`); }
-      else if (ev === 'error') log(`<audio> error "${t.name}" code=${el.error && el.error.code}`, 'e');
-      else if (t.playing) log(`<audio> ${ev} "${t.name}" @${el.currentTime.toFixed(1)}s`, 'w');
-    }));
-    t.el = el;
-    t.node = ctx.createMediaElementSource(el);
-    t.gain = ctx.createGain(); t.node.connect(t.gain); t.gain.connect(master);
+    t.gain = ctx.createGain(); t.gain.connect(master);
     try { t.d = await probeD(t); } catch (e) { t.d = null; log(`D 살펴보기 실패 "${t.name}": ${e.message}`, 'w'); }
+    if (longMode === 'A' || !t.d) ensureEl(t);   // D로 틀 곡엔 <audio>를 안 만든다 (놀고 있는 <audio>가 D 소리를 흔듦 — 3회차)
     log(`긴 곡 등록 "${t.name}" ${(t.dur/60).toFixed(1)}분 ${fmtMB(t.size)} · ` + (t.d ? `D 가능 ${t.d.fmt} ${t.d.sr}Hz ${t.d.ch}ch` + (t.d.sr !== ctx.sampleRate ? ` (ctx ${ctx.sampleRate}Hz로 변환)` : '') : 'D 불가 → A만'));
   }
   tracks.push(t);
   makePad(t);
   return t;
+}
+
+// 방식 A용 <audio>. D로 틀 때는 없어야 한다: 뒤에서 파일을 읽다 멈칫(stalled)하면 화면·D 소리가 같이 튄다.
+function ensureEl(t) {
+  if (t.el) return t.el;
+  t.url = URL.createObjectURL(t.blob);
+  const el = new Audio(); el.preload = 'auto'; el.src = t.url; el.crossOrigin = 'anonymous';
+  ['stalled', 'waiting', 'suspend', 'error', 'ended'].forEach(ev => el.addEventListener(ev, () => {
+    if (t.el !== el) return;
+    if (ev === 'ended') { t.playing = false; setPad(t); updPlaying(); log(`끝남 "${t.name}"`); }
+    else if (ev === 'error') log(`<audio> error "${t.name}" code=${el.error && el.error.code}`, 'e');
+    else log(`<audio> ${ev} "${t.name}" @${el.currentTime.toFixed(1)}s` + (t.playing ? '' : ' (재생 안 하는 중)'), 'w');
+  }));
+  t.el = el;
+  t.node = ctx.createMediaElementSource(el); t.node.connect(t.gain);
+  return el;
+}
+function dropEl(t) {
+  if (!t.el) return;
+  const el = t.el; t.el = null;
+  el.pause(); el.removeAttribute('src'); el.load();
+  try { t.node.disconnect(); } catch {}
+  t.node = null; URL.revokeObjectURL(t.url);
 }
 
 function makePad(t) {
@@ -338,7 +353,7 @@ function play(t, offset) {
     playD(t, offset || 0, tapPerf);
   } else {
     if (longMode === 'D') log(`D 불가 형식 → A로 "${t.name}"`, 'w');
-    const el = t.el;
+    const el = ensureEl(t);
     t.gain.gain.cancelScheduledValues(ctx.currentTime); t.gain.gain.setValueAtTime(1, ctx.currentTime);
     if (offset != null) el.currentTime = offset; else if (el.ended || el.currentTime >= el.duration - 0.05) el.currentTime = 0;
     const onPlaying = () => {
@@ -367,7 +382,7 @@ function stop(t) {
   if (!t.playing) return;
   if (t.kind === 'sfx') { try { t.src.stop(); } catch {} t.src = null; }
   else if (t.ds) { t.ds.stop(); t.ds = null; }
-  else { t.el.pause(); }
+  else if (t.el) { t.el.pause(); }
   t.playing = false; t.fading = false; setPad(t); updPlaying();
 }
 $('btnStopAll').onclick = () => { log('■ 전체 정지', 'i'); if (burstTimer) stopBurst(); tracks.forEach(stop); };
@@ -375,7 +390,7 @@ $('btnFadeAll').onclick = () => { log('◣ 전체 페이드', 'i'); tracks.forEa
 
 function posOf(t) {
   if (t.kind === 'sfx') return (performance.now() - t.startedAt) / 1000;
-  return t.ds ? t.ds.pos() : t.el.currentTime;
+  return t.ds ? t.ds.pos() : t.el ? t.el.currentTime : 0;
 }
 
 // ---------- 긴 곡 방식 A(지금 <audio>) / D(직접 풀기) ----------
@@ -384,6 +399,7 @@ function drawMode() { $('btnModeA').classList.toggle('sel', longMode === 'A'); $
 function setMode(m) {
   if (m === longMode) return;
   tracks.forEach(t => t.kind === 'long' && stop(t));
+  if (m === 'D') tracks.forEach(t => t.kind === 'long' && t.d && dropEl(t));
   longMode = m; try { localStorage.setItem('duckq-long-mode', m); } catch {}
   drawMode(); log(`긴 곡 방식 → ${m === 'A' ? 'A 스트림' : 'D 직접 풀기'}`, 'i');
 }
@@ -791,7 +807,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     const hiddenFor = hiddenAt ? ((performance.now() - hiddenAt) / 1000).toFixed(1) : '?';
     log(`복귀: 숨김 ${hiddenFor}초 · ctx=${ctx && ctx.state} · 재생중 ${tracks.filter(t=>t.playing).length}개`, 'i');
-    tracks.forEach(t => { if (t.playing && t.kind === 'long' && !t.ds && t.el.paused) log(`  ⚠ "${t.name}" 복귀 후 paused 상태 @${t.el.currentTime.toFixed(1)}s`, 'w'); });
+    tracks.forEach(t => { if (t.playing && t.kind === 'long' && !t.ds && t.el && t.el.paused) log(`  ⚠ "${t.name}" 복귀 후 paused 상태 @${t.el.currentTime.toFixed(1)}s`, 'w'); });
     if (ctx) ctx.resume();
     reqWake();
   } else hiddenAt = performance.now();
@@ -912,7 +928,7 @@ const MISSIONS = [
           for (let i = 0; i < 20 && m.running; i++) {
             const t = LL[i % LL.length];
             if (t.playing) stop(t);
-            if (mode === 'A') t.el.currentTime = 0;
+            if (mode === 'A') ensureEl(t).currentTime = 0;
             tap(t, performance.now());
             await sleep(1500); stop(t); m.prog(++n); await sleep(500);
           }
@@ -937,7 +953,7 @@ const MISSIONS = [
     async run(m) {
       const L = longList(), S = sfxList();
       if (!L.length || !S.length) throw new Error('긴 곡과 효과음이 모두 있어야 해요');
-      const bg = L[0]; bg.el.loop = true; bg.loop = true; if (!bg.playing) play(bg);
+      const bg = L[0]; if (longMode === 'A' || !bg.d) ensureEl(bg).loop = true; bg.loop = true; if (!bg.playing) play(bg);
       const t0 = performance.now(); let mark = lat.sfx.length, lastLog = 0;
       while (m.running) {
         const sec = Math.floor((performance.now() - t0) / 1000);
@@ -951,7 +967,7 @@ const MISSIONS = [
         }
         await sleep(1000);
       }
-      bg.el.loop = false; bg.loop = false; tracks.forEach(stop);
+      if (bg.el) bg.el.loop = false; bg.loop = false; tracks.forEach(stop);
     } },
   { id: 'T5', name: '메모리 압박 (자동)', goal: 900,
     guide: '효과음 적재를 100MB씩 900MB까지 늘려요. 중간에 앱이 튕기면 정상이에요.\n튕기면 다시 열어 주세요. 어디까지 갔는지 페이지가 적어요. 300MB 이하에서 튕기면 불합격.',
