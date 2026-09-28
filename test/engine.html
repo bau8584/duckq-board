@@ -48,6 +48,7 @@
   #mFeel button.sel { background: #36a; }
   #mMemo { width: 100%; font: inherit; padding: 8px; margin: 4px 0; border-radius: 6px; border: 1px solid #444; background: #111; color: #eee; -webkit-user-select: text; user-select: text; }
   #log { position: fixed; left: 0; right: 0; bottom: 0; height: 36vh; background: #000; color: #9f9; font: 11px/1.35 ui-monospace, Menlo, monospace; overflow-y: auto; padding: 8px; border-top: 1px solid #333; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
+  .row button.sel { background: #36a; }
   #log .e { color: #f66; } #log .w { color: #fc6; } #log .i { color: #9cf; }
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; z-index: 9; }
   #overlay button { font-size: 28px; padding: 30px 60px; }
@@ -63,6 +64,11 @@
   <button id="btnStopAll" class="danger">■ 전체 정지</button>
   <button id="btnFadeAll">◣ 전체 페이드</button>
   <button id="btnClear">DB 비우기</button>
+</div>
+<div class="row">
+  <span>긴 곡 방식:</span>
+  <button id="btnModeA">A 스트림(지금)</button>
+  <button id="btnModeD">D 직접 풀기</button>
 </div>
 <div id="mission">
   <div id="mList"></div>
@@ -111,7 +117,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.3.1 (2026-09-28)';
+const VER = 'engine-test 0.4 (2026-09-29)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -266,7 +272,8 @@ async function addTrack(rec, fromDB) {
     t.el = el;
     t.node = ctx.createMediaElementSource(el);
     t.gain = ctx.createGain(); t.node.connect(t.gain); t.gain.connect(master);
-    log(`긴 곡 등록 "${t.name}" ${(t.dur/60).toFixed(1)}분 ${fmtMB(t.size)} 스트리밍`);
+    try { t.d = await probeD(t); } catch (e) { t.d = null; log(`D 살펴보기 실패 "${t.name}": ${e.message}`, 'w'); }
+    log(`긴 곡 등록 "${t.name}" ${(t.dur/60).toFixed(1)}분 ${fmtMB(t.size)} · ` + (t.d ? `D 가능 ${t.d.fmt} ${t.d.sr}Hz ${t.d.ch}ch` + (t.d.sr !== ctx.sampleRate ? ` (ctx ${ctx.sampleRate}Hz로 변환)` : '') : 'D 불가 → A만'));
   }
   tracks.push(t);
   makePad(t);
@@ -278,7 +285,7 @@ function makePad(t) {
   d.className = 'pad ' + t.kind; d.id = 'pad-' + t.id;
   d.innerHTML = `<div class="name"></div><div class="meta"></div><div class="bar"></div>`;
   d.querySelector('.name').textContent = t.name;
-  d.querySelector('.meta').textContent = (t.kind === 'sfx' ? t.dur.toFixed(1) + 's · 메모리' : (t.dur/60).toFixed(1) + '분 · 스트림');
+  d.querySelector('.meta').textContent = (t.kind === 'sfx' ? t.dur.toFixed(1) + 's · 메모리' : (t.dur/60).toFixed(1) + '분 · ' + (t.d ? 'D ' + t.d.fmt : 'A만'));
   d.addEventListener('pointerdown', e => { e.preventDefault(); tap(t, e.timeStamp); });
   $('grid').appendChild(d);
   t.pad = d; t.bar = d.querySelector('.bar');
@@ -326,7 +333,11 @@ function play(t, offset) {
     const code = performance.now() - tapPerf, hw = (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000, ms = code + hw;
     lat.sfx.push(ms); updLat();
     log(`GO 효과음 "${t.name}" 지연 ${ms.toFixed(1)}ms (코드 ${code.toFixed(1)} + 장치 ${hw.toFixed(1)})`);
+  } else if (longMode === 'D' && t.d) {
+    t.gain.gain.cancelScheduledValues(ctx.currentTime); t.gain.gain.setValueAtTime(1, ctx.currentTime);
+    playD(t, offset || 0, tapPerf);
   } else {
+    if (longMode === 'D') log(`D 불가 형식 → A로 "${t.name}"`, 'w');
     const el = t.el;
     t.gain.gain.cancelScheduledValues(ctx.currentTime); t.gain.gain.setValueAtTime(1, ctx.currentTime);
     if (offset != null) el.currentTime = offset; else if (el.ended || el.currentTime >= el.duration - 0.05) el.currentTime = 0;
@@ -355,17 +366,346 @@ function fadeOut(t) {
 function stop(t) {
   if (!t.playing) return;
   if (t.kind === 'sfx') { try { t.src.stop(); } catch {} t.src = null; }
+  else if (t.ds) { t.ds.stop(); t.ds = null; }
   else { t.el.pause(); }
   t.playing = false; t.fading = false; setPad(t); updPlaying();
 }
 $('btnStopAll').onclick = () => { log('■ 전체 정지', 'i'); if (burstTimer) stopBurst(); tracks.forEach(stop); };
 $('btnFadeAll').onclick = () => { log('◣ 전체 페이드', 'i'); tracks.forEach(t => t.playing && !t.fading && fadeOut(t)); };
 
+function posOf(t) {
+  if (t.kind === 'sfx') return (performance.now() - t.startedAt) / 1000;
+  return t.ds ? t.ds.pos() : t.el.currentTime;
+}
+
+// ---------- 긴 곡 방식 A(지금 <audio>) / D(직접 풀기) ----------
+let longMode = (() => { try { return localStorage.getItem('duckq-long-mode') === 'D' ? 'D' : 'A'; } catch { return 'A'; } })();
+function drawMode() { $('btnModeA').classList.toggle('sel', longMode === 'A'); $('btnModeD').classList.toggle('sel', longMode === 'D'); }
+function setMode(m) {
+  if (m === longMode) return;
+  tracks.forEach(t => t.kind === 'long' && stop(t));
+  longMode = m; try { localStorage.setItem('duckq-long-mode', m); } catch {}
+  drawMode(); log(`긴 곡 방식 → ${m === 'A' ? 'A 스트림' : 'D 직접 풀기'}`, 'i');
+}
+$('btnModeA').onclick = () => setMode('A');
+$('btnModeD').onclick = () => {
+  if (!('AudioDecoder' in window)) log('AudioDecoder 없음 — wav만 D, 나머지는 A로 틀어요', 'w');
+  setMode('D');
+};
+drawMode();
+
+// ---------- D: 긴 곡 직접 풀기 (WebCodecs) ----------
+// <audio> 없이 저장 파일을 조금씩 읽어 풀고, 1초짜리 AudioBuffer 조각을 Web Audio 시간표에 이어 붙인다.
+// 메모리 = 앞으로 틀 몇 초분만. 페이드는 효과음과 같은 GainNode.
+const D_CHUNK_SEC = 1, D_FIRST_SEC = 0.2, D_AHEAD_SEC = 4, D_READ = 256 * 1024, D_HEAD = 64 * 1024;
+const str4 = (b, o) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
+// 파일 앞 64KB는 등록 때 읽어 둔다 → 누를 때 저장소를 안 기다림
+async function readBytes(t, s, e) {
+  if (e <= t.head.length) return t.head.subarray(s, e);
+  return new Uint8Array(await t.blob.slice(s, e).arrayBuffer());
+}
+async function probeD(t) {
+  t.head = new Uint8Array(await t.blob.slice(0, D_HEAD).arrayBuffer());
+  const h = t.head;
+  if (h.length < 12) return null;
+  if (str4(h, 0) === 'RIFF' && str4(h, 8) === 'WAVE') return probeWav(t);
+  if (!('AudioDecoder' in window)) return null;
+  if (str4(h, 4) === 'ftyp') return probeMp4(t);
+  return probeMp3(t);
+}
+
+// --- mp3: 프레임 머리를 읽어 한 프레임씩 자른다 ---
+const MP3_BR1 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320];
+const MP3_BR2 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160];
+function mp3Hdr(b, i) {
+  if (i + 4 > b.length || b[i] !== 0xFF || (b[i + 1] & 0xE0) !== 0xE0) return null;
+  const ver = (b[i + 1] >> 3) & 3, layer = (b[i + 1] >> 1) & 3, bi = b[i + 2] >> 4, si = (b[i + 2] >> 2) & 3, pad = (b[i + 2] >> 1) & 1;
+  if (ver === 1 || layer !== 1 || bi === 0 || bi === 15 || si === 3) return null;
+  const v1 = ver === 3, sr = [44100, 48000, 32000][si] / (v1 ? 1 : ver === 2 ? 2 : 4);
+  const br = (v1 ? MP3_BR1 : MP3_BR2)[bi] * 1000;
+  return { sr, len: Math.floor((v1 ? 144 : 72) * br / sr) + pad, spf: v1 ? 1152 : 576, ch: (b[i + 3] >> 6) === 3 ? 1 : 2 };
+}
+function mp3Find(b, i) {   // 다음 프레임까지 맞아떨어지는 머리를 찾는다
+  for (; i + 4 <= b.length; i++) {
+    const h = mp3Hdr(b, i); if (!h) continue;
+    if (i + h.len + 4 > b.length) return i;
+    const h2 = mp3Hdr(b, i + h.len); if (h2 && h2.sr === h.sr) return i;
+  }
+  return -1;
+}
+async function probeMp3(t) {
+  const h = t.head; let start = 0;
+  if (h[0] === 0x49 && h[1] === 0x44 && h[2] === 0x33) start = 10 + (((h[6] & 127) << 21) | ((h[7] & 127) << 14) | ((h[8] & 127) << 7) | (h[9] & 127)) + (h[5] & 0x10 ? 10 : 0);
+  const b = await readBytes(t, start, Math.min(t.size, start + 16384));
+  const i = mp3Find(b, 0); if (i < 0) return null;
+  const f = mp3Hdr(b, i);
+  const cfg = { codec: 'mp3', sampleRate: f.sr, numberOfChannels: f.ch };
+  if (!(await AudioDecoder.isConfigSupported(cfg)).supported) return null;
+  return { fmt: 'mp3', cfg, sr: f.sr, ch: f.ch, dataStart: start + i, dataEnd: t.size, pktSec: f.spf / f.sr };
+}
+function mp3Reader(t, d, off) {
+  let pos = off > 0 ? Math.floor(d.dataStart + Math.min(1, off / t.dur) * (d.dataEnd - d.dataStart)) : d.dataStart;
+  let buf = new Uint8Array(0), bufPos = pos, resync = off > 0;
+  return { async next(n) {
+    const out = [];
+    while (out.length < n) {
+      let i = pos - bufPos;
+      if (i + 4096 > buf.length && bufPos + buf.length < d.dataEnd) {
+        const more = await readBytes(t, bufPos + buf.length, Math.min(d.dataEnd, bufPos + buf.length + D_READ));
+        const nb = new Uint8Array(buf.length - i + more.length); nb.set(buf.subarray(i)); nb.set(more, buf.length - i);
+        buf = nb; bufPos = pos; i = 0;
+      }
+      let h = resync ? null : mp3Hdr(buf, i);
+      if (!h) {
+        const j = mp3Find(buf, i);
+        if (j < 0) { pos = bufPos + buf.length; if (pos >= d.dataEnd) break; continue; }
+        i = j; pos = bufPos + j; h = mp3Hdr(buf, i); resync = false;
+      }
+      if (i + h.len > buf.length) break;   // 파일 끝의 잘린 프레임
+      out.push(buf.slice(i, i + h.len)); pos += h.len;
+    }
+    return out;
+  } };
+}
+
+// --- wav: 푸는 도구 없이 숫자만 옮긴다 ---
+function probeWav(t) {
+  const h = t.head, dv = new DataView(h.buffer, h.byteOffset, h.byteLength);
+  let o = 12, fmt = null;
+  while (o + 8 <= h.length) {
+    const id = str4(h, o), sz = dv.getUint32(o + 4, true);
+    if (id === 'fmt ') {
+      fmt = { tag: dv.getUint16(o + 8, true), ch: dv.getUint16(o + 10, true), sr: dv.getUint32(o + 12, true), bits: dv.getUint16(o + 22, true) };
+      if (fmt.tag === 0xFFFE && sz >= 40) fmt.tag = dv.getUint16(o + 32, true);
+    } else if (id === 'data') {
+      if (!fmt) return null;
+      const pcm = fmt.tag === 3 && fmt.bits === 32 ? 'f32' : fmt.tag === 1 && (fmt.bits === 16 || fmt.bits === 24) ? 'i' + fmt.bits : null;
+      if (!pcm) return null;
+      const end = sz === 0 || sz === 0xFFFFFFFF ? t.size : Math.min(t.size, o + 8 + sz);
+      return { fmt: 'wav', pcm, sr: fmt.sr, ch: fmt.ch, dataStart: o + 8, dataEnd: end, block: fmt.ch * fmt.bits / 8 };
+    }
+    o += 8 + sz + (sz & 1);
+  }
+  return null;
+}
+function wavReader(t, d, off) {
+  let pos = d.dataStart + Math.floor(off * d.sr) * d.block;
+  return { async nextPcm(frames) {
+    const n = Math.floor((Math.min(d.dataEnd, pos + frames * d.block) - pos) / d.block); if (n <= 0) return null;
+    const b = await readBytes(t, pos, pos + n * d.block); pos += n * d.block;
+    const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), bps = d.block / d.ch, out = [];
+    for (let c = 0; c < d.ch; c++) out.push(new Float32Array(n));
+    for (let f = 0; f < n; f++) for (let c = 0; c < d.ch; c++) {
+      const o = f * d.block + c * bps;
+      out[c][f] = d.pcm === 'f32' ? dv.getFloat32(o, true) : d.pcm === 'i16' ? dv.getInt16(o, true) / 32768 : ((dv.getInt8(o + 2) << 16) | (b[o + 1] << 8) | b[o]) / 8388608;
+    }
+    return out;
+  } };
+}
+
+// --- m4a: mp4 포장에서 조각 위치표(moov)만 읽고, 조각은 그때그때 꺼낸다 ---
+function boxes(b, s, e) {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength), out = [];
+  while (s + 8 <= e) {
+    let sz = dv.getUint32(s), hd = 8;
+    if (sz === 1) { sz = Number(dv.getBigUint64(s + 8)); hd = 16; } else if (sz === 0) sz = e - s;
+    if (sz < hd) break;
+    out.push({ type: str4(b, s + 4), d: s + hd, e: Math.min(e, s + sz) }); s += sz;
+  }
+  return out;
+}
+const kid = (b, box, type) => box ? boxes(b, box.d, box.e).find(x => x.type === type) : null;
+function esdsASC(b) {
+  let i = 0;
+  const rd = () => { const tag = b[i++]; let len = 0; for (let k = 0; k < 4; k++) { const c = b[i++]; len = (len << 7) | (c & 127); if (!(c & 128)) break; } return [tag, len]; };
+  let [tag, len] = rd(); if (tag !== 3) return null;
+  i += 2; const fl = b[i++]; if (fl & 0x80) i += 2; if (fl & 0x40) i += 1 + b[i]; if (fl & 0x20) i += 2;
+  [tag] = rd(); if (tag !== 4) return null; i += 13;
+  [tag, len] = rd(); if (tag !== 5) return null;
+  return b.slice(i, i + len);
+}
+async function probeMp4(t) {
+  let o = 0, moov = null;
+  while (o + 8 <= t.size) {
+    const h = await readBytes(t, o, Math.min(t.size, o + 16)), dv = new DataView(h.buffer, h.byteOffset, h.byteLength);
+    let sz = dv.getUint32(0); if (sz === 1) sz = Number(dv.getBigUint64(8)); else if (sz === 0) sz = t.size - o;
+    if (str4(h, 4) === 'moov') { moov = await readBytes(t, o, o + sz); break; }
+    if (sz < 8) return null; o += sz;
+  }
+  if (!moov) return null;
+  const dv = new DataView(moov.buffer, moov.byteOffset, moov.byteLength);
+  for (const trak of boxes(moov, 8, moov.length).filter(x => x.type === 'trak')) {
+    const mdia = kid(moov, trak, 'mdia'), hdlr = kid(moov, mdia, 'hdlr');
+    if (!hdlr || str4(moov, hdlr.d + 8) !== 'soun') continue;
+    const mdhd = kid(moov, mdia, 'mdhd'), timescale = dv.getUint32(mdhd.d + (moov[mdhd.d] === 1 ? 20 : 12));
+    const stbl = kid(moov, kid(moov, mdia, 'minf'), 'stbl'), stsd = kid(moov, stbl, 'stsd');
+    const ent = stsd && boxes(moov, stsd.d + 8, stsd.e)[0];
+    if (!ent || ent.type !== 'mp4a') return null;
+    const qv = dv.getUint16(ent.d + 8);
+    const esds = kid(moov, { d: ent.d + 28 + (qv === 1 ? 16 : qv === 2 ? 36 : 0), e: ent.e }, 'esds');
+    const asc = esds && esdsASC(moov.subarray(esds.d + 4, esds.e)); if (!asc || asc.length < 2) return null;
+    const aot = asc[0] >> 3, sri = ((asc[0] & 7) << 1) | (asc[1] >> 7), ach = (asc[1] >> 3) & 15;
+    const sr = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350][sri] || (dv.getUint32(ent.d + 24) >>> 16);
+    const cfg = { codec: 'mp4a.40.' + aot, sampleRate: sr, numberOfChannels: ach || dv.getUint16(ent.d + 16) || 2, description: asc };
+    if (!(await AudioDecoder.isConfigSupported(cfg)).supported) return null;
+    const stsz = kid(moov, stbl, 'stsz'), stsc = kid(moov, stbl, 'stsc'), stts = kid(moov, stbl, 'stts');
+    const stco = kid(moov, stbl, 'stco') || kid(moov, stbl, 'co64'), is64 = stco.type === 'co64';
+    const n = dv.getUint32(stsz.d + 8), fixed = dv.getUint32(stsz.d + 4), sizes = new Uint32Array(n);
+    for (let i = 0; i < n; i++) sizes[i] = fixed || dv.getUint32(stsz.d + 12 + i * 4);
+    const nc = dv.getUint32(stco.d + 4), co = new Float64Array(nc);
+    for (let i = 0; i < nc; i++) co[i] = is64 ? Number(dv.getBigUint64(stco.d + 8 + i * 8)) : dv.getUint32(stco.d + 8 + i * 4);
+    const ns = dv.getUint32(stsc.d + 4), sc = [];
+    for (let i = 0; i < ns; i++) sc.push([dv.getUint32(stsc.d + 8 + i * 12) - 1, dv.getUint32(stsc.d + 12 + i * 12)]);
+    const offs = new Float64Array(n); let si = 0;
+    for (let k = 0; k < ns; k++) {
+      const end = k + 1 < ns ? sc[k + 1][0] : nc;
+      for (let c = sc[k][0]; c < end; c++) { let off = co[c]; for (let j = 0; j < sc[k][1] && si < n; j++) { offs[si] = off; off += sizes[si++]; } }
+    }
+    const delta = dv.getUint32(stts.d + 12);   // AAC는 조각마다 1024 고정 — 첫 칸만 씀
+    return { fmt: 'm4a', cfg, sr, ch: cfg.numberOfChannels, offs, sizes, n, pktSec: delta / timescale };
+  }
+  return null;
+}
+function m4aReader(t, d, off) {
+  let i = Math.min(d.n, Math.floor(off / d.pktSec));
+  return { async next(k) {
+    const j = Math.min(d.n, i + k); if (i >= j) return [];
+    const s = d.offs[i], e = d.offs[j - 1] + d.sizes[j - 1], out = [];
+    let sum = 0; for (let x = i; x < j; x++) sum += d.sizes[x];
+    if (e - s <= sum * 2) { const b = await readBytes(t, s, e); for (let x = i; x < j; x++) out.push(b.slice(d.offs[x] - s, d.offs[x] - s + d.sizes[x])); }
+    else for (let x = i; x < j; x++) out.push(await readBytes(t, d.offs[x], d.offs[x] + d.sizes[x]));
+    i = j; return out;
+  } };
+}
+const makeReader = (t, off) => (t.d.fmt === 'mp3' ? mp3Reader : t.d.fmt === 'wav' ? wavReader : m4aReader)(t, t.d, off);
+
+// 풀린 소리(AudioData) → 채널별 Float32
+function adToPlanar(ad) {
+  const n = ad.numberOfFrames, ch = ad.numberOfChannels;
+  try {
+    const out = [];
+    for (let c = 0; c < ch; c++) { const a = new Float32Array(n); ad.copyTo(a, { planeIndex: c, format: 'f32-planar' }); out.push(a); }
+    return out;
+  } catch {}
+  const f = ad.format || '', planar = f.endsWith('-planar'), base = f.replace('-planar', '');
+  const T = { f32: Float32Array, s16: Int16Array, s32: Int32Array }[base]; if (!T) throw new Error('모르는 소리 형식 ' + f);
+  const k = base === 'f32' ? 1 : base === 's16' ? 1 / 32768 : 1 / 2147483648, out = [];
+  for (let c = 0; c < ch; c++) out.push(new Float32Array(n));
+  if (planar) for (let c = 0; c < ch; c++) { const a = new T(n); ad.copyTo(a, { planeIndex: c }); for (let i = 0; i < n; i++) out[c][i] = a[i] * k; }
+  else { const a = new T(n * ch); ad.copyTo(a, { planeIndex: 0 }); for (let i = 0; i < n; i++) for (let c = 0; c < ch; c++) out[c][i] = a[i * ch + c] * k; }
+  return out;
+}
+
+class DStream {
+  constructor(t, off) {
+    Object.assign(this, { t, d: t.d, off, alive: true, eof: false, started: false, pumping: false,
+      pend: [], pendOff: 0, pendLen: 0, sr: 0, nextTime: 0, t0: 0, pkts: 0, srcs: new Set(), bytes: 0, peak: 0, chunks: 0, gaps: 0 });
+    this.reader = makeReader(t, off);
+    if (this.d.fmt !== 'wav') {
+      this.dec = new AudioDecoder({ output: ad => this.onData(ad), error: e => log(`D 풀기 오류 "${t.name}": ${e.message}`, 'e') });
+      this.dec.configure(this.d.cfg);
+    }
+  }
+  pos() { const p = ctx.currentTime - this.t0; return this.t.loop && this.t.dur > 0 ? p % this.t.dur : Math.max(0, p); }
+  onData(ad) {
+    try { if (this.alive) this.push(adToPlanar(ad), ad.sampleRate); }
+    catch (e) { log(`D 변환 오류: ${e.message}`, 'e'); }
+    finally { ad.close(); }
+  }
+  push(chs, sr) { if (!this.sr) this.sr = sr; this.pend.push(chs); this.pendLen += chs[0].length; this.emitReady(false); }
+  emitReady(all) {
+    while (this.alive) {
+      const need = Math.round(this.sr * (this.started ? D_CHUNK_SEC : D_FIRST_SEC));
+      if (this.pendLen >= need) this.emit(need); else if (all && this.pendLen) this.emit(this.pendLen); else break;
+    }
+  }
+  emit(len) {
+    const ch = this.pend[0].length, buf = ctx.createBuffer(ch, len, this.sr), dst = [];
+    for (let c = 0; c < ch; c++) dst.push(buf.getChannelData(c));
+    let w = 0;
+    while (w < len) {
+      const p = this.pend[0], k = Math.min(p[0].length - this.pendOff, len - w);
+      for (let c = 0; c < ch; c++) dst[c].set((p[c] || p[0]).subarray(this.pendOff, this.pendOff + k), w);
+      w += k; this.pendOff += k;
+      if (this.pendOff >= p[0].length) { this.pend.shift(); this.pendOff = 0; }
+    }
+    this.pendLen -= len;
+    const src = ctx.createBufferSource(); src.buffer = buf; src.connect(this.t.gain);
+    const now = ctx.currentTime;
+    if (!this.started) { this.started = true; this.nextTime = now; this.t0 = now - this.off; this.onStart && this.onStart(); }
+    else if (this.nextTime < now) {
+      this.gaps++; log(`D 끊김: 조각이 ${((now - this.nextTime) * 1000).toFixed(0)}ms 늦음 "${this.t.name}"`, 'w');
+      this.t0 += now - this.nextTime; this.nextTime = now;
+    }
+    src.start(this.nextTime); this.nextTime += len / this.sr; this.chunks++;
+    const bytes = len * ch * 4; this.bytes += bytes; loadedBytes += bytes; this.peak = Math.max(this.peak, this.bytes); updLoad();
+    this.srcs.add(src);
+    src.onended = () => {
+      this.srcs.delete(src); this.bytes -= bytes; loadedBytes -= bytes; updLoad();
+      if (this.alive && this.eof && !this.srcs.size && !this.pendLen) this.finish();
+    };
+  }
+  async pump() {
+    if (this.pumping || !this.alive || this.eof) return;
+    this.pumping = true;
+    try {
+      while (this.alive && !this.eof) {
+        const sr = this.sr || this.d.sr;
+        const ahead = (this.started ? this.nextTime - ctx.currentTime : 0) + this.pendLen / sr + (this.dec ? this.dec.decodeQueueSize * this.d.pktSec : 0);
+        if (ahead >= D_AHEAD_SEC) break;
+        const sec = this.started ? D_CHUNK_SEC : D_FIRST_SEC;
+        let got = false;
+        if (this.d.fmt === 'wav') {
+          const p = await this.reader.nextPcm(Math.round(this.d.sr * sec));
+          if (!this.alive) break;
+          if (p) { this.push(p, this.d.sr); got = true; }
+        } else {
+          const pk = await this.reader.next(Math.ceil(sec / this.d.pktSec) + (this.started ? 0 : 4));
+          if (!this.alive) break;
+          for (const data of pk) this.dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Math.round(this.pkts++ * this.d.pktSec * 1e6), data }));
+          got = pk.length > 0;
+        }
+        if (got) continue;
+        if (this.t.loop) { this.reader = makeReader(this.t, 0); continue; }
+        this.eof = true;
+        if (this.dec) { try { await this.dec.flush(); } catch {} }
+        this.emitReady(true);
+        if (this.alive && !this.srcs.size) this.finish();
+      }
+    } catch (e) { log(`D 읽기 오류 "${this.t.name}": ${e.message}`, 'e'); }
+    finally { this.pumping = false; }
+  }
+  stop() {
+    if (!this.alive) return;
+    this.alive = false; clearInterval(this.timer);
+    for (const s of this.srcs) { s.onended = null; try { s.stop(); } catch {} }
+    this.srcs.clear(); loadedBytes -= this.bytes; this.bytes = 0; updLoad();
+    if (this.dec && this.dec.state !== 'closed') { try { this.dec.close(); } catch {} }
+    log(`D 정지 "${this.t.name}" 조각 ${this.chunks}개 · 늦은 조각 ${this.gaps} · 곡 최대 적재 ${fmtMB(this.peak)}`);
+  }
+  finish() {
+    const t = this.t; this.stop();
+    if (t.ds !== this) return;
+    t.ds = null; t.playing = false; t.fading = false; setPad(t); updPlaying(); log(`끝남 "${t.name}"`);
+  }
+}
+function playD(t, off, tapPerf) {
+  if (t.ds) t.ds.stop();
+  const ds = new DStream(t, off); t.ds = ds;
+  ds.onStart = () => {
+    const code = performance.now() - tapPerf, hw = (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000, ms = code + hw;
+    lat.long.push(ms); updLat();
+    log(`GO 긴 곡(D ${t.d.fmt}) "${t.name}" @${off.toFixed(1)}s 지연 ${ms.toFixed(1)}ms (코드 ${code.toFixed(1)} + 장치 ${hw.toFixed(1)})`);
+  };
+  ds.timer = setInterval(() => ds.pump(), 250);
+  ds.pump();
+}
+
 // 진행 바
 setInterval(() => {
   tracks.forEach(t => {
     if (!t.playing) return;
-    const pos = t.kind === 'sfx' ? (performance.now() - t.startedAt) / 1000 : t.el.currentTime;
+    const pos = posOf(t);
     t.bar.style.transform = `scaleX(${Math.min(1, pos / t.dur).toFixed(3)})`;
   });
 }, 200);
@@ -451,7 +791,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
     const hiddenFor = hiddenAt ? ((performance.now() - hiddenAt) / 1000).toFixed(1) : '?';
     log(`복귀: 숨김 ${hiddenFor}초 · ctx=${ctx && ctx.state} · 재생중 ${tracks.filter(t=>t.playing).length}개`, 'i');
-    tracks.forEach(t => { if (t.playing && t.kind === 'long' && t.el.paused) log(`  ⚠ "${t.name}" 복귀 후 paused 상태 @${t.el.currentTime.toFixed(1)}s`, 'w'); });
+    tracks.forEach(t => { if (t.playing && t.kind === 'long' && !t.ds && t.el.paused) log(`  ⚠ "${t.name}" 복귀 후 paused 상태 @${t.el.currentTime.toFixed(1)}s`, 'w'); });
     if (ctx) ctx.resume();
     reqWake();
   } else hiddenAt = performance.now();
@@ -486,7 +826,7 @@ let longFrames = 0;
 
 // ---------- 상태 자동 저장 / 복원 ----------
 function saveState() {
-  const st = { at: Date.now(), playing: tracks.filter(t => t.playing && t.kind === 'long').map(t => ({ id: t.id, pos: t.el.currentTime })) };
+  const st = { at: Date.now(), playing: tracks.filter(t => t.playing && t.kind === 'long').map(t => ({ id: t.id, pos: posOf(t) })) };
   try { localStorage.setItem('duckq-engine-state', JSON.stringify(st)); } catch (e) { log('상태 저장 실패: ' + e.message, 'e'); }
 }
 
@@ -559,15 +899,26 @@ const MISSIONS = [
       }
     } },
   { id: 'T2', name: '긴 곡 시작 지연 (자동)', goal: 20,
-    guide: '페이지가 긴 곡을 20번 켰다 꺼요 (약 1분).',
+    guide: '페이지가 긴 곡을 방식 A로 20번, D로 20번 켰다 꺼요 (약 1분 20초).\n방식마다 요약이 따로 적혀요.',
     async run(m) {
       const L = longList(); if (!L.length) throw new Error('긴 곡(30초 넘는 파일)이 없어요');
-      for (let i = 0; i < m.goal && m.running; i++) {
-        const t = L[i % L.length];
-        if (t.playing) stop(t);
-        t.el.currentTime = 0; play(t);
-        await sleep(1500); stop(t); m.prog(i + 1); await sleep(500);
-      }
+      m.goal = 40; prog(0); const prev = longMode; let n = 0;
+      try {
+        for (const mode of ['A', 'D']) {
+          const LL = mode === 'D' ? L.filter(t => t.d) : L;
+          if (!LL.length) { log('T2-D 건너뜀: 직접 풀기 되는 긴 곡 없음', 'w'); continue; }
+          setMode(mode); const s = snap();
+          log(`--- T2 방식 ${mode} ---`, 'i');
+          for (let i = 0; i < 20 && m.running; i++) {
+            const t = LL[i % LL.length];
+            if (t.playing) stop(t);
+            if (mode === 'A') t.el.currentTime = 0;
+            tap(t, performance.now());
+            await sleep(1500); stop(t); m.prog(++n); await sleep(500);
+          }
+          log(`T2-${mode} 요약: ${summarize(s)}`, 'i');
+        }
+      } finally { setMode(prev); }
     } },
   { id: 'T3', name: '동시 재생 (자동)', goal: 60,
     guide: '긴 곡 3개 + 효과음 5개를 한꺼번에 1분 동안 틀어요.\n끊김·잡음이 들리는지 귀로 들어 주세요.',
@@ -586,7 +937,7 @@ const MISSIONS = [
     async run(m) {
       const L = longList(), S = sfxList();
       if (!L.length || !S.length) throw new Error('긴 곡과 효과음이 모두 있어야 해요');
-      const bg = L[0]; bg.el.loop = true; if (!bg.playing) play(bg);
+      const bg = L[0]; bg.el.loop = true; bg.loop = true; if (!bg.playing) play(bg);
       const t0 = performance.now(); let mark = lat.sfx.length, lastLog = 0;
       while (m.running) {
         const sec = Math.floor((performance.now() - t0) / 1000);
@@ -600,7 +951,7 @@ const MISSIONS = [
         }
         await sleep(1000);
       }
-      bg.el.loop = false; tracks.forEach(stop);
+      bg.el.loop = false; bg.loop = false; tracks.forEach(stop);
     } },
   { id: 'T5', name: '메모리 압박 (자동)', goal: 900,
     guide: '효과음 적재를 100MB씩 900MB까지 늘려요. 중간에 앱이 튕기면 정상이에요.\n튕기면 다시 열어 주세요. 어디까지 갔는지 페이지가 적어요. 300MB 이하에서 튕기면 불합격.',
@@ -627,6 +978,25 @@ const MISSIONS = [
     guide: '블루투스 스피커를 연결하고 효과음·긴 곡을 눌러 보세요.\nSoundboard Studio와 지연·끊김이 비슷한지 비교. 끝나면 [끝].' },
   { id: 'T12', name: '무음 스위치·볼륨', hand: true,
     guide: '무음 모드(제어 센터 종 모양)를 켜고 눌러 보세요. 소리가 나는지 기록. 끝나면 [끝].' },
+  { id: 'T13', name: '이음새 듣기 (손)', hand: true, goal: 40,
+    guide: '이어폰을 끼세요. 방식 D로 형식(mp3·wav·m4a)마다 긴 곡을 40초씩 틀어요.\n1초마다 조각이 이어져요. "틱"·끊김·잡음이 들리면 메모에 형식과 함께 적어 주세요.\n적재 표시가 수십 MB 안인지도 봐 주세요.',
+    async run(m) {
+      const byFmt = {}; longList().forEach(t => { if (t.d && !byFmt[t.d.fmt]) byFmt[t.d.fmt] = t; });
+      const L = Object.values(byFmt); if (!L.length) throw new Error('직접 풀기 되는 긴 곡이 없어요 (mp3·wav·m4a)');
+      m.goal = L.length * 40; prog(0); const prev = longMode; let sec = 0;
+      try {
+        setMode('D');
+        for (const t of L) {
+          if (!m.running) break;
+          log(`T13 지금: ${t.d.fmt} "${t.name}"`, 'i'); play(t);
+          for (let k = 0; k < 40 && m.running; k++) {
+            await sleep(1000); m.prog(++sec);
+            if (k % 10 === 9) log(`T13 ${t.d.fmt} ${k + 1}초 · 적재 ${fmtMB(loadedBytes)} · 늦은 조각 ${t.ds ? t.ds.gaps : '-'}`);
+          }
+          stop(t); await sleep(500);
+        }
+      } finally { setMode(prev); }
+    } },
 ];
 const FEELS = ['좋음', '버벅임', '끊김·잡음', '소리 안 남', '튕김'];
 const mDone = (() => { try { return JSON.parse(localStorage.getItem('duckq-missions') || '{}'); } catch { return {}; } })();
@@ -676,8 +1046,9 @@ function missionTap() {
   prog(++cur.count);
   if (cur.count >= cur.goal) endMission();
 }
-function summary(m) {
-  const s = m.startLat, parts = [];
+function summary(m) { return summarize(m.startLat); }
+function summarize(s) {
+  const parts = [];
   const st = (a, n) => a.length ? `${n} n=${a.length} avg ${(a.reduce((x, y) => x + y, 0) / a.length).toFixed(1)} / max ${Math.max(...a).toFixed(1)}ms` : null;
   [st(lat.sfx.slice(s.sfx), '효과음 지연'), st(lat.long.slice(s.long), '긴 곡 지연'), st(uiLat.slice(s.ui), '화면 반영')].forEach(x => x && parts.push(x));
   parts.push(`끊긴 프레임 ${longFrames - s.frames}`, `메인스레드 멈춤 ${jank - s.jank}`, `적재 ${fmtMB(loadedBytes)}`);
