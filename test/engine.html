@@ -65,6 +65,11 @@
   <button id="btnCopy">로그 복사</button>
   <button id="btnDl">로그 저장</button>
   <button id="btnMark">마크 찍기</button>
+  <button id="btnImport">이전 로그 PC로 보내기</button>
+</div>
+<div id="importBox" style="display:none;margin:8px 0">
+  <textarea id="importText" rows="6" style="width:100%;font:12px monospace" placeholder="예전 로그를 여기에 붙여넣기"></textarea>
+  <button id="btnImportSend" class="primary">보내기</button>
 </div>
 
 <div id="grid"></div>
@@ -460,6 +465,16 @@ async function flushLog() {
 }
 setInterval(flushLog, 5000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushLog(); });
+$('btnImport').onclick = () => { const b = $('importBox'); b.style.display = b.style.display === 'none' ? 'block' : 'none'; };
+$('btnImportSend').onclick = async () => {
+  const txt = $('importText').value.trim();
+  if (!txt) return;
+  try {
+    const r = await fetch('/log', { method: 'POST', body: `\n##### 가져온 이전 로그 (${new Date().toISOString()}) #####\n` + txt });
+    if (!r.ok) throw new Error(r.status);
+    log(`이전 로그 ${txt.split('\n').length}줄 PC로 보냄`, 'i'); $('importText').value = ''; $('importBox').style.display = 'none';
+  } catch (e) { log('이전 로그 전송 실패 — PC 서버 주소로 열었는지 확인: ' + e.message, 'e'); }
+};
 </script>
 </body>
 </html>
