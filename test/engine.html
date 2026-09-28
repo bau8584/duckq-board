@@ -33,6 +33,20 @@
   .pad .name { font-size: 12px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-all; }
   .pad .meta { font-size: 10px; color: #aaa; margin-top: 4px; font-variant-numeric: tabular-nums; }
   .pad .bar { position: absolute; left: 0; bottom: 0; height: 4px; background: #2a6; width: 100%; transform: scaleX(0); transform-origin: left; }
+  #mission { background: #1c2330; border: 1px solid #2d4a6b; border-radius: 10px; padding: 10px; margin: 10px 0; }
+  #mList { display: flex; flex-wrap: wrap; gap: 6px; }
+  #mList button { padding: 8px 10px; font-size: 14px; }
+  #mList button.sel { background: #36a; }
+  #mList button.done::after { content: ' ✅'; }
+  #mList button.auto { border: 1px solid #2a6; }
+  #mBody { margin-top: 10px; display: none; }
+  #mTitle { font-weight: 700; font-size: 16px; }
+  #mGuide { color: #cde; font-size: 14px; margin: 6px 0; white-space: pre-line; }
+  #mProg { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin: 6px 0; }
+  #mFeel { display: none; margin-top: 8px; }
+  #mFeel button { margin: 0 4px 4px 0; }
+  #mFeel button.sel { background: #36a; }
+  #mMemo { width: 100%; font: inherit; padding: 8px; margin: 4px 0; border-radius: 6px; border: 1px solid #444; background: #111; color: #eee; -webkit-user-select: text; user-select: text; }
   #log { position: fixed; left: 0; right: 0; bottom: 0; height: 36vh; background: #000; color: #9f9; font: 11px/1.35 ui-monospace, Menlo, monospace; overflow-y: auto; padding: 8px; border-top: 1px solid #333; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
   #log .e { color: #f66; } #log .w { color: #fc6; } #log .i { color: #9cf; }
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; z-index: 9; }
@@ -50,6 +64,23 @@
   <button id="btnFadeAll">◣ 전체 페이드</button>
   <button id="btnClear">DB 비우기</button>
 </div>
+<div id="mission">
+  <div id="mList"></div>
+  <div id="mBody">
+    <div id="mTitle"></div>
+    <div id="mGuide"></div>
+    <div id="mProg"></div>
+    <button id="mStart" class="primary">시작</button>
+    <button id="mEnd" disabled>끝</button>
+    <div id="mFeel">
+      <div>어땠나요?</div>
+      <div id="mFeelBtns"></div>
+      <input id="mMemo" placeholder="한 줄 메모 (안 써도 됨)">
+      <button id="mSave" class="primary">기록</button>
+    </div>
+  </div>
+</div>
+
 <div class="row">
   <span class="stat" id="stCtx">ctx: -</span>
   <span class="stat" id="stLoad">적재: 0 MB</span>
@@ -80,7 +111,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.2 (2026-09-28)';
+const VER = 'engine-test 0.3 (2026-09-28)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -247,6 +278,7 @@ const uiLat = [];
 function tap(t, touchTs) {
   if (!ctx) return;
   const inWait = touchTs != null ? performance.now() - touchTs : 0;   // 손 닿고 코드가 불리기까지
+  if (touchTs != null && t.kind === 'sfx') missionTap();   // 페이드 중 무시되는 탭도 센다
   let what;
   if (t.playing && !t.fading) { fadeOut(t); what = '끔'; }
   else if (t.playing && t.fading) return;   // 페이드 중엔 무시
@@ -472,6 +504,7 @@ $('btnStart').onclick = async () => {
     await reqWake();
     $('overlay').remove();
     await restore();
+    missionOnOpen();
   } catch (e) { log('시작 실패: ' + e.message, 'e'); $('btnStart').disabled = false; }
 };
 
@@ -490,6 +523,194 @@ $('btnDl').onclick = () => {
   a.download = 'engine-log-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt'; a.click();
 };
 $('btnMark').onclick = () => { const m = prompt('마크 이름 (예: T3 시작)'); if (m) log('===== ' + m + ' =====', 'i'); };
+
+// ---------- 미션 판 (T1~T12) ----------
+// 자동(초록 테두리): 페이지가 알아서 누르고 끝냄 / 손: 사람이 하고 페이지는 세기·안내만.
+// 마크(===== T1 시작 ===== 등)는 자동으로 찍힌다.
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sfxList = () => tracks.filter(t => t.kind === 'sfx');
+const longList = () => tracks.filter(t => t.kind === 'long');
+const MISSIONS = [
+  { id: 'T1', name: '효과음 지연 (손)', hand: true, goal: 50,
+    guide: '효과음 패드를 손으로 50번 누르세요. 빠른 연타도 섞어서.\n켤 때·끌 때 화면이 버벅이는지 보세요. 50번이 되면 저절로 끝나요.' },
+  { id: 'T1+', name: '빠른 연타 부하 (자동)', goal: 300,
+    guide: '페이지가 1초에 5번씩 1분 동안 효과음을 눌러요. 화면만 보고 계세요.',
+    async run(m) {
+      const sfx = sfxList(); if (!sfx.length) throw new Error('효과음이 없어요');
+      for (let i = 0; i < m.goal && m.running; i++) {
+        tap(sfx[Math.floor(Math.random() * sfx.length)], performance.now()); m.prog(i + 1);
+        await sleep(200);
+      }
+    } },
+  { id: 'T2', name: '긴 곡 시작 지연 (자동)', goal: 20,
+    guide: '페이지가 긴 곡을 20번 켰다 꺼요 (약 1분).',
+    async run(m) {
+      const L = longList(); if (!L.length) throw new Error('긴 곡(30초 넘는 파일)이 없어요');
+      for (let i = 0; i < m.goal && m.running; i++) {
+        const t = L[i % L.length];
+        if (t.playing) stop(t);
+        t.el.currentTime = 0; play(t);
+        await sleep(1500); stop(t); m.prog(i + 1); await sleep(500);
+      }
+    } },
+  { id: 'T3', name: '동시 재생 (자동)', goal: 60,
+    guide: '긴 곡 3개 + 효과음 5개를 한꺼번에 1분 동안 틀어요.\n끊김·잡음이 들리는지 귀로 들어 주세요.',
+    async run(m) {
+      const L = longList().slice(0, 3), S = sfxList().slice(0, 5);
+      if (!L.length || !S.length) throw new Error('긴 곡과 효과음이 모두 있어야 해요');
+      L.forEach(t => { if (!t.playing) play(t); });
+      for (let sec = 0; sec < m.goal && m.running; sec++) {
+        if (sec % 2 === 0) S.forEach(t => { if (t.playing) stop(t); play(t); });
+        m.prog(sec + 1); await sleep(1000);
+      }
+      tracks.forEach(stop);
+    } },
+  { id: 'T4', name: '2시간 연속 (자동)', goal: 7200,
+    guide: '긴 곡을 반복 재생하면서 1초마다 효과음을 눌러요. 2시간 동안 그대로 두세요.\n(충전기 연결 · 화면 자동잠금 "안 함")\n10분마다 지연 평균을 기록해서 늘어나는지 봐요.',
+    async run(m) {
+      const L = longList(), S = sfxList();
+      if (!L.length || !S.length) throw new Error('긴 곡과 효과음이 모두 있어야 해요');
+      const bg = L[0]; bg.el.loop = true; if (!bg.playing) play(bg);
+      const t0 = performance.now(); let mark = lat.sfx.length, lastLog = 0;
+      while (m.running) {
+        const sec = Math.floor((performance.now() - t0) / 1000);
+        if (sec >= m.goal) break;
+        const t = S[Math.floor(Math.random() * S.length)]; if (t.playing) stop(t); play(t);
+        m.prog(sec);
+        if (sec - lastLog >= 600 && lat.sfx.length > mark) {
+          lastLog = sec;
+          const a = lat.sfx.slice(mark); mark = lat.sfx.length;
+          log(`T4 ${Math.round(sec / 60)}분: 지연 avg ${(a.reduce((x, y) => x + y, 0) / a.length).toFixed(1)} / max ${Math.max(...a).toFixed(1)}ms · 끊긴 프레임 누적 ${longFrames}`, 'i');
+        }
+        await sleep(1000);
+      }
+      bg.el.loop = false; tracks.forEach(stop);
+    } },
+  { id: 'T5', name: '메모리 압박 (자동)', goal: 900,
+    guide: '효과음 적재를 100MB씩 900MB까지 늘려요. 중간에 앱이 튕기면 정상이에요.\n튕기면 다시 열어 주세요. 어디까지 갔는지 페이지가 적어요. 300MB 이하에서 튕기면 불합격.',
+    async run(m) {
+      if (!sfxList().length) throw new Error('효과음이 없어요');
+      while (m.running && loadedBytes < m.goal * 1048576) {
+        await $('btnPress').onclick(); m.prog(Math.round(loadedBytes / 1048576));
+        try { localStorage.setItem('duckq-t5-mb', Math.round(loadedBytes / 1048576)); } catch {}   // 튕기면 어디까지 갔는지 남김
+        await sleep(2000);
+      }
+      try { localStorage.removeItem('duckq-t5-mb'); } catch {}
+    } },
+  { id: 'T6', name: '전원 버튼', hand: true,
+    guide: '곡을 하나 틀고 → 전원 버튼을 눌러 잠갔다가 → 풀고 돌아오세요.\n돌아온 시간·재생 상태는 페이지가 적어요. 끝나면 [끝].' },
+  { id: 'T7', name: '끼어들기', hand: true,
+    guide: '곡을 틀어 둔 채로 FaceTime 받기 · 시리 부르기 · 알람 울리기를 해 보세요.\n끝난 뒤 소리가 저절로 돌아오는지 보세요. 끝나면 [끝].' },
+  { id: 'T8', name: '앱 전환', hand: true,
+    guide: '곡을 틀고 → 홈으로 나갔다가 → 30초 뒤 돌아오세요.\n복귀 시간은 페이지가 적어요. 끝나면 [끝].' },
+  { id: 'T9', name: '강제 종료', hand: true, persist: true,
+    guide: '[시작]을 누른 뒤 → 앱 전환 화면에서 이 앱을 위로 밀어 끄고 → 다시 여세요.\n다시 열고 ▶ 시작을 누르면 복원 시간을 적고 저절로 끝나요.' },
+  { id: 'T10', name: '7일 보관', hand: true, persist: true,
+    guide: '[시작]을 누르고 7일 동안 두세요. 7일 뒤 열면 음원이 그대로인지 페이지가 적어요.' },
+  { id: 'T11', name: '블루투스', hand: true,
+    guide: '블루투스 스피커를 연결하고 효과음·긴 곡을 눌러 보세요.\nSoundboard Studio와 지연·끊김이 비슷한지 비교. 끝나면 [끝].' },
+  { id: 'T12', name: '무음 스위치·볼륨', hand: true,
+    guide: '무음 모드(제어 센터 종 모양)를 켜고 눌러 보세요. 소리가 나는지 기록. 끝나면 [끝].' },
+];
+const FEELS = ['좋음', '버벅임', '끊김·잡음', '소리 안 남', '튕김'];
+const mDone = (() => { try { return JSON.parse(localStorage.getItem('duckq-missions') || '{}'); } catch { return {}; } })();
+let cur = null, feel = null;
+
+function saveDone() { try { localStorage.setItem('duckq-missions', JSON.stringify(mDone)); } catch {} }
+function drawList() {
+  $('mList').innerHTML = '';
+  MISSIONS.forEach(m => {
+    const b = document.createElement('button');
+    b.textContent = m.id; b.title = m.name;
+    b.className = (m.hand ? '' : 'auto') + (mDone[m.id] ? ' done' : '') + (cur && cur.id === m.id ? ' sel' : '');
+    b.onclick = () => { if (cur && cur.running) return; selectMission(m); };
+    $('mList').appendChild(b);
+  });
+}
+function selectMission(m) {
+  cur = m; feel = null;
+  $('mBody').style.display = 'block';
+  $('mTitle').textContent = `${m.id} ${m.name}`;
+  $('mGuide').textContent = m.guide;
+  $('mProg').textContent = m.goal ? `0 / ${m.goal}` : '';
+  $('mStart').disabled = false; $('mStart').textContent = '시작';
+  $('mEnd').disabled = true; $('mFeel').style.display = 'none';
+  drawList();
+}
+function prog(n) {
+  if (!cur) return;
+  $('mProg').textContent = cur.id === 'T4' ? `${Math.floor(n / 60)}분 / 120분` : cur.id === 'T5' ? `${n}MB / 900MB` : `${n} / ${cur.goal}`;
+}
+const snap = () => ({ sfx: lat.sfx.length, long: lat.long.length, ui: uiLat.length, frames: longFrames, jank });
+async function startMission() {
+  const m = cur; if (!m || m.running) return;
+  if (!ctx) return log('먼저 ▶ 시작을 누르세요', 'w');
+  m.running = true; m.count = 0; m.prog = prog; m.startLat = snap();
+  log(`===== ${m.id} 시작 =====`, 'i');
+  $('mStart').disabled = true; $('mEnd').disabled = false; $('mEnd').textContent = m.hand ? '끝' : '중단';
+  $('mFeel').style.display = 'none';
+  if (m.persist) { try { localStorage.setItem('duckq-pending', JSON.stringify({ id: m.id, at: Date.now() })); } catch {} }
+  if (m.run) {
+    try { await m.run(m); } catch (e) { log(`${m.id} 멈춤: ${e.message}`, 'e'); }
+    if (m.running) endMission();
+  }
+}
+function missionTap() {
+  if (!cur || !cur.running || cur.id !== 'T1') return;
+  prog(++cur.count);
+  if (cur.count >= cur.goal) endMission();
+}
+function summary(m) {
+  const s = m.startLat, parts = [];
+  const st = (a, n) => a.length ? `${n} n=${a.length} avg ${(a.reduce((x, y) => x + y, 0) / a.length).toFixed(1)} / max ${Math.max(...a).toFixed(1)}ms` : null;
+  [st(lat.sfx.slice(s.sfx), '효과음 지연'), st(lat.long.slice(s.long), '긴 곡 지연'), st(uiLat.slice(s.ui), '화면 반영')].forEach(x => x && parts.push(x));
+  parts.push(`끊긴 프레임 ${longFrames - s.frames}`, `메인스레드 멈춤 ${jank - s.jank}`, `적재 ${fmtMB(loadedBytes)}`);
+  return parts.join(' · ');
+}
+function endMission() {
+  const m = cur; if (!m || !m.running) return;
+  m.running = false;
+  if (m.persist && m.id !== 'T10') { try { localStorage.removeItem('duckq-pending'); } catch {} }
+  log(`${m.id} 요약: ${summary(m)}`, 'i');
+  $('mStart').disabled = true; $('mEnd').disabled = true;
+  showFeel();
+}
+function showFeel() {
+  $('mFeel').style.display = 'block'; $('mMemo').value = ''; feel = null;
+  $('mFeelBtns').innerHTML = '';
+  FEELS.forEach(f => {
+    const b = document.createElement('button'); b.textContent = f;
+    b.onclick = () => { feel = f; [...$('mFeelBtns').children].forEach(x => x.classList.toggle('sel', x === b)); };
+    $('mFeelBtns').appendChild(b);
+  });
+}
+function saveFeel() {
+  const m = cur; if (!m) return;
+  const memo = $('mMemo').value.trim();
+  log(`===== ${m.id} 끝 · 느낌: ${feel || '-'}${memo ? ' · ' + memo : ''} =====`, 'i');
+  mDone[m.id] = new Date().toISOString(); saveDone();
+  $('mFeel').style.display = 'none'; $('mStart').disabled = false; $('mStart').textContent = '다시 하기';
+  flushLog(); drawList();
+}
+// T5 튕김 · T9 강제 종료 · T10 7일: 앱을 다시 연 뒤 이어서 적는다
+function missionOnOpen() {
+  let t5 = null; try { t5 = localStorage.getItem('duckq-t5-mb'); localStorage.removeItem('duckq-t5-mb'); } catch {}
+  if (t5) log(`T5 지난번 적재 ${t5}MB 에서 끊김 (튕김으로 봄)`, 'w');
+  let p = null; try { p = JSON.parse(localStorage.getItem('duckq-pending')); } catch {}
+  if (!p) return;
+  const m = MISSIONS.find(x => x.id === p.id); if (!m) return;
+  const days = (Date.now() - p.at) / 86400000;
+  if (m.id === 'T10' && days < 7) { log(`T10 진행 중: ${days.toFixed(1)}일째 · 음원 ${tracks.length}개`, 'i'); return; }
+  try { localStorage.removeItem('duckq-pending'); } catch {}
+  selectMission(m);
+  m.startLat = snap(); m.running = true;
+  log(`${m.id} 다시 열림: 시작 뒤 ${m.id === 'T10' ? days.toFixed(1) + '일' : ((Date.now() - p.at) / 1000).toFixed(0) + '초'} · 음원 ${tracks.length}개 복원 · 페이지 열림부터 ${(performance.now() / 1000).toFixed(2)}초`, 'i');
+  endMission();
+}
+$('mStart').onclick = startMission;
+$('mEnd').onclick = endMission;
+$('mSave').onclick = saveFeel;
+drawList();
 
 // ---------- PC로 자동 전송 (test/log-server.py로 열었을 때만) ----------
 // github.io 에서 직접 열면 받을 곳이 없어 끈다. q.deokgu.com 에선 PC가 꺼져 있어도 쌓아 두고 계속 재시도.
