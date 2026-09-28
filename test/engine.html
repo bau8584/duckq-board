@@ -117,7 +117,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.4.1 (2026-09-29)';
+const VER = 'engine-test 0.4.2 (2026-09-29)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -413,7 +413,7 @@ drawMode();
 // ---------- D: 긴 곡 직접 풀기 (WebCodecs) ----------
 // <audio> 없이 저장 파일을 조금씩 읽어 풀고, 1초짜리 AudioBuffer 조각을 Web Audio 시간표에 이어 붙인다.
 // 메모리 = 앞으로 틀 몇 초분만. 페이드는 효과음과 같은 GainNode.
-const D_CHUNK_SEC = 1, D_FIRST_SEC = 0.2, D_AHEAD_SEC = 4, D_READ = 256 * 1024, D_HEAD = 64 * 1024;
+const D_START_PAD = 0.03, D_CHUNK_SEC = 1, D_FIRST_SEC = 0.2, D_AHEAD_SEC = 4, D_READ = 256 * 1024, D_HEAD = 64 * 1024;
 const str4 = (b, o) => String.fromCharCode(b[o], b[o + 1], b[o + 2], b[o + 3]);
 // 파일 앞 64KB는 등록 때 읽어 둔다 → 누를 때 저장소를 안 기다림
 async function readBytes(t, s, e) {
@@ -648,7 +648,12 @@ class DStream {
     this.pendLen -= len;
     const src = ctx.createBufferSource(); src.buffer = buf; src.connect(this.t.gain);
     const now = ctx.currentTime;
-    if (!this.started) { this.started = true; this.nextTime = now; this.t0 = now - this.off; this.onStart && this.onStart(); }
+    if (!this.started) {
+      // 첫 조각을 '지금'에 걸면 이미 지나간 몇 ms가 잘려 시작이 '지직'할 수 있다 → 30ms 뒤에 걸고 10ms 동안 소리를 올린다
+      this.started = true; this.nextTime = now + D_START_PAD; this.t0 = this.nextTime - this.off;
+      const g = this.t.gain.gain; g.cancelScheduledValues(now); g.setValueAtTime(0, now); g.setValueAtTime(0, this.nextTime); g.linearRampToValueAtTime(1, this.nextTime + 0.01);
+      this.onStart && this.onStart();
+    }
     else if (this.nextTime < now) {
       this.gaps++; log(`D 끊김: 조각이 ${((now - this.nextTime) * 1000).toFixed(0)}ms 늦음 "${this.t.name}"`, 'w');
       this.t0 += now - this.nextTime; this.nextTime = now;
@@ -709,7 +714,7 @@ function playD(t, off, tapPerf) {
   if (t.ds) t.ds.stop();
   const ds = new DStream(t, off); t.ds = ds;
   ds.onStart = () => {
-    const code = performance.now() - tapPerf, hw = (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000, ms = code + hw;
+    const code = performance.now() - tapPerf + D_START_PAD * 1000, hw = (ctx.baseLatency + (ctx.outputLatency || 0)) * 1000, ms = code + hw;
     lat.long.push(ms); updLat();
     log(`GO 긴 곡(D ${t.d.fmt}) "${t.name}" @${off.toFixed(1)}s 지연 ${ms.toFixed(1)}ms (코드 ${code.toFixed(1)} + 장치 ${hw.toFixed(1)})`);
   };
