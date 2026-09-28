@@ -111,7 +111,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.3 (2026-09-28)';
+const VER = 'engine-test 0.3.1 (2026-09-28)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -151,6 +151,22 @@ log(VER, 'i');
 log('UA: ' + navigator.userAgent, 'i');
 log(`화면 ${screen.width}x${screen.height} dpr${devicePixelRatio} · standalone=${navigator.standalone === true || matchMedia('(display-mode: standalone)').matches} · mem=${navigator.deviceMemory || '?'}GB · cpu=${navigator.hardwareConcurrency || '?'}`, 'i');
 if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(e => log(`저장소 사용 ${(e.usage/1048576).toFixed(1)}MB / 한도 ${(e.quota/1048576).toFixed(0)}MB`, 'i'));
+// 긴 곡을 '직접 풀기(WebCodecs)'로 틀 수 있는지 형식별로 확인 — 스트림 방식 대안 고르기용
+(async () => {
+  if (!('AudioDecoder' in window)) return log('직접 풀기(AudioDecoder) 없음', 'w');
+  const codecs = { mp3: 'mp3', 'aac(m4a)': 'mp4a.40.2', opus: 'opus', flac: 'flac', vorbis: 'vorbis', 'pcm(wav)': 'pcm-s16' };
+  const res = [];
+  for (const [name, codec] of Object.entries(codecs)) {
+    let ok = false;
+    for (const sampleRate of [44100, 48000]) {
+      try { ok = ok || (await AudioDecoder.isConfigSupported({ codec, sampleRate, numberOfChannels: 2 })).supported; } catch {}
+    }
+    res.push(`${name} ${ok ? '⭕' : '❌'}`);
+  }
+  const mms = window.ManagedMediaSource || window.MediaSource;
+  res.push(`MediaSource(mp3) ${mms && mms.isTypeSupported && mms.isTypeSupported('audio/mpeg') ? '⭕' : '❌'}${window.ManagedMediaSource ? '(Managed)' : ''}`);
+  log('직접 풀기 지원: ' + res.join(' · '), 'i');
+})();
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(ok => log('persist 저장소 ' + (ok ? '허용' : '거부'), ok ? 'i' : 'w'));
 
 // ---------- IndexedDB ----------
