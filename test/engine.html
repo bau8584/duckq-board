@@ -117,7 +117,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.4.6 (2026-09-29)';
+const VER = 'engine-test 0.4.7 (2026-09-29)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -827,12 +827,16 @@ document.addEventListener('visibilitychange', () => {
     const hiddenFor = hiddenAt ? ((performance.now() - hiddenAt) / 1000).toFixed(1) : '?';
     log(`복귀: 숨김 ${hiddenFor}초 · ctx=${ctx && ctx.state} · 재생중 ${tracks.filter(t=>t.playing).length}개`, 'i');
     // 소유자 결정: 돌아오면 이어서 틀지 않는다 → 모두 멈춤으로 표시, 다음 탭에서 소리 출구를 새로 만든다 (0.4.6)
-    const n = tracks.filter(t => t.playing).length;
+    // 0.4.7: A(<audio>)는 뒤에서도 계속 나므로(T8 재시험) 실제로 계속 흐른 곡은 그대로 둔다. 멈춰 있던 것만 멈춤 표시.
+    const alive = [], dead = [];
+    tracks.forEach(t => { if (!t.playing) return; (t.el && !t.ds && !t.el.paused && t.el.currentTime > (t.hidPos || 0) + 1 ? alive : dead).push(t); });
     if (burstTimer) stopBurst();
-    tracks.forEach(stop);
-    if (ctx) { needRebuild = true; log(`복귀 → 재생 중 ${n}개 멈춤 표시 · 다음 탭에서 소리 출구 새로 만듦`, 'i'); }
+    dead.forEach(stop);
+    if (alive.length) log(`복귀 → 뒤에서 계속 나던 곡 ${alive.length}개 그대로 (${alive.map(t => `"${t.name}" ${(t.hidPos || 0).toFixed(0)}→${t.el.currentTime.toFixed(0)}초`).join(' · ')})`, 'i');
+    if (dead.length) log(`복귀 → 멈춰 있던 곡 ${dead.length}개 멈춤 표시`, 'i');
+    if (ctx && !alive.length) { needRebuild = true; log('복귀 → 다음 탭에서 소리 출구 새로 만듦', 'i'); }
     reqWake();
-  } else hiddenAt = performance.now();
+  } else { hiddenAt = performance.now(); tracks.forEach(t => { t.hidPos = t.el ? t.el.currentTime : 0; }); }
 });
 let hiddenAt = 0;
 window.addEventListener('pagehide', () => log('pagehide', 'w'));
