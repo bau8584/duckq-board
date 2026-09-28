@@ -442,6 +442,24 @@ $('btnDl').onclick = () => {
   a.download = 'engine-log-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt'; a.click();
 };
 $('btnMark').onclick = () => { const m = prompt('마크 이름 (예: T3 시작)'); if (m) log('===== ' + m + ' =====', 'i'); };
+
+// ---------- PC로 자동 전송 (test/log-server.py로 열었을 때만) ----------
+// GitHub Pages 등에서는 POST /log 가 없으니 첫 실패 뒤 조용히 멈춘다.
+let sent = 0, sendOk = null;
+const session = new Date().toISOString();
+async function flushLog() {
+  if (sendOk === false || sent >= logLines.length) return;
+  const upto = logLines.length;
+  const head = sent === 0 ? `\n##### 세션 ${session} #####\n` : '';
+  try {
+    const r = await fetch('/log', { method: 'POST', body: head + logLines.slice(sent, upto).join('\n') });
+    if (!r.ok) throw new Error(r.status);
+    sent = upto;
+    if (sendOk === null) { sendOk = true; log('PC로 로그 자동 전송 켜짐', 'i'); }
+  } catch (e) { if (sendOk === null) sendOk = false; }
+}
+setInterval(flushLog, 5000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushLog(); });
 </script>
 </body>
 </html>
