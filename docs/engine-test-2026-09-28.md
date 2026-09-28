@@ -77,3 +77,10 @@ T1·T2 판정용 아님(미션 없이 자유롭게 누름). 스트림 방식 원
 1. **긴 곡을 Web Audio에 연결한 방식**(페이드용) — iPad Safari에서 저장소 파일(Blob)을 이 방식으로 틀면 시작 때 메인스레드를 막는 것으로 알려진 조합.
 2. **첫 재생 때 파일 읽기** — 곡을 미리 준비(preload)하지 않아 누른 순간 저장소에서 읽기 시작.
 3. **재생 요청 겹침** — 끄는 중(페이드)·로딩 중에 다시 누르면 앞 요청이 취소되고 다시 로딩.
+
+## 형식별 직접 풀기(WebCodecs) 지원 — iPad (2026-09-29, 0.3.1)
+
+`mp3 ⭕ · aac(m4a) ⭕ · opus ⭕ · flac ❌ · vorbis ❌ · pcm(wav) ⭕ · ManagedMediaSource(mp3) ⭕`
+
+→ 흔한 형식(mp3·m4a·wav)은 긴 곡도 `<audio>` 없이 **직접 풀어 Web Audio로** 틀 수 있다. 스트림 멈춤의 대안 1순위.
+근거: WebKit 블로그 Safari 26.0(WebCodecs AudioDecoder) · 저장 파일(blob) 재생 경로 10초 제한(WebKit PR #74641) — 조사 요약은 대화 기록.
