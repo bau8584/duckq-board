@@ -117,7 +117,7 @@
 
 <script>
 'use strict';
-const VER = 'engine-test 0.4.4 (2026-09-29)';
+const VER = 'engine-test 0.4.5 (2026-09-29)';
 const SFX_MAX_SEC = 30;          // 이 이하 → 메모리 적재(AudioBuffer), 초과 → 스트리밍(<audio>)
 const FADE_SEC = 2;
 const WARN_BYTES = 300 * 1024 * 1024;
@@ -860,8 +860,8 @@ async function restore() {
   try { st = JSON.parse(localStorage.getItem('duckq-engine-state')); } catch {}
   if (st && st.playing && st.playing.length) {
     const ago = ((Date.now() - st.at) / 1000).toFixed(1);
-    log(`이전 상태: 긴 곡 ${st.playing.length}개 재생 중이었음 (${ago}초 전 저장) → 이어서 재생`, 'i');
-    for (const p of st.playing) { const t = tracks.find(x => x.id === p.id); if (t) play(t, p.pos + Number(ago)); }
+    // 소유자 결정(2026-09-29): 앱이 꺼졌다 켜지면 이어서 틀지 않는다 — 오퍼가 예측할 수 있게
+    log(`이전 상태: 긴 곡 ${st.playing.length}개 재생 중이었음 (${ago}초 전 저장) → 이어서 틀지 않음(멈춤으로 시작)`, 'i');
   }
   const took = ((performance.now() - s) / 1000).toFixed(2);
   const sincePage = ((performance.now() - t0) / 1000).toFixed(2);
