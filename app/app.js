@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.30 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.31 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -192,7 +192,6 @@ function paintPad(id) {
   el.classList.toggle('sel', editMode && sel.has(id));
   el.classList.toggle('focus', !!(focus && focus.pad === id));
   if (!playing) {
-    el.classList.remove('ending');
     el.style.setProperty('--p', '0%');
     el._el.textContent = '00:00';
     el._rm.textContent = st === 'bad' ? (badWhy[id] || '못 틂') : (st === 'ready' ? '-' + fmt(Math.ceil(segLen(p))) : '불러오는 중');
@@ -202,9 +201,7 @@ function tickPad(id, el) {
   const d = Engine.dur(id) || segLen(S.pads[id]), pos = Engine.pos(id);
   el.style.setProperty('--p', Math.min(100, pos / d * 100).toFixed(1) + '%');
   el._el.textContent = fmt(pos); el._rm.textContent = '-' + fmt(Math.ceil(d - pos));
-  el.classList.toggle('ending', !S.pads[id].loop && d - pos <= ENDING_SEC && d > ENDING_SEC);   // [시험 중] 끝나기 5초 전 신호
 }
-const ENDING_SEC = 5;
 function paintAll() { padEls.forEach((_, id) => paintPad(id)); }
 
 function renderMaster() {

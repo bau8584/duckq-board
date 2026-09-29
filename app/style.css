@@ -99,10 +99,6 @@ button:disabled{cursor:default}
 .pad.playing{filter:saturate(1.35) brightness(1.12);background:linear-gradient(90deg,color-mix(in srgb,var(--h) 58%,#fff) var(--p),var(--h) var(--p));
   transform:scale(1.02);z-index:2;box-shadow:0 0 0 2px var(--bg1),0 0 0 5px var(--ring)}
 .pad.playing.press{transform:scale(1)}
-/* [시험 중 — 기각 가능] 끝나기 5초 전: 테두리가 깜빡 */
-@keyframes endring{0%,49.9%{box-shadow:0 0 0 2px var(--bg1),0 0 0 5px var(--ring)}50%,100%{box-shadow:0 0 0 2px var(--bg1),0 0 0 5px transparent}}
-.pad.playing.ending{animation:endring .9s linear infinite}
-.pad.playing.ending .meta span:last-child{font-weight:900;opacity:1}
 .pad.playing .idx{display:none}
 .pad.playing .eq{display:flex}
 /* 평소(재생 안 함) = 어둡고 탁한 색, 재생 중에만 원래 밝은 색 (소유자 결정 2026-09-29). PLAYED는 색은 그대로, 칩만 */
