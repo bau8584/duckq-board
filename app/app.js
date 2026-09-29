@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.16 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.17 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -413,7 +413,7 @@ function renderSelBar() {
   const bar = $('selBar'), ids = selIds();
   bar.hidden = !editMode; bar.textContent = ''; if (!editMode) return;
   const b = board(), n = ids.length, dis = !n;
-  const moveSel = h('select', { class: 'sel', disabled: dis }, h('option', { value: '' }, '다른 보드로…'),
+  const moveSel = h('select', { class: 'sel', disabled: dis }, h('option', { value: '' }, '이동…'),
     S.boards.filter(x => x !== b).map(x => h('option', { value: x.id }, x.name)));
   moveSel.onchange = () => {
     const to = S.boards.find(x => x.id === moveSel.value); if (!to) return;
@@ -751,11 +751,13 @@ const HELP = {
   pan: '소리를 왼쪽·오른쪽 스피커 중 어디로 보낼지예요. 가운데 = 양쪽 똑같이. 왼쪽 100 = 왼쪽 스피커에서만. 스피커가 하나면 차이가 없어요.',
 };
 // 볼륨·팬 한 줄: [?] 설명 + 조절 + [원래대로]
-const volRow = (label, stp, def) => h('div', { class: 'row col' }, h('label', null, label), h('div', { class: 'end' }, stp, h('button', { class: 'sbtn', onclick: () => stp.set(def) }, '원래대로')));
+const resetBtn = fn => h('button', { class: 'rst', onclick: fn, 'aria-label': '원래대로', title: '원래대로' }, '↺');   // 원래대로
+const volRow = (label, stp, def) => h('div', { class: 'row col' }, h('label', null, label), h('div', { class: 'end' }, stp, resetBtn(() => stp.set(def))));
 const panTxt = v => v === 0 ? '가운데' : (v < 0 ? '왼쪽 ' : '오른쪽 ') + Math.abs(v);
 
 // 트림: 파일은 그대로, 시작·끝 지점만 기억. 파형(효과음) 위 두 손잡이 + 0.1초/1초 단추
-function trimBox(id, onchange) {
+// 트림: 막대 양 끝 아래에 [◀ 시간 ▶] (누르면 0.1초, 누르고 있으면 점점 빠르게). 미리 듣기도 여기서.
+function trimBox(id, onchange, preview) {
   const p = S.pads[id], D = Engine.fileDur(id) || p.dur || 0;
   let s = p.start || 0, e = p.end > s ? Math.min(p.end, D) : D;
   const cv = h('canvas', { class: 'wave' }), sel = h('div', { class: 'tsel' });
@@ -800,15 +802,26 @@ function trimBox(id, onchange) {
   bar.addEventListener('pointermove', ev => { if (!which) return; const r = bar.getBoundingClientRect(); (which === 's' ? setS : setE)((ev.clientX - r.left) / r.width * D); });
   const up = () => { if (which) { which = null; commit(); } };
   bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
-  const nb = (label, fn) => h('button', { onclick: () => { fn(); commit(); } }, label);
+  // ◀▶: 한 번 = 0.1초, 누르고 있으면 반복하며 점점 크게(0.1 → 1초)
+  const nb = (label, fn) => {
+    const b = h('button', { class: 'nud', 'aria-label': label }, label); let tm = 0, n = 0;
+    const stop = () => { if (!tm) return; clearTimeout(tm); tm = 0; commit(); };
+    const go = () => { fn(n < 8 ? 0.1 : n < 20 ? 0.5 : 1); n++; tm = setTimeout(go, n === 1 ? 400 : 90); };
+    b.addEventListener('pointerdown', e => { e.preventDefault(); n = 0; go(); });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
+    return b;
+  };
   requestAnimationFrame(() => { wave(); draw(); });
   draw(); mark();
   api.el = h('div', { class: 'row col' },
-    h('label', null, helpLabel('구간(트림)', Engine.peaks(id, 8) ? '손잡이를 끌거나 단추로 맞춰요. 파일은 잘리지 않아요' : '긴 곡은 파형 없이 시간으로 맞춰요. 파일은 잘리지 않아요')),
+    h('label', null, helpLabel('구간(트림)', (Engine.peaks(id, 8) ? '막대의 손잡이를 끌거나' : '긴 곡은 파형 없이 막대로. 손잡이를 끌거나') + ' 아래 ◀▶로 시작·끝을 맞춰요(누르고 있으면 빨라짐). ↺ = 곡 전체로. 파일은 잘리지 않아요. 미리 듣기는 맞춘 구간으로 들려요.')),
     bar,
-    h('div', { class: 'trow' }, h('span', null, '시작'), nb('−1', () => setS(s - 1)), nb('−.1', () => setS(s - 0.1)), sOut, nb('+.1', () => setS(s + 0.1)), nb('+1', () => setS(s + 1))),
-    h('div', { class: 'trow' }, h('span', null, '끝'), nb('−1', () => setE(e - 1)), nb('−.1', () => setE(e - 0.1)), eOut, nb('+.1', () => setE(e + 0.1)), nb('+1', () => setE(e + 1))),
-    h('div', { class: 'trow' }, lenOut, h('button', { class: 'sbtn', onclick: () => { s = 0; e = D; draw(); commit(); } }, '전체로')),
+    h('div', { class: 'tends' },
+      h('div', { class: 'tend' }, nb('◀', d => setS(s - d)), h('span', null, h('small', null, '시작'), sOut), nb('▶', d => setS(s + d))),
+      h('div', { class: 'tend' }, nb('◀', d => setE(e - d)), h('span', null, h('small', null, '끝'), eOut), nb('▶', d => setE(e + d)))),
+    h('div', { class: 'trow' }, lenOut, resetBtn(() => { s = 0; e = D; draw(); commit(); })),
+    h('div', { class: 'trow' }, h('small', { class: 'plab' }, '미리 듣기'),
+      h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, Engine.dur(id) - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
   );
   return api;
 }
@@ -828,7 +841,7 @@ function openPadSheet(id) {
   openSheet('패드 설정', body => {
     const name = h('input', { class: 'txt', value: p.label, maxlength: 40, placeholder: '패드 이름' });
     name.oninput = () => { p.label = name.value; refresh(); };
-    const moveSel = h('select', { class: 'sel' }, h('option', { value: '' }, '다른 보드로…'),
+    const moveSel = h('select', { class: 'sel' }, h('option', { value: '' }, '이동…'),
       S.boards.filter(x => x !== b).map(x => h('option', { value: x.id }, x.name)));
     moveSel.onchange = () => {
       const to = S.boards.find(x => x.id === moveSel.value); if (!to) return;
@@ -836,23 +849,22 @@ function openPadSheet(id) {
       toast(`"${p.label}" → ${to.name}`); closeSheet();
     };
     body.append(
+      h('div', { class: 'row pact' }, h('button', { class: 'sbtn', onclick: () => {
+        const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
+      } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: () => {
+        if (!confirm(`"${p.label}" 패드를 지울까요?`)) return;
+        removePad(id); save(); closeSheet(); renderTop();
+      } }, '삭제')),
       h('div', { class: 'row col' }, name),
       h('div', { class: 'row col' }, h('label', null, helpLabel('색', '없음 = 평소 무채색, 재생 중엔 보드 색으로 켜짐')),
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
-      row('미리 듣기', h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, Engine.dur(id) - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
-      (trim = trimBox(id, () => { refresh(); renderTop(); })).el,
+      (trim = trimBox(id, () => { refresh(); renderTop(); }, preview)).el,
       volRow(helpLabel('볼륨', HELP.vol), stepper(Math.round(p.vol * 100), 0, 300, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); }, false, VOL_MAP), 100),
       volRow(helpLabel('팬', HELP.pan), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); }), 0),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
       row(helpLabel('솔로', '이 패드를 틀면 다른 소리를 끔'), sw(p.solo, on => { p.solo = on; refresh(); })),
       h('div', { class: 'row col' }, h('label', null, helpLabel('페이드', '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 곡 끝 + 다시 눌러 끌 때')),
         fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) refresh(); })),
-      row('패드', h('button', { class: 'sbtn', onclick: () => {
-        const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
-      } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: () => {
-        if (!confirm(`"${p.label}" 패드를 지울까요?`)) return;
-        removePad(id); save(); closeSheet(); renderTop();
-      } }, '삭제')),
       h('div', { class: 'row' }, h('div', { class: 'info' },
         h('button', { class: 'sbtn', style: 'margin-right:8px', onclick: openFadeSheet }, '페이드 설정 (보드 전체)'),
         rec ? `파일: ${rec.name} · ${fmt(p.dur)} · ${(rec.size / 1048576).toFixed(1)}MB · ${p.dur <= Engine.SFX_MAX_SEC ? '메모리에 올려 둠' : '긴 곡(조금씩 풀기)'}` : '파일이 없어요 — 지우고 다시 넣어 주세요')),
