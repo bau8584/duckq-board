@@ -210,6 +210,11 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .pad.gathered{display:none}
 .pad.lift[data-n]::after{content:attr(data-n);position:absolute;top:-6px;right:-6px;min-width:30px;height:30px;padding:0 8px;border-radius:15px;
   background:var(--stop);color:#fff;font:800 15px/30px var(--font);text-align:center}
+/* 곡별 페이드 상자: 보드 칩·한 번에·목록을 하나로 */
+.fbox{margin:14px 0 4px;padding:14px;border:1px solid var(--line);border-radius:16px;background:color-mix(in srgb,var(--text) 4%,var(--bg1));display:flex;flex-direction:column;gap:10px}
+.fbox-head b{font-size:16px}.fbox-head .sub{display:block;font-size:12px;color:var(--text-dim);margin-top:3px}.fbox>label{font-weight:700;font-size:14px;margin-top:4px}
+.fbox .bulk{padding:0}.fbox .flist{padding:0}
+.fbox .frow:last-child{border-bottom:0}
 /* 편집 모드 아래 막대: 고른 패드 다루기 */
 .editing .grid{padding-bottom:80px}  /* 아래 막대에 마지막 줄이 가리지 않게 */
 .selbar{position:fixed;left:50%;bottom:calc(max(12px,env(safe-area-inset-bottom)) + 66px);transform:translateX(-50%);z-index:8;max-width:calc(100% - 28px);

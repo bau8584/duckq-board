@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.7 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.8 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -870,18 +870,20 @@ function fadeTab(body) {
   } }, name)));
   draw();
   body.append(
-    row(h('span', null, '◣ 버튼 페이드 시간', h('span', { class: 'sub' }, '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
-    // 옛 설정: 켜 둔 사람만 보임(끌 수 있게)
-    st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡마다의 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : '',
-    h('div', { class: 'row col' }, h('label', null, '솔로 켠 패드를 틀면, 울리던 다른 소리는', h('span', { class: 'sub' }, '패드 설정에서 "솔로"를 켠 곡만 해당')),
-      seg([['each', '곡마다의 페이드아웃으로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
-    h('div', { class: 'row col' }, h('label', null, '곡마다의 페이드', h('span', { class: 'sub' }, '페이드아웃은 곡 끝에 닿을 때와 다시 눌러 끌 때 둘 다 걸려요. 반복 곡은 끌 때만.')), chips),
-    h('div', { class: 'row col' }, title,
-      bulk('페이드인', 'fin', 'finSec'), bulk('페이드아웃', 'fout', 'foutSec'), list),
     h('div', { class: 'row col' }, h('label', null, '새로 넣는 곡의 기본값'),
+      h('div', { class: 'frow fhead' }, h('span'), h('span', null, '페이드인'), h('span', null, '페이드아웃')),
       h('div', { class: 'frow' }, h('span', { class: 'fname' }, '새 곡'),
         mini(st.newFin, st.newFinSec, v => { st.newFin = v; save(); }, v => { st.newFinSec = v; save(); }),
         mini(st.newFout, st.newFoutSec, v => { st.newFout = v; save(); }, v => { st.newFoutSec = v; save(); }))),
+    row(h('span', null, '◣ 버튼 페이드 시간', h('span', { class: 'sub' }, '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
+    // 옛 설정: 켜 둔 사람만 보임(끌 수 있게)
+    st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡별 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : '',
+    h('div', { class: 'row col' }, h('label', null, '솔로 켠 패드를 틀면, 울리던 다른 소리는', h('span', { class: 'sub' }, '패드 설정에서 "솔로"를 켠 곡만 해당')),
+      seg([['each', '곡별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
+    // 곡별 페이드: 보드 고르기·한 번에 바꾸기·목록이 한 설정임을 상자 하나로 묶어 보여 줌
+    h('div', { class: 'fbox' },
+      h('div', { class: 'fbox-head' }, h('b', null, '곡별 페이드'), h('span', { class: 'sub' }, '페이드아웃은 곡 끝에 닿을 때와 다시 눌러 끌 때 둘 다 걸려요. 반복 곡은 끌 때만.')),
+      chips, title, bulk('페이드인', 'fin', 'finSec'), bulk('페이드아웃', 'fout', 'foutSec'), list),
   );
 }
 
