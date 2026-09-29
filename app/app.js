@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.19 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.20 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -115,16 +115,17 @@ function applyBoardColor() { document.body.style.setProperty('--board', COLORS[b
 function renderTop() {
   const b = board(), total = b.pads.reduce((a, id) => a + segLen(S.pads[id]), 0);
   const t = $('total');
-  if (Engine.paused) t.innerHTML = '<b>⏸ 일시정지 중</b> · ⏸를 다시 누르면 이어서';
-  else if (editMode) t.innerHTML = '<b>편집 중</b> · 눌러서 고르기 · 꾹 끌면 옮기기 · 이름을 꾹 → 이름 바꾸기';
-  else t.textContent = `전체 ${fmtH(total)} · 패드 ${b.pads.length}개`;
+  // 오른쪽 칸 위: 평소엔 전체 시간·패드 수, 일시정지·편집 중엔 상태
+  t.classList.toggle('state', Engine.paused || editMode);
+  if (Engine.paused) t.innerHTML = '<b>⏸</b><span>일시<br>정지</span>';
+  else if (editMode) t.innerHTML = '<b>✎</b><span>편집<br>중</span>';
+  else t.innerHTML = `<span>전체</span><b>${fmtH(total)}</b><i></i><span>패드</span><b>${b.pads.length}개</b>`;
   const L = S.lock;
   $('btnLock').classList.toggle('on', L);
   $('lockTxt').textContent = '공연 모드';   // 켜짐은 버튼 강조로 (소유자 결정: 이름 '공연 모드')
   $('lockArc').setAttribute('d', L ? 'M8 11V8a4 4 0 0 1 8 0v3' : 'M8 11V8a4 4 0 0 1 8 0');
   $('btnSet').disabled = L; $('btnEdit').disabled = L; $('btnAdd').disabled = L;
   $('btnEdit').classList.toggle('on', editMode);
-  $('btnSort').hidden = !editMode;
   document.body.classList.toggle('editing', editMode);
   renderSelBar();
 }
@@ -206,18 +207,66 @@ function renderMaster() {
   sl.setAttribute('aria-valuenow', Math.round(v * 100));
 }
 
-let seekTo = null;   // 재생 바를 끄는 중이면 손가락 위치(0~1)
-function renderScrub() {
-  const box = document.querySelector('.scrub');
-  const p = lastId && S.pads[lastId];
-  if (!p) { $('sName').textContent = '—'; $('sFill').style.width = '0'; $('sTime').textContent = '00:00 / 00:00'; box.classList.add('idle'); return; }
-  const playing = Engine.isPlaying(lastId), d = Engine.dur(lastId) || segLen(p), pos = playing ? Engine.pos(lastId) : 0;
-  $('sName').textContent = p.label;
-  const shown = seekTo !== null && playing ? seekTo * d : pos;
-  $('sFill').style.width = playing ? Math.min(100, shown / d * 100) + '%' : '0';
-  $('sTime').textContent = fmt(shown) + ' / ' + fmt(d);
-  box.classList.toggle('idle', !playing);
+// ---------- 아래 재생 줄 (최대 3줄, 넘치면 '+N 더') ----------
+// 최근에 튼 것이 맨 위. 줄마다 막대를 누르거나 끌어 위치 옮기기(손 뗄 때 그 자리부터).
+const PLAY_ROWS = 3;
+let seek = null, playsOpen = false;   // seek = {id, f(0~1)}
+const playRows = new Map();           // id → 줄
+function playRow(id) {
+  let r = playRows.get(id);
+  if (!r) {
+    r = h('div', { class: 'prow', 'data-id': id }, h('i', { class: 'pdot' }), h('span', { class: 'pname' }), h('div', { class: 'ptrack' }, h('i')), h('span', { class: 'ptime' }));
+    playRows.set(id, r);
+  }
+  return r;
 }
+function renderPlays() {
+  const box = $('plays');
+  const ids = Engine.playingIds().sort((a, b) => (playT[b] || 0) - (playT[a] || 0));
+  for (const id of playRows.keys()) if (!ids.includes(id)) playRows.delete(id);
+  if (ids.length <= PLAY_ROWS) playsOpen = false;
+  const shown = playsOpen || ids.length <= PLAY_ROWS ? ids : ids.slice(0, PLAY_ROWS - 1);
+  const kids = shown.map(id => {
+    const r = playRow(id), p = S.pads[id] || {}, d = Engine.dur(id) || segLen(p), pos = seek && seek.id === id ? seek.f * d : Engine.pos(id);
+    r.firstChild.style.background = COLORS[p.color] || COLORS[board().color];
+    r.children[1].textContent = p.label || '';
+    r.children[2].firstChild.style.width = Math.min(100, pos / d * 100) + '%';
+    r.children[3].textContent = fmt(pos) + ' / ' + fmt(d);
+    return r;
+  });
+  if (!ids.length) {   // 아무것도 안 울릴 때: 마지막 트랙 이름만 흐리게
+    const p = lastId && S.pads[lastId];
+    kids.push(h('div', { class: 'prow idle' }, h('i', { class: 'pdot' }), h('span', { class: 'pname' }, p ? p.label : '—'), h('div', { class: 'ptrack' }, h('i')), h('span', { class: 'ptime' }, '')));
+  }
+  if (ids.length > PLAY_ROWS) kids.push(h('button', { class: 'pmore', onclick: () => { playsOpen = !playsOpen; renderPlays(); } }, playsOpen ? '접기' : `+${ids.length - shown.length}개 더`));
+  box.classList.toggle('open', playsOpen);
+  if (kids.length !== box.children.length || kids.some((k, n) => box.children[n] !== k)) box.replaceChildren(...kids);
+}
+(() => {
+  const box = $('plays');
+  const frac = (tr, e) => { const r = tr.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+  let tr = null;
+  box.addEventListener('pointerdown', e => {
+    const t = e.target.closest('.ptrack'), row = t && t.closest('.prow[data-id]');
+    if (!row || !started || !Engine.isPlaying(row.dataset.id)) return;
+    tr = t; tr.setPointerCapture(e.pointerId); row.classList.add('drag');
+    seek = { id: row.dataset.id, f: frac(tr, e) }; renderPlays();
+  });
+  box.addEventListener('pointermove', e => { if (tr && seek) { seek.f = frac(tr, e); renderPlays(); } });
+  const end = (e, ok) => {
+    if (!tr || !seek) return;
+    const id = seek.id, f = ok ? frac(tr, e) : null; tr.closest('.prow').classList.remove('drag'); tr = null; seek = null;
+    const p = S.pads[id];
+    if (ok && p && Engine.isPlaying(id)) {
+      const d = Engine.dur(id), from = Math.min(f * d, Math.max(0, d - 0.1));
+      logLine(`재생 위치 옮김 ${nm(id)} → ${fmt(from)}`);
+      Engine.play(id, { fadeIn: 0, fadeOut: foutOf(p), from }); paintPad(id);
+    }
+    renderPlays();
+  };
+  box.addEventListener('pointerup', e => end(e, true));
+  box.addEventListener('pointercancel', e => end(e, false));
+})()
 
 function renderPause() {
   const on = Engine.paused;
@@ -227,35 +276,12 @@ function renderPause() {
   $('btnPause').setAttribute('aria-label', on ? '전체 이어서' : '전체 일시정지');
 }
 
-function renderAll() { applyTheme(); applyBoardColor(); renderTop(); renderTabs(); renderGrid(); renderMaster(); renderScrub(); renderPause(); }
-
-// 아래 재생 바: 누르거나 끌어서 마지막 재생 곡의 위치 옮기기. 끄는 동안은 위치만 보여 주고, 손 뗄 때 그 자리부터 다시 튼다.
-// (곡이 재생 중일 때만. 옮긴 자리에선 페이드인 없이 바로)
-(() => {
-  const tr = $('sTrack'); let on = false;
-  const frac = e => { const r = tr.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
-  tr.addEventListener('pointerdown', e => {
-    if (!started || !lastId || !Engine.isPlaying(lastId)) return;
-    on = true; tr.setPointerCapture(e.pointerId); tr.classList.add('drag'); seekTo = frac(e); renderScrub();
-  });
-  tr.addEventListener('pointermove', e => { if (on) { seekTo = frac(e); renderScrub(); } });
-  const up = e => {
-    if (!on) return; on = false; tr.classList.remove('drag');
-    const f = frac(e), id = lastId, p = S.pads[id]; seekTo = null;
-    if (!p || !Engine.isPlaying(id)) return renderScrub();
-    const d = Engine.dur(id), from = Math.min(f * d, Math.max(0, d - 0.1));
-    logLine(`재생 위치 옮김 ${nm(id)} → ${fmt(from)}`);
-    Engine.play(id, { fadeIn: 0, fadeOut: foutOf(p), from });
-    paintPad(id); renderScrub();
-  };
-  tr.addEventListener('pointerup', up);
-  tr.addEventListener('pointercancel', () => { on = false; seekTo = null; tr.classList.remove('drag'); renderScrub(); });
-})();
+function renderAll() { applyTheme(); applyBoardColor(); renderTop(); renderTabs(); renderGrid(); renderMaster(); renderPlays(); renderPause(); }
 
 // 재생 중인 패드만 1초에 4번 갱신 (DESIGN §6)
 setInterval(() => {
   for (const id of Engine.playingIds()) { const el = padEls.get(id); if (el) tickPad(id, el); }
-  renderScrub();
+  renderPlays();
 }, 250);
 
 // ---------- 패드 누르기 ----------
@@ -421,7 +447,8 @@ function renderSelBar() {
     save(); toast(`${n}개 → ${to.name}`); sel.clear(); renderTop(); renderGrid();
   };
   bar.append(...[
-    h('span', { class: 'cnt' }, n ? `${n}개 고름` : '패드를 눌러 고르세요'),
+    h('span', { class: 'cnt' }, n ? `${n}개 고름` : '눌러서 고르기 · 꾹 끌면 옮기기 · 이름 꾹 → 이름 바꾸기'),
+    h('button', { class: 'sbtn', onclick: openSort }, '정렬'),
     h('button', { class: 'sbtn', onclick: () => { if (n === b.pads.length) clearSel(); else { b.pads.forEach(id => sel.add(id)); paintAll(); renderSelBar(); } } }, n && n === b.pads.length ? '고르기 해제' : '전체 고르기'),
     n === 1 ? h('button', { class: 'sbtn', onclick: () => openPadSheet(ids[0]) }, '설정') : null,
     h('button', { class: 'sbtn', disabled: dis, onclick: () => openBulkSheet(ids) }, '일괄 수정'),
@@ -440,7 +467,7 @@ function renderSelBar() {
 const nm = id => `"${(S.pads[id] || {}).label || id}"`;   // 기록용 패드 이름
 // 시험 기록(PLAN-app-fix1 시험표): 무엇을 눌러 무슨 일이 났는지 로그로 남겨 PC에서 분석
 const WHY = { ended: '트랙 끝', faded: '페이드 끝', stop: '바로 정지', restart: '다시 시작', hidden: '홈 복귀', ousted: '다른 창', error: '오류', unload: '지움' };
-const playT = {};
+var playT = {};   // id → 튼 시각(재생 줄 순서)
 Engine.on('play', id => {
   const p = S.pads[id]; playT[id] = performance.now();
   if (p) logLine(`▶ ${nm(id)} 구간 ${Engine.dur(id).toFixed(1)}초 · 인 ${p.fin ? p.finSec + '초' : '끔'} · 아웃 ${foutOf(p) ? foutOf(p) + '초' : '끔'}${p.loop ? ' · 반복' : ''}`);
@@ -453,7 +480,7 @@ Engine.on('end', (id, why) => {
   paintPad(id);
 });
 Engine.on('pause', () => { renderPause(); renderTop(); });
-Engine.on('return', () => { paintAll(); renderScrub(); reqWake(); });
+Engine.on('return', () => { paintAll(); renderPlays(); reqWake(); });
 Engine.on('ousted', () => { $('oustOv').hidden = false; paintAll(); });
 $('btnReload').onclick = () => location.reload();
 
@@ -524,7 +551,6 @@ function idleClear() {
 setInterval(idleClear, 60000);
 $('btnAdd').onclick = () => pickFiles();
 $('btnSet').onclick = () => { if (!S.lock) openSettings(); };
-$('btnSort').onclick = () => { if (editMode) openSort(); };
 
 function onTab(i) {
   if (i === S.cur) { if (editMode && !S.lock) openBoardSheet(); return; }
