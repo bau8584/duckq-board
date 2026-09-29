@@ -96,9 +96,16 @@ button:disabled{cursor:default}
 /* 재생 중: 색 유지 + 더 밝은 같은 색이 왼쪽에서 진행만큼 차오름 · 커짐 · 색 그림자 · 레벨미터 */
 /* 재생 중: 더 밝고 쨍하게(평소의 탁한 색과 확실히 갈리게) */
 .pad.playing{filter:saturate(1.35) brightness(1.12);background:linear-gradient(90deg,color-mix(in srgb,var(--h) 58%,#fff) var(--p),var(--h) var(--p));
-  transform:scale(1.035);z-index:2;
-  box-shadow:0 10px 26px -2px color-mix(in srgb,var(--h) 70%,transparent),0 2px 6px rgba(0,0,0,.25)}
-.pad.playing.press{transform:scale(1.005)}
+  transform:scale(1.06);z-index:2;
+  box-shadow:0 0 26px 6px color-mix(in srgb,var(--h) 75%,transparent),0 8px 18px rgba(0,0,0,.3)}
+[data-theme="light"] .pad.playing{box-shadow:0 0 22px 5px color-mix(in srgb,var(--h) 60%,transparent),0 8px 18px rgba(0,0,0,.35)}
+.pad.playing.press{transform:scale(1.03)}
+/* [시험 중 — 기각 가능] 끝나기 5초 전: 빛이 숨 쉬듯 밝아졌다 어두워짐 */
+@keyframes endglow{0%{box-shadow:0 0 14px 2px color-mix(in srgb,var(--h) 50%,transparent),0 8px 18px rgba(0,0,0,.3)}100%{box-shadow:0 0 38px 12px color-mix(in srgb,var(--h) 95%,transparent),0 8px 18px rgba(0,0,0,.3)}}
+.pad.playing.ending{animation:endglow .5s ease-in-out infinite alternate}
+.pad.playing.ending .meta span:last-child{font-weight:900;opacity:1}
+/* [시험 중 — 기각 가능] 무언가 울리는 동안 나머지 패드를 한 단계 더 어둡게 */
+.anyplay .pad[data-id]:not(.playing){opacity:.55}
 .pad.playing .idx{display:none}
 .pad.playing .eq{display:flex}
 /* 평소(재생 안 함) = 어둡고 탁한 색, 재생 중에만 원래 밝은 색 (소유자 결정 2026-09-29). PLAYED는 색은 그대로, 칩만 */
