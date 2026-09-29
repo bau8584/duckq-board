@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.1 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.2 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -132,7 +132,7 @@ function renderTabs() {
   const box = $('tabs'); box.textContent = '';
   S.boards.forEach((b, i) => {
     const t = h('button', { class: 'tab' + (i === S.cur ? ' on' : ''), onclick: () => { if (!t._long) onTab(i); t._long = false; } }, b.name);
-    longPress(t, () => { if (S.lock) return; t._long = true; if (i !== S.cur) onTab(i); openBoardSheet(); });
+    longPress(t, () => { if (S.lock) return; t._long = true; if (i !== S.cur) onTab(i); logLine(`길게 누름 → 보드 설정 "${b.name}"`); openBoardSheet(); });
     t.style.setProperty('--c', COLORS[b.color]);
     box.append(t);
   });
@@ -275,7 +275,7 @@ grid.addEventListener('pointerdown', e => {
   touches.set(e.pointerId, t);
   if (!t.dead) el.classList.add('press');
   if (editMode && !t.dead) t.timer = setTimeout(() => startDrag(t), HOLD_MS);
-  else if (!t.dead && !S.lock) t.timer = setTimeout(() => { t.dead = true; t.el.classList.remove('press'); openPadSheet(t.id); }, LONG_MS);
+  else if (!t.dead && !S.lock) t.timer = setTimeout(() => { t.dead = true; t.el.classList.remove('press'); logLine(`길게 누름 → 패드 설정 ${nm(t.id)}`); openPadSheet(t.id); }, LONG_MS);
 });
 window.addEventListener('pointermove', e => {
   const t = touches.get(e.pointerId); if (!t) return;
@@ -288,7 +288,7 @@ window.addEventListener('pointerup', e => {
   if (t.drag) return endDrag(t);
   unpress(t.el);
   if (t.dead) return;
-  if (editMode) toggleSel(t.id); else tapPad(t.id);
+  if (editMode) toggleSel(t.id); else { logLine(`짧게 누름 ${nm(t.id)}${S.lock ? ' (잠김)' : ''}`); tapPad(t.id); }
 });
 window.addEventListener('pointercancel', e => {
   const t = touches.get(e.pointerId); if (!t) return;
@@ -379,8 +379,21 @@ function renderSelBar() {
   ].filter(Boolean));
 }
 
-Engine.on('play', id => paintPad(id));
-Engine.on('end', id => paintPad(id));
+const nm = id => `"${(S.pads[id] || {}).label || id}"`;   // 기록용 패드 이름
+// 시험 기록(PLAN-app-fix1 시험표): 무엇을 눌러 무슨 일이 났는지 로그로 남겨 PC에서 분석
+const WHY = { ended: '곡 끝', faded: '페이드 끝', stop: '바로 정지', restart: '다시 시작', hidden: '홈 복귀', ousted: '다른 창', error: '오류', unload: '지움' };
+const playT = {};
+Engine.on('play', id => {
+  const p = S.pads[id]; playT[id] = performance.now();
+  if (p) logLine(`▶ ${nm(id)} 구간 ${Engine.dur(id).toFixed(1)}초 · 인 ${p.fin ? p.finSec + '초' : '끔'} · 아웃 ${foutOf(p) ? foutOf(p) + '초' : '끔'}${p.loop ? ' · 반복' : ''}`);
+  paintPad(id);
+});
+Engine.on('fade', id => logLine(`◢ ${nm(id)} 페이드아웃 시작`));
+Engine.on('end', (id, why) => {
+  const p = S.pads[id], t = playT[id] ? ((performance.now() - playT[id]) / 1000).toFixed(1) : '?';
+  logLine(`■ ${nm(id)} ${WHY[why] || why} · ${t}초 들림` + (why === 'ended' && p && foutOf(p) && !p.loop ? ` · 끝 페이드 ${foutOf(p)}초 걸렸어야 함` : ''));
+  paintPad(id);
+});
 Engine.on('pause', () => { renderPause(); renderTop(); });
 Engine.on('return', () => { paintAll(); renderScrub(); reqWake(); });
 Engine.on('ousted', () => { $('oustOv').hidden = false; paintAll(); });
@@ -390,9 +403,13 @@ $('btnReload').onclick = () => location.reload();
 function hit(btn, fn) {
   btn.addEventListener('pointerdown', e => { e.preventDefault(); btn.classList.add('hit'); setTimeout(() => btn.classList.remove('hit'), 90); if (started) fn(); });
 }
-hit($('btnPause'), () => { if (Engine.paused) Engine.resumeAll(); else if (!Engine.pauseAll()) toast('재생 중인 소리가 없어요'); });
-hit($('btnStop'), () => { Engine.stopAll(0); paintAll(); });
-hit($('btnFade'), () => { Engine.stopAll(S.settings.fadeSec); paintAll(); });
+hit($('btnPause'), () => {
+  if (Engine.paused) { Engine.resumeAll(); logLine('⏵ 이어서 (30ms 올림)'); }
+  else if (Engine.pauseAll()) logLine(`⏸ 일시정지 (30ms 줄임) · 재생 중 ${Engine.playingIds().length}곡`);
+  else toast('재생 중인 소리가 없어요');
+});
+hit($('btnStop'), () => { logLine(`■ 전체정지${Engine.paused ? ' (⏸ 중 — 소리 막은 채 정리)' : ''} · ${Engine.playingIds().length}곡`); Engine.stopAll(0); paintAll(); });
+hit($('btnFade'), () => { logLine(`◣ 전체 페이드 ${S.settings.fadeSec}초 · ${Engine.playingIds().length}곡`); Engine.stopAll(S.settings.fadeSec); paintAll(); });
 
 // MASTER 세로 슬라이더
 (() => {
@@ -427,9 +444,10 @@ $('btnLock').onclick = () => {
   // 잠금 켤 때 = 공연 준비 끝 → PLAYED 지움(8초 안에 되돌리기)
   const was = S.lock ? clearPlayed() : [];
   save(); renderTop(); renderTabs(); renderGrid();
+  logLine(S.lock ? `잠금 켬 · PLAYED ${was.length}개 지움` : '잠금 풂');
   if (!S.lock) toast('잠금을 풀었어요');
   else if (!was.length) toast('잠갔어요 — 패드·재생 버튼만 눌려요');
-  else toast(`잠갔어요 · PLAYED ${was.length}개 지움`, 8000, { label: '되돌리기', fn: () => { was.forEach(id => { if (S.pads[id]) S.pads[id].played = true; }); save(); paintAll(); } });
+  else toast(`잠갔어요 · PLAYED ${was.length}개 지움`, 8000, { label: '되돌리기', fn: () => { logLine(`PLAYED 되돌리기 ${was.length}개`); was.forEach(id => { if (S.pads[id]) S.pads[id].played = true; }); save(); paintAll(); } });
 };
 $('btnEdit').onclick = () => { if (S.lock) return; editMode = !editMode; sel.clear(); renderTop(); renderTabs(); paintAll(); };
 // PLAYED 지우기 → 지운 패드 id 목록(되돌리기용)
@@ -628,8 +646,8 @@ function trimBox(id, onchange) {
   const commit = () => { Engine.setTrim(id, ns(), ne()); mark(); };   // 미리 듣기용으로만 적용
   const api = {
     dirty,
-    save() { p.start = ns(); p.end = ne(); Engine.setTrim(id, p.start, p.end); touchEdit(p); save(); mark(); onchange(); },
-    cancel() { s = p.start || 0; e = p.end > s ? Math.min(p.end, D) : D; Engine.setTrim(id, p.start || 0, p.end || 0); draw(); mark(); },
+    save() { logLine(`트림 저장 ${nm(id)} ${ns()}~${ne() || '끝'}`); p.start = ns(); p.end = ne(); Engine.setTrim(id, p.start, p.end); touchEdit(p); save(); mark(); onchange(); },
+    cancel() { logLine(`트림 취소 ${nm(id)}`); s = p.start || 0; e = p.end > s ? Math.min(p.end, D) : D; Engine.setTrim(id, p.start || 0, p.end || 0); draw(); mark(); },
   };
   const setS = v => { s = Math.min(Math.max(0, v), e - 0.1); draw(); };
   const setE = v => { e = Math.max(Math.min(D, v), s + 0.1); draw(); };
@@ -715,7 +733,7 @@ function openPadSheet(id) {
   });
   // 저장 안 한 트림은 닫을 때 묻는다. 미리 듣기로 튼 소리는 끔
   onSheetClose = () => {
-    if (trim && S.pads[id] && trim.dirty()) { if (confirm('구간(트림)을 바꾼 게 저장되지 않았어요.\n저장할까요? (취소 = 바꾸기 전으로)')) trim.save(); else trim.cancel(); }
+    if (trim && S.pads[id] && trim.dirty()) { logLine('트림 저장 안 하고 닫음 → 물어봄'); if (confirm('구간(트림)을 바꾼 게 저장되지 않았어요.\n저장할까요? (취소 = 바꾸기 전으로)')) trim.save(); else trim.cancel(); }
     if (heard && Engine.isPlaying(id)) Engine.stop(id, 0);
   };
 }
@@ -724,7 +742,7 @@ function openPadSheet(id) {
 function openBulkSheet(ids) {
   const ps = ids.map(id => S.pads[id]).filter(Boolean); if (!ps.length) return;
   const same = k => ps.every(q => q[k] === ps[0][k]) ? ps[0][k] : undefined;
-  const set = fn => { ps.forEach(q => { fn(q); touchEdit(q); }); save(); };
+  const set = fn => { ps.forEach(q => { fn(q); touchEdit(q); }); save(); logLine(`일괄 수정 ${ps.length}개 → ` + ps.map(q => `${q.label}(vol ${Math.round(q.vol * 100)} 인 ${q.fin ? q.finSec : '끔'} 아웃 ${q.fout ? q.foutSec : '끔'} 루프 ${q.loop ? 1 : 0} 색 ${q.color})`).join(', ')); };
   const onoff = (k, extra) => seg([[true, '켬'], [false, '끔']], same(k), v => { set(q => { q[k] = v; extra && extra(q, v); }); });
   openSheet(`${ps.length}개 일괄 수정`, body => body.append(
     h('div', { class: 'row' }, h('div', { class: 'info' }, '바꾼 항목만 고른 패드 모두에 같은 값으로 들어가요. 안 건드린 항목은 그대로예요.')),
@@ -759,7 +777,7 @@ function openFadeSheet() {
       mini(p.fout, p.foutSec, v => { p.fout = v; touchEdit(p); save(); }, v => { p.foutSec = v; touchEdit(p); save(); }))); });
     if (!b.pads.length) list.append(h('div', { class: 'info' }, '이 보드엔 패드가 없어요'));
   };
-  const all = fn => { b.pads.forEach(id => { const p = S.pads[id]; fn(p); touchEdit(p); }); save(); draw(); };
+  const all = fn => { b.pads.forEach(id => { const p = S.pads[id]; fn(p); touchEdit(p); }); save(); draw(); logLine(`페이드 창 전체 적용 → ` + b.pads.map(id => { const p = S.pads[id]; return `${p.label}(인 ${p.fin ? p.finSec : '끔'} 아웃 ${p.fout ? p.foutSec : '끔'})`; }).join(', ')); };
   const bulk = (label, onK, secK) => {
     let n = 2; const o = h('output', null, sec1(n));
     return h('div', { class: 'row col' }, h('label', null, label),
@@ -825,6 +843,7 @@ function openSettings() {
       } }, '모두 지우기')),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
         h('div', { style: 'display:flex;gap:8px' },
+          h('button', { class: 'sbtn', onclick: () => { const m = prompt('기록에 남길 메모 (예: A3 지직 없음)'); if (m) { logLine('📝 ' + m); flushLog(); toast('메모를 남겼어요'); } } }, '메모 남기기'),
           h('button', { class: 'sbtn', onclick: () => { logBox.hidden = !logBox.hidden; logBox.textContent = LOG.join('\n') || '(기록 없음)'; } }, '최근 기록'),
           h('button', { class: 'sbtn', onclick: async () => { try { await navigator.clipboard.writeText(LOG.join('\n')); toast('기록을 복사했어요'); } catch { toast('복사 실패 — 기록을 길게 눌러 선택'); } } }, '기록 복사')),
         logBox),
