@@ -768,24 +768,26 @@ async function exportBoard(b) {
   const t0 = performance.now();
   logLine(`내보내기 시작 "${b.name}" · 패드 ${pads.length}개 · 파일 ${entries.length - 1}개 · ${mb.toFixed(1)}MB${miss.length ? ' · 파일 없음 ' + miss.length : ''}`);
   let zip;
-  try { zip = await Zip.make(entries, (i, n) => toast(`내보내는 중… ${i}/${n}`, 60000)); }
+  try { zip = await Zip.make(entries, (i, n) => toast(`내보내는 중… ${i}/${n} — 앱을 닫지 마세요`, 600000)); }
   catch (e) { logLine('내보내기 실패: ' + (e && e.message), 'e'); toast('내보내기 실패 — ' + (e && e.message), 5000); return; }
   const fname = `${safeName(b.name)}.duckq.zip`;
   logLine(`내보내기 만듦 ${fname} · ${(zip.size / 1048576).toFixed(1)}MB · ${((performance.now() - t0) / 1000).toFixed(1)}초`);
   // 아이패드는 손가락 누름 직후에만 공유 창이 열려서, 다 만든 뒤 [저장] 한 번 더 누르게 한다
-  toast(`준비됐어요 (${(zip.size / 1048576).toFixed(0)}MB)${miss.length ? ` · 파일 없는 패드 ${miss.length}개 뺌` : ''}`, 30000, { label: '저장', fn: () => saveBlob(zip, fname) });
+  toast(`준비됐어요 (${(zip.size / 1048576).toFixed(0)}MB)${miss.length ? ` · 파일 없는 패드 ${miss.length}개 뺌` : ''}`, 600000, { label: '저장', fn: () => saveBlob(zip, fname) });
 }
 const MIME_EXT = Object.fromEntries(Object.entries(MIME).map(([k, v]) => [v, k]));
 async function saveBlob(blob, fname) {
+  toast(`저장 창 여는 중… 큰 파일은 오래 걸려요 (${(blob.size / 1048576).toFixed(0)}MB)`, 600000);
+  const t0 = performance.now(), done = m => { $('toast').hidden = true; logLine(`${m} · ${((performance.now() - t0) / 1000).toFixed(1)}초`); };
   const file = new File([blob], fname, { type: 'application/zip' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); logLine('내보내기 공유 창 완료'); return; }
-    catch (e) { if (e.name === 'AbortError') { logLine('내보내기 공유 창 닫음'); return; } logLine(`공유 창 실패(${e.name}) → 다운로드로`, 'w'); }
+    try { await navigator.share({ files: [file] }); done('내보내기 공유 창 완료'); return; }
+    catch (e) { if (e.name === 'AbortError') { done('내보내기 공유 창 닫음'); return; } logLine(`공유 창 실패(${e.name}) → 다운로드로`, 'w'); }
   } else logLine('공유 창 없음 → 다운로드로');
   const a = h('a', { href: URL.createObjectURL(file), download: fname });
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 60000);
-  logLine('내보내기 다운로드 시작');
+  done('내보내기 다운로드 시작');
 }
 function pickImport() { if (S.lock) return; $('zipIn').click(); }
 $('zipIn').addEventListener('change', async e => {
@@ -793,6 +795,8 @@ $('zipIn').addEventListener('change', async e => {
   if (!f) return;
   const t0 = performance.now();
   logLine(`가져오기 시작 "${f.name}" · ${(f.size / 1048576).toFixed(1)}MB`);
+  toast('파일 읽는 중…', 600000);
+  if (navigator.storage && navigator.storage.estimate) try { const e = await navigator.storage.estimate(); logLine(`저장 공간 ${(e.usage / 1048576).toFixed(0)}MB / ${(e.quota / 1048576).toFixed(0)}MB`); } catch {}
   let map, json;
   try {
     map = await Zip.read(f);
@@ -808,13 +812,24 @@ $('zipIn').addEventListener('change', async e => {
   applyBoardColor(); renderTop(); renderTabs(); renderGrid();
   for (let i = 0; i < json.pads.length; i++) {
     const jp = json.pads[i], blob = map.get(jp.file);
-    toast(`가져오는 중… ${i + 1}/${json.pads.length}`, 60000);
+    toast(`가져오는 중… ${i + 1}/${json.pads.length} — 앱을 닫지 마세요`, 600000);
     if (!blob) { bad.push(jp.label || jp.file); continue; }
     let fid = fileIds.get(jp.file);
+    if (fid === null) { bad.push(jp.label || jp.file); continue; }   // 같은 파일이 앞에서 실패
     if (!fid) {
       const ext = (jp.file.match(/\.([^.]+)$/) || [])[1] || '';
-      const rec = { id: uid(), name: jp.file, size: blob.size, type: MIME[ext.toLowerCase()] || '', blob: new File([blob], jp.file, { type: MIME[ext.toLowerCase()] || '' }) };
-      try { await Store.putFile(rec); } catch (err) { bad.push(jp.label || jp.file); logLine(`파일 저장 실패 "${jp.file}": ${err && err.message}`, 'e'); continue; }
+      const type = MIME[ext.toLowerCase()] || '';
+      let rec;
+      try {
+        // zip의 조각을 그대로 저장하면 사파리가 zip 전체를 저장해 공간이 넘친다 → 소리 크기만큼 복사해서 저장
+        const own = new File([await blob.arrayBuffer()], jp.file, { type });
+        rec = { id: uid(), name: jp.file, size: own.size, type, blob: own };
+        await Store.putFile(rec);
+      } catch (err) {
+        bad.push(jp.label || jp.file); fileIds.set(jp.file, null);
+        logLine(`파일 저장 실패 "${jp.file}": ${err ? (err.name || '') + ' ' + (err.message || '') : '이유 모름'}`, 'e');
+        continue;
+      }
       files.set(rec.id, rec); fid = rec.id; fileIds.set(jp.file, fid);
     }
     const base = newPad(fid, String(jp.label || '소리'), +jp.dur || 0);
