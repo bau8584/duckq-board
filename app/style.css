@@ -244,6 +244,7 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .env.dim-in .el.in,.env.dim-out .el.out{color:var(--text-dim)}
 .env.dim-in .eh:nth-of-type(1),.env.dim-out .eh:nth-of-type(2){opacity:.35}
 .frow.ck{grid-template-columns:34px minmax(0,1fr) minmax(0,1.6fr)!important}
+.env.one .eh:nth-of-type(1),.env.one .el.in{display:none}
 .ehead{display:flex;justify-content:space-between}
 .seg.sm button{padding:5px 12px;min-height:32px;font-size:13px}
 /* 설정 창 아래: [취소] = 열기 전으로, [완료] */

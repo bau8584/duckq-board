@@ -1,12 +1,12 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.15 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.16 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
 const ROWS = { 4: 3, 6: 4, 8: 5 };           // 패드 크기 = 열 수 → 한 화면에 보이는 줄 수 (넘치면 세로 스크롤)
 // 새 곡 페이드 기본값은 모두 끔(PLAN-app-fix1 3번). 패드 글자 크기 s/m/l
-const DEF_SETTINGS = { theme: 'dark', cols: 6, fadeSec: 2, fadeOverride: false, soloMode: 'each', labelSize: 'm', newFin: false, newFinSec: 1, newFout: false, newFoutSec: 2 };
+const DEF_SETTINGS = { theme: 'dark', cols: 6, fadeSec: 2, fadeOverride: false, soloMode: 'each', labelSize: 'm', newFin: false, newFinSec: 1, newFout: false, newFoutSec: 2, fadeMax: 10 };
 const PLAYED_IDLE_MS = 6 * 3600 * 1000;   // 마지막 사용 6시간 뒤 PLAYED 저절로 지움
 const IC = {
   fi: '<svg viewBox="0 0 24 24"><path d="M3 19L21 5v14z"/></svg>',
@@ -885,44 +885,47 @@ function openBulkSheet(ids) {
     volRow(h('span', null, helpLabel('팬', HELP.pan), mixed('pan') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('pan', 100, -100, 100, 10, panTxt, (q, v) => { q.pan = v / 100; Engine.setPan(q.id, q.pan); }), 0),
     row(lab('반복(루프)', 'loop'), onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
     row(lab('솔로', 'solo'), onoff('solo')),
-    fadeRow('페이드인', mixed('fin') || mixed('finSec') ? '지금 제각각' : '', onoff('fin'), num('finSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.finSec = v; })),
-    fadeRow('페이드아웃', mixed('fout') || mixed('foutSec') ? '지금 제각각' : '', onoff('fout'), num('foutSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.foutSec = v; }), '곡 끝에 닿을 때와 재생 중 다시 눌러 끌 때 둘 다 이 시간으로 줄어들어요.'),
+    fadeRow('페이드인', mixed('fin') || mixed('finSec') ? '지금 제각각' : '', onoff('fin'), num('finSec', 1, 0.1, fadeMax(), 0.1, sec1, (q, v) => { q.finSec = v; })),
+    fadeRow('페이드아웃', mixed('fout') || mixed('foutSec') ? '지금 제각각' : '', onoff('fout'), num('foutSec', 1, 0.1, fadeMax(), 0.1, sec1, (q, v) => { q.foutSec = v; }), '곡 끝에 닿을 때와 재생 중 다시 눌러 끌 때 둘 다 이 시간으로 줄어들어요.'),
   ));
 }
 
 // ---------- 페이드 모양 막대 ----------
 // 편집 프로그램의 페이드 손잡이처럼: 왼쪽 비탈 = 페이드인, 오른쪽 비탈 = 페이드아웃. 끌어서 길이를 정하고, 끝까지 밀면 0초 = 끔.
 // v = {fin, finSec, fout, foutSec} · onchange(side 'in'|'out', sec(0=끔), final) · opt.dim = {in:true} 이면 그쪽을 흐리게(아직 안 정함)
-const ENV_MAX = 10, ENV_HALF = 46;   // 한쪽 비탈 최대 10초, 막대 폭의 46%까지
-const envX = sec => Math.sqrt(Math.min(ENV_MAX, sec) / ENV_MAX) * ENV_HALF;   // 짧은 시간을 세밀하게(제곱근 눈금)
-const envSec = pct => Math.round(ENV_MAX * (Math.max(0, Math.min(ENV_HALF, pct)) / ENV_HALF) ** 2 * 10) / 10;
+// 한쪽 비탈 최대 = 설정의 '최대 페이드 시간'(10·20·30초), 막대 폭의 46%까지(한쪽만 쓰는 막대는 92%)
+const fadeMax = () => S.settings.fadeMax || 10;
+const envX = (sec, half = 46) => Math.sqrt(Math.min(fadeMax(), sec) / fadeMax()) * half;   // 짧은 시간을 세밀하게(제곱근 눈금)
+const envSec = (pct, half = 46) => Math.round(fadeMax() * (Math.max(0, Math.min(half, pct)) / half) ** 2 * 10) / 10;
+// opt.outOnly = 페이드아웃 비탈 하나만(◣ 버튼 시간)
 function fadeEnv(v, onchange, opt = {}) {
   let si = v.fin ? v.finSec : 0, so = v.fout ? v.foutSec : 0;
+  const one = !!opt.outOnly, HO = one ? 92 : 46;
   const dim = { in: !!(opt.dim && opt.dim.in), out: !!(opt.dim && opt.dim.out) };
   const NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', '0 0 100 40'); svg.setAttribute('preserveAspectRatio', 'none');
   const poly = document.createElementNS(NS, 'polygon'); svg.append(poly);
   const hi = h('i', { class: 'eh' }), ho = h('i', { class: 'eh' });
   const li = h('span', { class: 'el in' }), lo = h('span', { class: 'el out' });
-  const box = h('div', { class: 'env' + (opt.small ? ' small' : '') }, svg, hi, ho, li, lo);
+  const box = h('div', { class: 'env' + (opt.small ? ' small' : '') + (one ? ' one' : '') }, svg, hi, ho, li, lo);
   const draw = () => {
-    const xi = envX(si), xo = 100 - envX(so);
+    const xi = one ? 0 : envX(si), xo = 100 - envX(so, HO);
     poly.setAttribute('points', `0,40 ${xi},3 ${xo},3 100,40`);
     hi.style.left = xi + '%'; ho.style.left = xo + '%';
     li.textContent = dim.in ? '인 —' : si ? `인 ${si.toFixed(1)}초` : '인 없음';
-    lo.textContent = dim.out ? '아웃 —' : so ? `아웃 ${so.toFixed(1)}초` : '아웃 없음';
+    lo.textContent = dim.out ? '아웃 —' : so ? `${one ? '' : '아웃 '}${so.toFixed(1)}초` : '아웃 없음';
     box.classList.toggle('dim-in', dim.in); box.classList.toggle('dim-out', dim.out);
   };
   let side = null;
   const at = e => { const r = box.getBoundingClientRect(); return (e.clientX - r.left) / r.width * 100; };
   const set = (e, final) => {
     const x = at(e);
-    if (side === 'in') { si = envSec(x); dim.in = false; } else { so = envSec(100 - x); dim.out = false; }
+    if (side === 'in') { si = envSec(x); dim.in = false; } else { so = envSec(100 - x, HO); dim.out = false; }
     draw(); onchange(side, side === 'in' ? si : so, final);
   };
   box.addEventListener('pointerdown', e => {
     const x = at(e);   // 가까운 손잡이 쪽
-    side = Math.abs(x - envX(si)) <= Math.abs(x - (100 - envX(so))) ? 'in' : 'out';
+    side = !one && Math.abs(x - envX(si)) <= Math.abs(x - (100 - envX(so, HO))) ? 'in' : 'out';
     box.setPointerCapture(e.pointerId); box.classList.add('drag'); set(e, false);
   });
   box.addEventListener('pointermove', e => { if (side) set(e, false); });
@@ -999,10 +1002,13 @@ function fadeTab(body) {
         if (side === 'in') { st.newFin = sec > 0; if (sec > 0) st.newFinSec = sec; } else { st.newFout = sec > 0; if (sec > 0) st.newFoutSec = sec; }
         if (final) save();
       })),
-    row(helpLabel('◣ 버튼 페이드 시간', '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐'), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
+    row(helpLabel('최대 페이드 시간', '페이드 막대 한쪽 끝까지 밀었을 때의 길이예요. 길게 늘이는 곡이 있으면 20·30초로. 짧을수록 막대를 세밀하게 맞추기 쉬워요.'),
+      seg([[10, '10초'], [20, '20초'], [30, '30초']], fadeMax(), v => { st.fadeMax = v; save(); openSettings('fade', true); })),
+    h('div', { class: 'row col' }, h('label', null, helpLabel('◣ 버튼 페이드', '아래 ◣를 누르면 울리는 모든 소리가 이 시간에 걸쳐 꺼져요. 막대 오른쪽 손잡이를 끌어요.')),
+      fadeEnv({ fout: st.fadeSec > 0, foutSec: st.fadeSec }, (side, sec, final) => { st.fadeSec = Math.max(0.1, sec); if (final) save(); }, { outOnly: true })),
     // 옛 설정: 켜 둔 사람만 보임(끌 수 있게)
     st.fadeOverride ? row(helpLabel('모든 패드에 ◣ 시간 쓰기', '옛 설정 — 끄면 곡별 페이드를 따름'), sw(true, on => { st.fadeOverride = on; save(); })) : '',
-    h('div', { class: 'row col' }, h('label', null, helpLabel('솔로 켠 패드를 틀면, 울리던 다른 소리는', '패드 설정에서 "솔로"를 켠 곡만 해당')),
+    h('div', { class: 'row col' }, h('label', null, helpLabel('솔로가 다른 곡 끄는 법', '패드 설정에서 "솔로"를 켠 곡을 틀면, 이미 울리던 다른 곡들을 끕니다. 그때 어떻게 끌지 고르세요 — 곡마다 정한 페이드아웃으로 / ◣ 버튼 시간으로 / 바로 뚝.')),
       seg([['each', '곡별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
     // 곡별 페이드: 보기 고르기·한 번에 바꾸기·목록이 한 설정임을 상자 하나로
     h('div', { class: 'fbox' },
