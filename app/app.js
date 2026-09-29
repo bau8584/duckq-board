@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.31 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.32 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -62,10 +62,50 @@ async function flushLog() {
     if (r.ok) logSent = upto;
   } catch {}
 }
-if (LOG_SEND) {
-  setInterval(flushLog, 5000);
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushLog(); });
+// 인터넷 없이 쓴 기록은 아이패드에 남겨 두었다가 다음에 연결될 때 보낸다
+const LOG_KEEP = 'duckq-log-pending';
+function keepLog() {
+  if (!LOG_SEND || (logSent >= logTotal && !kept)) return;
+  const now = logSent < logTotal ? LOG.slice(Math.max(0, LOG.length - (logTotal - logSent))).join('\n') : '';
+  try { localStorage.setItem(LOG_KEEP, [kept, now].filter(Boolean).join('\n')); } catch {}
 }
+// 지난번 열었을 때 못 보낸 기록(연 순간 한 번 꺼내 둠 — 이번 기록과 섞이지 않게)
+let kept = ''; try { kept = localStorage.getItem(LOG_KEEP) || ''; localStorage.removeItem(LOG_KEEP); } catch {}
+async function sendKept() {
+  if (!kept) return;
+  try { const r = await fetch('/log-app', { method: 'POST', body: `\n##### 지난번 인터넷 없을 때 남은 기록 #####\n${kept}` }); if (r.ok) kept = ''; } catch {}
+}
+if (LOG_SEND) {
+  setInterval(() => { sendKept(); flushLog().then(() => { try { logSent >= logTotal && !kept ? localStorage.removeItem(LOG_KEEP) : keepLog(); } catch {} }); }, 5000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { keepLog(); flushLog(); } });
+}
+
+// ---------- 오프라인 저장 (sw.js) ----------
+// 한 번 열면 앱 화면이 아이패드에 담긴다. 새 버전은 설정 [업데이트]로만 받는다.
+const APP_VER = (VER.match(/\d+\.\d+\.\d+/) || [''])[0];
+const Off = {
+  ok: 'serviceWorker' in navigator && isSecureContext,
+  saved: '', latest: '',
+  async check() {   // 담긴 버전 · 서버 최신 버전
+    try { const k = (await caches.keys()).find(n => n.startsWith('duckq-app-')); this.saved = k ? k.slice(10) : ''; } catch { this.saved = ''; }
+    this.latest = '';
+    if (navigator.onLine) try {
+      const t = await (await fetch('index.html?fresh=1', { cache: 'no-store' })).text();
+      this.latest = (t.match(/\?v=([\w.]+)/) || [])[1] || '';
+    } catch {}
+  },
+  update() {
+    return new Promise((res, rej) => {
+      const sw = navigator.serviceWorker.controller; if (!sw) return rej(new Error('아직 준비 안 됨 — 한 번 새로고침'));
+      const on = e => { if (!e.data || !e.data.update) return; navigator.serviceWorker.removeEventListener('message', on); e.data.ok ? res(e.data) : rej(new Error(e.data.msg)); };
+      navigator.serviceWorker.addEventListener('message', on);
+      sw.postMessage('update');
+    });
+  },
+};
+if (Off.ok) navigator.serviceWorker.register('sw.js').catch(e => logLine('오프라인 저장 등록 실패: ' + e.message, 'w'));
+window.addEventListener('online', () => logLine('인터넷 연결됨'));
+window.addEventListener('offline', () => logLine('인터넷 끊김 — 담아 둔 앱으로 계속', 'w'));
 window.addEventListener('error', e => logLine('오류: ' + e.message + ' @' + e.lineno, 'e'));
 window.addEventListener('unhandledrejection', e => logLine('오류: ' + (e.reason && e.reason.message || e.reason), 'e'));
 Engine.on('log', (m, lv) => logLine(m, lv));
@@ -1106,6 +1146,7 @@ function openSettings(tab = 'general', keep) {
       row(helpLabel('PLAYED 표시', '공연 모드를 켤 때와 6시간 안 쓰면 저절로 지워져요'), h('button', { class: 'sbtn', onclick: () => {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
+      offRow(),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
         h('div', { style: 'display:flex;gap:8px' },
           h('button', { class: 'sbtn', onclick: () => { const m = prompt('기록에 남길 메모 (예: A3 지직 없음)'); if (m) { logLine('📝 ' + m); flushLog(); toast('메모를 남겼어요'); } } }, '메모 남기기'),
@@ -1117,6 +1158,32 @@ function openSettings(tab = 'general', keep) {
       const m = $('memInfo'); if (m) m.textContent += ` · 저장 ${(e.usage / 1048576).toFixed(0)}MB / ${(e.quota / 1073741824).toFixed(1)}GB`;
     });
   }, null, null, keep);
+}
+
+// 설정: 오프라인 저장 상태 + [업데이트]
+function offRow() {
+  const txt = h('span', { class: 'plab' }, '확인 중…');
+  const btn = h('button', { class: 'sbtn', hidden: true }, '업데이트');
+  const paint = () => {
+    const up = navigator.onLine && !!Off.latest;   // 서버에서 버전을 받아 와야 '연결됨'
+    const net = up ? '인터넷 연결됨' : '인터넷 없음';
+    if (!Off.ok) { txt.textContent = `${net} · 이 주소에선 오프라인 저장 안 됨`; return; }
+    const saved = Off.saved ? `${Off.saved} 담김 — 인터넷 없어도 켜져요` : '아직 안 담김 — 인터넷 없으면 안 켜져요';
+    const news = Off.latest && Off.latest !== APP_VER ? ` · 새 버전 ${Off.latest} 있음` : Off.latest ? ' · 최신' : '';
+    txt.textContent = `${net} · ${saved}${news}`;
+    btn.hidden = !up;
+    btn.textContent = news.includes('새') ? `${Off.latest}로 업데이트` : '다시 받기';
+  };
+  btn.onclick = async () => {
+    if (Engine.playingIds().length && !confirm('재생 중인 소리가 멈춰요. 업데이트할까요?')) return;
+    btn.disabled = true; txt.textContent = '기록 보내고 받는 중…';
+    logLine(`업데이트 시작 ${APP_VER} → ${Off.latest || '?'}`);
+    keepLog(); await sendKept(); await flushLog();
+    try { const r = await Off.update(); logLine(`업데이트 받음 ${r.ver} · 파일 ${r.n}개`); await flushLog(); location.reload(); }
+    catch (e) { logLine('업데이트 실패: ' + e.message, 'w'); flushLog(); txt.textContent = '업데이트 실패 — ' + e.message; btn.disabled = false; }
+  };
+  Off.check().then(paint);
+  return row(helpLabel('오프라인', '한 번 열면 앱이 아이패드에 담겨 인터넷 없이도 켜져요. 새 버전은 [업데이트]를 눌러야 바뀌어요(공연 중 갑자기 안 바뀌게). 누를 때 기록도 PC로 보내요.'), h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, txt, btn));
 }
 
 // ---------- 알림 (act = {label, fn} 이면 단추 하나) ----------
@@ -1146,6 +1213,7 @@ async function boot() {
   const t0 = performance.now();
   renderAll();
   logLine(VER);
+  if (Off.ok) Off.check().then(() => logLine(`오프라인: ${navigator.onLine ? '연결됨' : '인터넷 없음'} · 담긴 ${Off.saved || '없음'}${Off.latest && Off.latest !== APP_VER ? ' · 새 버전 ' + Off.latest : ''}`));
   idleClear();
   try { await Store.open(); } catch (e) { toast('저장소를 열 수 없어요'); logLine('저장소 열기 실패: ' + (e && e.message), 'e'); return; }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(ok => logLine('영구 저장 ' + (ok ? '허용' : '거부'), ok ? 'i' : 'w'));
