@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.44 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.45 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -217,7 +217,6 @@ function makePad(id, n) {
   el._el = el.querySelector('.meta span:first-child'); el._rm = el.querySelector('.meta span:last-child');
   padEls.set(id, el);
   paintPad(id);
-  if (window.Cue) Cue.decorate(el, p);   // 큐(설정에서 켰을 때만)
   return el;
 }
 
@@ -786,7 +785,7 @@ async function exportBoard(b) {
       if (c) Object.assign(rest, { start: Math.max(0, (p.start || 0) - c), end: p.end > 0 ? p.end - c : 0, dur: Math.max(0, (p.dur || 0) - c) });
       return { ...rest, file: names.get(file) };
     }) };
-  if (window.Cue) Cue.exportFix(json.pads, pads.filter(p => names.has(p.file)));
+  if (window.Cue) Cue.exportFix(json, pads.filter(p => names.has(p.file)), b);   // 큐보드
   entries.forEach(e => delete e.fid);
   entries.unshift({ name: 'board.json', blob: new Blob([JSON.stringify(json, null, 1)], { type: 'application/json' }) });
   const t0 = performance.now();
@@ -862,7 +861,7 @@ $('zipIn').addEventListener('change', async e => {
     renderTop(); renderGrid();
     await loadPad(p.id);
   }
-  if (window.Cue) Cue.importFix(qIds);
+  if (window.Cue) Cue.importFix(nb, qIds, json);   // 큐보드
   logLine(`가져오기 완료 "${nb.name}" · 패드 ${nb.pads.length}개${bad.length ? ' · 못 가져옴 ' + bad.length : ''} · ${((performance.now() - t0) / 1000).toFixed(1)}초`);
   toast(bad.length ? `못 가져온 패드 ${bad.length}개: ${bad.join(', ')}` : `"${nb.name}" 보드로 ${nb.pads.length}개 가져왔어요`, bad.length ? 6000 : 2500);
 });
@@ -923,6 +922,7 @@ function cancelSheet() {
   Engine.setBoost(S.settings.masterBoost || 1); renderMaster();
   save(); logLine('설정 창 취소 → 열기 전으로');
   closeSheet(); applyTheme(); applyBoardColor(); renderAll();
+  if (window.Cue) Cue.paint();
 }
 function closeSheet() {
   if ($('sheetWrap').hidden) return;
@@ -1139,7 +1139,6 @@ function openPadSheet(id) {
       loopCtl(loopMode(p), p.loopN || 3, p.loopSec || 30, false, o => { applyLoop(p, o); refresh(); }),
       row(helpLabel('솔로', '이 트랙을 틀면 이미 울리던 다른 트랙을 끕니다.'), sw(p.solo, on => { p.solo = on; soloBox.hidden = !on; refresh(); })),
       soloBox,
-      window.Cue ? Cue.padRows(p, refresh) : null,   // 큐(설정에서 켰을 때만)
       h('div', { class: 'row col' }, h('label', null, helpLabel('페이드', '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 트랙 끝 + 다시 눌러 끌 때')),
         fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) refresh(); })),
       h('div', { class: 'row' }, h('div', { class: 'info' },
@@ -1381,9 +1380,10 @@ function openBoardSheet() {
 // 설정 = [일반] [페이드] 두 칸
 function openSettings(tab = 'general', keep) {
   openSheet('설정', body => {
-    body.append(h('div', { class: 'row' }, seg([['general', '일반'], ['fade', '페이드'], ['vol', '볼륨']], tab, v => openSettings(v, true))));
+    body.append(h('div', { class: 'row' }, seg([['general', '일반'], ['fade', '페이드'], ['vol', '볼륨']].concat(window.Cue && S.settings.cue ? [['cue', '큐']] : []), tab, v => openSettings(v, true))));
     if (tab === 'fade') return fadeTab(body);
     if (tab === 'vol') return volTab(body);
+    if (tab === 'cue' && window.Cue) return Cue.tab(body);   // 큐보드
     const st = S.settings;
     const logBox = h('div', { class: 'logbox', hidden: true });
     body.append(

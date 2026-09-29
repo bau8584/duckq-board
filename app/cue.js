@@ -1,180 +1,108 @@
-// 큐 기능 (설정 → 일반 → 큐). 꺼져 있으면 아무 일도 안 한다 — 기존 동작·화면 그대로.
-// 패드 칸(값 없음 = 지금 동작): qNext 다음 패드 id('*' = 랜덤) · qWhen 'end'|'with' · qDelay 늦게 시작 초
-//   qXfade 넘기기 초(이 패드가 울리면 앞 큐를 줄임) · qDuck 낮추기(0.5·0.25·0.1) · qAt 'HH:MM' 시각 예약 · qMemo 큐 메모
+// 큐보드 (설정 → 일반 → 큐). 꺼져 있으면 아무 일도 안 한다 — 기존 동작·화면 그대로.
+// 보드마다 큐 목록 하나: board.cues = [{id, pad, act, sec, when, wait, memo, at}] (값 없음 = 큐 없음)
+//   pad: 패드 id | '*'(랜덤) · act: play|stop|fade|duck|restore · sec: 페이드 초 / 낮추기 비율
+//   when: go(GO로) | end(앞 큐 소리가 끝나면) | with(앞 큐와 같이) · wait: 기다림 초 · at: 'HH:MM' 시각에 이 큐부터
 'use strict';
 window.Cue = (() => {
   const on = () => !!S.settings.cue;
-  const pend = new Map();      // id → {t0, sec, timer}
-  const manual = new Set();    // 손으로(또는 넘기기로) 끈 패드 — 끝나도 '이어 재생' 안 함
-  const duck = new Map();      // 낮추는 중인 패드 id → 비율
-  const ducked = new Set();    // 지금 작게 만든 패드
-  const goPos = {};            // 보드 id → GO 다음 순번
-  let curGroup = [], prevGroup = [], lastGo = 0, depth = 0;
-  const has = p => p && (p.qNext || p.qDelay > 0 || p.qXfade > 0 || p.qDuck || p.qAt || p.qMemo);
-  const num = id => { const k = board().pads.indexOf(id); return k < 0 ? '··' : String(k + 1).padStart(2, '0'); };
+  const cues = (b = board()) => b.cues || (b.cues = []);
+  const ACT = { play: '재생', stop: '끄기', fade: '페이드', duck: '낮추기', restore: '원래 크기' };
+  const WHEN = { go: 'GO', end: '끝나면', with: '같이' };
+  const ACTS = [['play', 0, '재생'], ['stop', 0, '끄기'], ['fade', 1, '페이드 1초'], ['fade', 3, '페이드 3초'], ['fade', 5, '페이드 5초'], ['fade', 10, '페이드 10초'],
+    ['duck', 0.5, '낮추기 1/2'], ['duck', 0.25, '낮추기 1/4'], ['duck', 0.1, '낮추기 1/10'], ['restore', 0, '원래 크기']];
+  const actTxt = c => c.act === 'fade' ? `페이드 ${c.sec || 3}초` : c.act === 'duck' ? `낮추기 1/${Math.round(1 / (c.sec || 0.25))}` : ACT[c.act] || '재생';
+  const padName = c => c.pad === '*' ? '랜덤' : S.pads[c.pad] ? S.pads[c.pad].label : '(지운 패드)';
 
-  // ---------- 울리기 ----------
-  const resolve = (p, from) => {
-    if (p.qNext !== '*') return S.pads[p.qNext] ? p.qNext : null;
-    const b = S.boards.find(x => x.pads.includes(from)) || board();
-    const c = b.pads.filter(x => x !== from && status[x] === 'ready');
-    return c.length ? c[Math.floor(Math.random() * c.length)] : null;
-  };
-  function fire(id, via) {
-    const p = S.pads[id];
-    if (!p || status[id] !== 'ready') { logLine(`큐 건너뜀 ${nm(id)} (준비 안 됨)`, 'w'); return; }
-    if (p.qDelay > 0) {
-      cancel(id);
-      const e = { t0: performance.now(), sec: p.qDelay };
-      e.timer = setTimeout(function go() {
-        if (Engine.paused) { e.timer = setTimeout(go, 200); return; }   // ⏸ 중엔 기다렸다가
-        pend.delete(id); paintQ(id); start(id, via);
-      }, p.qDelay * 1000);
-      pend.set(id, e); paintQ(id);
-      logLine(`큐 ⏱ ${nm(id)} ${p.qDelay}초 뒤 (${via})`);
-      return;
-    }
-    start(id, via);
-  }
-  function start(id, via) {
-    const p = S.pads[id]; if (!p || depth > 20) return;
-    if (p.solo) soloOthers(id);
-    if (p.qXfade > 0) (via === 'with' ? prevGroup : curGroup).forEach(o => {
-      if (o !== id && Engine.isPlaying(o)) { manual.add(o); Engine.stop(o, p.qXfade); paintPad(o); }
-    });
-    if (!Engine.play(id, playOpt(p))) return;
-    if (via === 'with') curGroup.push(id); else { prevGroup = curGroup; curGroup = [id]; }
-    lastId = id; p.played = true; S.lastUse = Date.now(); save(); paintPad(id);
-    logLine(`큐 ▶ ${nm(id)} (${via})${p.qMemo ? ' · ' + p.qMemo : ''}`);
-    if (p.qDuck) { duck.set(id, p.qDuck); applyDuck(); }
-    setGo(id);
-    if (p.qNext && p.qWhen === 'with') { const n = resolve(p, id); if (n && n !== id) { depth++; try { fire(n, 'with'); } finally { depth--; } } }
-  }
-  function cancel(id) {
-    const e = pend.get(id); if (!e) return false;
-    clearTimeout(e.timer); pend.delete(id); paintQ(id);
-    return true;
-  }
-  function cancelAll(why) {
-    if (!pend.size) return;
-    logLine(`큐 대기 ${pend.size}개 취소 (${why})`);
-    [...pend.keys()].forEach(cancel);
-  }
+  // ---------- 실행 ----------
+  const sb = {};               // 보드 id → 대기 줄 번호
+  const pend = new Map();      // 큐 id → {t0, sec, timer, pad}
+  const waitEnd = new Map();   // 패드 id → [다음 큐 번호…] (그 소리가 끝나면)
+  const manual = new Set();    // 손으로 끈 패드(끝나면 이음 안 함)
+  const ducked = new Map();    // 패드 id → 비율
+  const running = new Set();   // 방금 나간 큐 id (목록에 굵게)
+  let adding = false, lastGo = 0, open = true, expand = null, menu = null;
 
-  // 패드 누름: 큐가 할 일이면 true(원래 동작 건너뜀), 아니면 false(원래 동작 그대로)
-  function tap(id) {
-    if (!on() || !started || status[id] !== 'ready') return false;
-    if (cancel(id)) { logLine(`큐 ⏱ 취소 ${nm(id)} (다시 누름)`); return true; }
-    if (Engine.isPlaying(id)) { manual.add(id); return false; }
-    const p = S.pads[id];
-    if (!has(p) || !(p.qNext || p.qDelay > 0 || p.qXfade > 0 || p.qDuck)) { setGo(id); return false; }
-    fire(id, 'tap');
-    return true;
+  function run(b, i) {
+    const L = cues(b), c = L[i]; if (!c) return;
+    const act = () => {
+      pend.delete(c.id);
+      let pid = c.pad;
+      if (pid === '*') { const r = b.pads.filter(x => status[x] === 'ready'); pid = r[Math.floor(Math.random() * r.length)]; }
+      const p = S.pads[pid];
+      if (!p) { logLine(`큐 ${i + 1} 건너뜀 (패드 없음)`, 'w'); return next(b, i, null); }
+      running.add(c.id); setTimeout(() => { running.delete(c.id); paint(); }, 1500);
+      logLine(`큐 ${i + 1} ${actTxt(c)} ${nm(pid)}${c.memo ? ' · ' + c.memo : ''}`);
+      if (c.act === 'stop' || c.act === 'fade') { if (Engine.isPlaying(pid)) { manual.add(pid); Engine.stop(pid, c.act === 'fade' ? (c.sec || 3) : 0); } }
+      else if (c.act === 'duck') { if (S.pads[pid]) { ducked.set(pid, c.sec || 0.25); Engine.setVolume(pid, p.vol * (c.sec || 0.25)); } }
+      else if (c.act === 'restore') { if (ducked.delete(pid)) Engine.setVolume(pid, p.vol); }
+      else if (status[pid] === 'ready') {
+        if (p.solo) soloOthers(pid);
+        if (Engine.play(pid, playOpt(p))) { lastId = pid; p.played = true; S.lastUse = Date.now(); save(); }
+      }
+      paintPad(pid); paint();
+      next(b, i, pid);
+    };
+    if (c.wait > 0) {
+      const e = { t0: performance.now(), sec: c.wait, pad: c.pad };
+      e.timer = setTimeout(function go() { if (Engine.paused) { e.timer = setTimeout(go, 200); return; } act(); }, c.wait * 1000);
+      pend.set(c.id, e); paint();
+    } else act();
   }
-
-  Engine.on('play', () => { if (duck.size) applyDuck(); });
+  // 이 큐 다음 줄: 같이 = 바로, 끝나면 = 이 큐의 소리가 끝날 때(재생 아니면 바로·페이드면 그 시간 뒤)
+  function next(b, i, pid) {
+    const c = cues(b)[i], n = cues(b)[i + 1]; if (!n || n.when === 'go' || !n.when) return;
+    if (n.when === 'with') return run(b, i + 1);
+    if (c.act === 'play' && pid && Engine.isPlaying(pid)) { const a = waitEnd.get(pid) || []; a.push([b, i + 1]); waitEnd.set(pid, a); }
+    else if (c.act === 'fade') setTimeout(() => run(b, i + 1), (c.sec || 3) * 1000);
+    else run(b, i + 1);
+  }
   Engine.on('end', (id, why) => {
     const m = manual.delete(id);
-    if (duck.delete(id) || ducked.has(id)) applyDuck();
-    if (!on()) return;
-    const p = S.pads[id];
-    if (!p || !p.qNext || p.qWhen === 'with' || m) return;
-    const natural = why === 'ended' || (why === 'faded' && p.loop && p.loopBy);
-    if (!natural) return;
-    const n = resolve(p, id);
-    if (n) fire(n, 'end');
+    if (ducked.delete(id)) {}
+    const w = waitEnd.get(id); if (!w) return;
+    waitEnd.delete(id);
+    if (!on() || m || !(why === 'ended' || why === 'faded')) return;
+    w.forEach(([b, k]) => run(b, k));
   });
-
-  // 소리 낮추기: 낮추는 패드가 울리는 동안 다른 패드를 그 비율로
-  function applyDuck() {
-    const act = [...duck.keys()].filter(id => Engine.isPlaying(id));
-    for (const id of [...duck.keys()]) if (!act.includes(id)) duck.delete(id);
-    for (const o of Engine.playingIds().concat([...ducked])) {
-      const q = S.pads[o]; if (!q) continue;
-      const f = Math.min(1, ...act.filter(d => d !== o).map(d => duck.get(d)));
-      if (f < 1) { Engine.setVolume(o, q.vol * f); ducked.add(o); }
-      else if (ducked.delete(o)) Engine.setVolume(o, q.vol);
-    }
-  }
-
-  // ---------- GO (순서대로 다음) ----------
-  // 순서 = 보드 순서. 다른 패드가 '다음'으로 부르는 패드는 저절로 울리니 건너뜀
-  const goList = () => {
-    const ids = board().pads, called = new Set(ids.map(i => S.pads[i]).filter(p => p && p.qNext && p.qNext !== '*').map(p => p.qNext));
-    return ids.filter(i => !called.has(i));
-  };
-  function setGo(id) {
-    const L = goList(), k = L.indexOf(id);
-    if (k >= 0) { goPos[board().id] = k + 1; paintGo(); }
-  }
   function go() {
     if (!on() || !started) return;
     const t = performance.now(); if (t - lastGo < 350) return;   // 연타해도 한 칸씩
     lastGo = t;
-    const L = goList(), k = goPos[board().id] || 0;
-    if (!L.length) return toast('이 보드엔 패드가 없어요');
-    if (k >= L.length) { logLine('GO → 끝'); return toast('마지막 큐까지 갔어요 · [다음] 칸을 누르면 처음으로'); }
-    const id = L[k];
-    goPos[board().id] = k + 1;
-    logLine(`GO ${k + 1}/${L.length} ${nm(id)}`);
-    const p = S.pads[id];
-    if (p.qMemo) toast(`${num(id)} ${p.label} — ${p.qMemo}`, 2500);
-    fire(id, 'go'); paintGo();
+    const b = board(), L = cues(b), k = sb[b.id] || 0;
+    if (!L.length) return toast('큐보드가 비어 있어요 — [+ 담기]로 넣어요');
+    if (k >= L.length) { logLine('GO → 끝'); return toast('마지막 큐까지 갔어요 · 번호를 누르면 거기부터'); }
+    logLine(`GO 큐 ${k + 1}/${L.length}`);
+    // 다음 대기 = 이 줄 뒤의 첫 GO 줄
+    let j = k + 1; while (j < L.length && L[j].when && L[j].when !== 'go') j++;
+    sb[b.id] = j;
+    run(b, k); paint();
   }
-  let goB = null;
-  function paintGo() {
-    const ctl = document.querySelector('.bottom .ctl');
-    if (!on()) { if (goB) { goB.remove(); goB = null; } return; }
-    if (!goB) {
-      const nx = h('small', { class: 'qnx' });
-      goB = h('button', { class: 'cbtn qgo', 'aria-label': 'GO — 다음 큐' }, h('b', null, 'GO'), nx);
-      goB.addEventListener('pointerdown', e => {
-        e.preventDefault(); goB.classList.add('hit'); setTimeout(() => goB && goB.classList.remove('hit'), 90);
-        if (e.target === nx && (goPos[board().id] || 0) >= goList().length) { goPos[board().id] = 0; logLine('GO 처음으로'); paintGo(); return; }
-        go();
-      });
-      ctl.prepend(goB);
-    }
-    const L = goList(), k = goPos[board().id] || 0, id = L[k], p = id && S.pads[id];
-    goB.lastChild.textContent = !L.length ? '—' : p ? `${num(id)} ${p.qMemo || p.label}` : '끝 ↺';
+  function cancelAll(why) {
+    if (!pend.size && !waitEnd.size) return;
+    logLine(`큐 대기 ${pend.size + waitEnd.size}개 취소 (${why})`);
+    pend.forEach(e => clearTimeout(e.timer)); pend.clear(); waitEnd.clear(); paint();
+  }
+  const allOff = why => () => { if (!on()) return; Engine.playingIds().forEach(i => manual.add(i)); ducked.clear(); cancelAll(why); };
+  $('btnStop').addEventListener('pointerdown', allOff('전체정지'));
+  $('btnFade').addEventListener('pointerdown', allOff('전체 페이드'));
+
+  // 패드 누름: 담는 중이면 큐로 넣고(소리 안 냄) true
+  function tap(id) {
+    if (!on()) return false;
+    if (Engine.isPlaying(id)) manual.add(id);
+    if (!adding || S.lock) return false;
+    const L = cues(); L.push({ id: uid(), pad: id, act: 'play', when: 'go' });
+    save(); logLine(`큐 담음 ${L.length} ${nm(id)}`); paint(true);
+    const el = padEls.get(id); if (el) { el.classList.add('qadd'); setTimeout(() => el.classList.remove('qadd'), 250); }
+    return true;
   }
 
-  // ---------- 화면: 패드 구석 표시 · 대기 ----------
-  function tags(p) {
-    const t = [];
-    if (p.qNext) t.push((p.qWhen === 'with' ? '+' : '→') + (p.qNext === '*' ? '?' : num(p.qNext)));
-    if (p.qDelay > 0) t.push('⏱' + p.qDelay);
-    if (p.qXfade > 0) t.push('⤳');
-    if (p.qDuck) t.push('↓');
-    if (p.qAt) t.push('⏰' + p.qAt);
-    return t.join(' ');
-  }
-  function decorate(el, p) {
-    if (!on()) return;
-    const t = tags(p); if (!t && !pend.has(p.id)) return;
-    el.append(h('div', { class: 'qtag' }, h('span', null, t), h('b', { class: 'qcnt' })));
-    paintQ(p.id);
-  }
-  function paintQ(id) {
-    const el = padEls.get(id); if (!el) return;
-    const e = pend.get(id);
-    el.classList.toggle('qwait', !!e);
-    let tg = el.querySelector('.qtag');
-    if (e && !tg) { tg = h('div', { class: 'qtag' }, h('span'), h('b', { class: 'qcnt' })); el.append(tg); }
-    if (tg) tg.lastChild.textContent = e ? Math.max(0, e.sec - (performance.now() - e.t0) / 1000).toFixed(1) : '';
-    if (e) el.style.setProperty('--qw', Math.min(100, (performance.now() - e.t0) / 10 / e.sec).toFixed(1) + '%');
-  }
-  setInterval(() => { pend.forEach((_, id) => paintQ(id)); }, 100);
-
-  // ---------- 시각 예약 ----------
+  // ---------- 시각 ----------
   const firedAt = {};
   setInterval(() => {
     if (!on() || !started) return;
     const d = new Date(), hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'), day = d.toDateString();
-    for (const id in S.pads) {
-      const p = S.pads[id];
-      if (p.qAt === hm && firedAt[id] !== day) { firedAt[id] = day; logLine(`큐 ⏰ ${hm} ${nm(id)}`); fire(id, 'at'); }
-    }
+    S.boards.forEach(b => (b.cues || []).forEach((c, i) => { if (c.at === hm && firedAt[c.id] !== day) { firedAt[c.id] = day; logLine(`큐 ⏰ ${hm} 큐 ${i + 1}`); run(b, i); } }));
   }, 1000);
 
   // ---------- 페달·키보드 = GO ----------
@@ -184,79 +112,142 @@ window.Cue = (() => {
     if ([' ', 'Enter', 'PageDown', 'ArrowRight', 'ArrowDown'].includes(e.key)) { e.preventDefault(); go(); }
   });
 
-  // 전체 정지·◣ = 대기 중인 큐도 모두 취소, 울리던 건 '이어 재생' 안 함
-  const allOff = why => () => { if (!on()) return; Engine.playingIds().forEach(i => manual.add(i)); cancelAll(why); };
-  $('btnStop').addEventListener('pointerdown', allOff('전체정지'));
-  $('btnFade').addEventListener('pointerdown', allOff('전체 페이드'));
+  // ---------- 큐보드 화면 (오른쪽, 펼침/접힘) ----------
+  const panel = h('div', { class: 'qpanel' });
+  const stage = document.querySelector('.stage');
+  stage.insertBefore(panel, stage.querySelector('.side'));
+  let goB = null;
+  function rowEl(b, c, i, full) {
+    const L = cues(b), lock = S.lock && !full;
+    const cls = 'qrow' + (i === (sb[b.id] || 0) ? ' sb' : '') + (running.has(c.id) ? ' run' : '') + (pend.has(c.id) ? ' wait' : '') + (expand === c.id || full ? ' open' : '');
+    const numB = h('button', { class: 'qn', 'aria-label': `큐 ${i + 1} 대기로` }, String(i + 1));
+    numB.onclick = () => { sb[b.id] = i; logLine(`큐 대기 → ${i + 1}`); rerender(); };
+    if (!lock) dragH(numB, b, i);
+    const whenB = h('button', { class: 'qc', disabled: lock || i === 0 && false }, WHEN[c.when || 'go']);
+    whenB.onclick = () => { c.when = { go: 'end', end: 'with', with: 'go' }[c.when || 'go']; save(); rerender(); };
+    const actB = h('button', { class: 'qc a', disabled: lock }, actTxt(c));
+    actB.onclick = () => { menu = menu === c.id ? null : c.id; expand = c.id; rerender(); };
+    const e = pend.get(c.id);
+    const waitT = e ? `⏱${Math.max(0, e.sec - (performance.now() - e.t0) / 1000).toFixed(1)}` : c.wait > 0 ? `⏱${c.wait}` : '';
+    const name = h('span', { class: 'qname' }, padName(c));
+    name.onclick = () => { if (lock) { sb[b.id] = i; rerender(); return; } expand = expand === c.id ? null : c.id; menu = null; rerender(); };
+    const r = h('div', { class: cls, 'data-i': i }, numB, whenB, h('span', { class: 'qmid' }, name, actB), h('span', { class: 'qw' }, waitT, c.at ? ' ⏰' : ''));
+    if (!(expand === c.id || full) || lock) return r;
+    const box = h('div', { class: 'qmore' });
+    if (menu === c.id || full) box.append(h('div', { class: 'qacts' }, ACTS.map(([a, s, t]) => h('button', { class: 'qc' + (c.act === a && (!s || c.sec === s) ? ' on' : ''), onclick: () => {
+      c.act = a; if (s) c.sec = s; else delete c.sec; menu = null; save(); rerender();
+    } }, t))));
+    const tgt = h('select', { class: 'sel' }, h('option', { value: '*' }, '랜덤 (이 보드)'), b.pads.map(x => h('option', { value: x }, `${String(b.pads.indexOf(x) + 1).padStart(2, '0')} ${S.pads[x].label}`)));
+    tgt.value = c.pad; tgt.onchange = () => { c.pad = tgt.value; save(); rerender(); };
+    const at = h('input', { type: 'time', step: 60, class: 'txt qat', value: c.at || '' });
+    at.onchange = () => { if (at.value) c.at = at.value; else delete c.at; save(); rerender(); };
+    const memo = h('input', { class: 'txt', value: c.memo || '', maxlength: 40, placeholder: '메모 (예: 2막 암전 뒤)' });
+    memo.onchange = () => { const v = memo.value.trim(); if (v) c.memo = v; else delete c.memo; save(); rerender(); };
+    box.append(
+      h('div', { class: 'qline' }, h('small', null, '소리'), tgt),
+      h('div', { class: 'qline' }, h('small', null, '기다림'), stepper(c.wait || 0, 0, 60, 0.5, v => v ? v + '초' : '없음', v => { if (v) c.wait = v; else delete c.wait; save(); })),
+      h('div', { class: 'qline' }, h('small', null, '시각'), at),
+      h('div', { class: 'qline' }, memo),
+      h('div', { class: 'qline' }, h('button', { class: 'sbtn', onclick: () => { L.splice(i + 1, 0, { ...c, id: uid() }); save(); rerender(); } }, '복제'),
+        h('button', { class: 'sbtn danger', onclick: () => { L.splice(i, 1); if ((sb[b.id] || 0) > i) sb[b.id]--; expand = null; save(); logLine(`큐 ${i + 1} 지움`); rerender(); } }, '지우기')));
+    return h('div', { class: 'qwrap' }, r, box);
+  }
+  // 번호를 꾹(0.25초) 누른 채 끌면 순서 바꾸기
+  function dragH(el, b, i) {
+    let tm = 0, d = null;
+    el.addEventListener('pointerdown', e => { tm = setTimeout(() => { d = { y: e.clientY }; el.setPointerCapture(e.pointerId); el.closest('.qrow').classList.add('lift'); }, 250); });
+    el.addEventListener('pointermove', e => { if (!d) return; d.y = e.clientY; });
+    const up = e => {
+      clearTimeout(tm); if (!d) return;
+      const hit = [...panel.querySelectorAll('.qrow')].find(r => { const x = r.getBoundingClientRect(); return d.y >= x.top && d.y <= x.bottom; });
+      d = null; if (!hit) return rerender();
+      const to = +hit.dataset.i, L = cues(b); if (to === i) return rerender();
+      L.splice(to, 0, L.splice(i, 1)[0]); save(); logLine(`큐 ${i + 1} → ${to + 1}`); rerender();
+      el.onclick = null; setTimeout(() => { el.onclick = () => { sb[b.id] = i; rerender(); }; });
+    };
+    el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+  }
+  function paint(scrollEnd) {
+    stage.classList.toggle('qon', on()); stage.classList.toggle('qopen', on() && open);
+    paintGo(); padTags();
+    if (!on()) { panel.textContent = ''; adding = false; document.body.classList.remove('qadding'); return; }
+    const b = board(), L = cues(b);
+    document.body.classList.toggle('qadding', adding);
+    if (!open) {
+      panel.replaceChildren(h('button', { class: 'qtog', 'aria-label': '큐보드 펼치기', onclick: () => { open = true; paint(); } }, '‹ 큐'),
+        h('div', { class: 'qstrip' }, L.map((c, i) => h('button', { class: 'qn' + (i === (sb[b.id] || 0) ? ' sb' : '') + (running.has(c.id) ? ' run' : '') + (pend.has(c.id) ? ' wait' : ''), onclick: () => { sb[b.id] = i; paint(); } }, String(i + 1)))));
+      return;
+    }
+    const addB = h('button', { class: 'qadd-b' + (adding ? ' on' : ''), disabled: S.lock, onclick: () => { adding = !adding; logLine(adding ? '큐 담기 시작' : '큐 담기 끝'); paint(); } }, adding ? '✓ 담기 끝' : '+ 담기');
+    const list = h('div', { class: 'qlist' }, L.map((c, i) => rowEl(b, c, i)),
+      !L.length ? h('div', { class: 'qempty' }, '[+ 담기]를 누르고 패드를 순서대로 누르면 큐가 쌓여요') : '');
+    panel.replaceChildren(
+      h('div', { class: 'qhead' }, h('button', { class: 'qtog', 'aria-label': '큐보드 접기', onclick: () => { open = false; paint(); } }, '큐 ›'), h('span', null, `${L.length}개`), addB),
+      adding ? h('div', { class: 'qhint' }, '패드를 누르면 여기 쌓여요 (소리 안 남)') : '',
+      list);
+    if (scrollEnd) list.scrollTop = list.scrollHeight;
+    else { const s = list.querySelector('.qrow.sb'); if (s) s.scrollIntoView({ block: 'nearest' }); }
+  }
+  // 패드 구석: 이 패드를 쓰는 큐 번호 (Q1·Q4)
+  function padTags() {
+    padEls.forEach(el => { const t = el.querySelector('.qtag'); if (t) t.remove(); });
+    if (!on()) return;
+    const L = cues(), m = new Map();
+    L.forEach((c, i) => { if (S.pads[c.pad]) (m.get(c.pad) || m.set(c.pad, []).get(c.pad)).push(i + 1); });
+    m.forEach((ns, id) => { const el = padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, 'Q' + (ns.length > 3 ? ns.slice(0, 3).join('·') + '…' : ns.join('·')))); });
+  }
+  function paintGo() {
+    const ctl = document.querySelector('.bottom .ctl');
+    if (!on()) { if (goB) { goB.remove(); goB = null; } return; }
+    if (!goB) {
+      goB = h('button', { class: 'cbtn qgo', 'aria-label': 'GO — 다음 큐' }, h('b', null, 'GO'), h('small'));
+      goB.addEventListener('pointerdown', e => { e.preventDefault(); goB.classList.add('hit'); setTimeout(() => goB && goB.classList.remove('hit'), 90); go(); });
+      ctl.prepend(goB);
+    }
+    const b = board(), L = cues(b), k = sb[b.id] || 0, c = L[k];
+    goB.lastChild.textContent = !L.length ? '—' : c ? `${k + 1} ${c.memo || padName(c)}` : '끝';
+  }
+  setInterval(() => { if (on() && pend.size) paint(); }, 200);
+  new MutationObserver(() => { if (on()) paint(); }).observe($('tabs'), { childList: true });
+  new MutationObserver(() => { if (on()) padTags(); }).observe($('grid'), { childList: true });
 
   // ---------- 설정 ----------
   function settingRow() {
-    return row(helpLabel('큐', '켜면 패드 설정에 [큐] 칸(이어 재생·늦게 시작·함께 재생·넘기기·낮추기·시각·메모)과 아래 GO 단추가 생겨요. 페달·키보드(스페이스·엔터·→·↓·PageDown)도 GO. 끄면 전부 숨고 원래대로 — 넣어 둔 큐 값은 남아 있어요.'),
+    return row(helpLabel('큐', '켜면 오른쪽에 큐보드와 아래 GO 단추가 생겨요. [+ 담기] → 패드를 순서대로 누르면 큐가 쌓이고, 줄의 칩을 눌러 이음(GO·끝나면·같이)과 동작(재생·끄기·페이드·낮추기)을 바꿔요. 페달·키보드(스페이스·엔터·→·↓)도 GO. 끄면 전부 숨고 원래대로 — 넣은 큐는 남아 있어요.'),
       sw(on(), v => {
         S.settings.cue = v; save(); logLine(`큐 ${v ? '켬' : '끔'}`);
-        if (!v) { cancelAll('큐 끔'); duck.clear(); applyDuck(); }
-        paintGo(); renderGrid();
+        if (!v) { cancelAll('큐 끔'); ducked.forEach((_, id) => S.pads[id] && Engine.setVolume(id, S.pads[id].vol)); ducked.clear(); }
+        paint();
       }));
   }
-  // 이어지는 고리(A→B→A)는 막는다
-  const loops = (from, to) => { const seen = new Set([from]); let c = to; while (c && c !== '*' && S.pads[c]) { if (seen.has(c)) return true; seen.add(c); c = S.pads[c].qNext; } return false; };
-  const set = (p, k, v, refresh) => { if (v == null || v === '' || v === 0 || v === false) delete p[k]; else p[k] = v; refresh(); paintGo(); };
-  function padRows(p, refresh) {
-    if (!on()) return null;
-    const b = board(), box = h('div', { class: 'fbox qbox' });
-    const draw = () => {
-      box.textContent = '';
-      const nextSel = h('select', { class: 'sel' }, h('option', { value: '' }, '없음'), h('option', { value: '*' }, '랜덤 (이 보드)'),
-        b.pads.filter(i => i !== p.id).map(i => h('option', { value: i }, `${num(i)} ${S.pads[i].label}`)));
-      nextSel.value = p.qNext || '';
-      nextSel.onchange = () => {
-        const v = nextSel.value;
-        if (v && v !== '*' && loops(p.id, v)) { nextSel.value = p.qNext || ''; return toast('서로 부르는 고리가 돼서 못 넣어요'); }
-        set(p, 'qNext', v, refresh); if (v && !p.qWhen) p.qWhen = 'end'; logLine(`큐 ${nm(p.id)} 다음 → ${v === '*' ? '랜덤' : v ? nm(v) : '없음'}`); draw();
-      };
-      const at = h('input', { type: 'time', step: 60, class: 'txt qat', value: p.qAt || '' });
-      at.onchange = () => set(p, 'qAt', at.value, refresh);
-      const memo = h('input', { class: 'txt', value: p.qMemo || '', maxlength: 40, placeholder: '예: 2막 암전 뒤' });
-      memo.oninput = () => set(p, 'qMemo', memo.value.trim(), refresh);
-      box.append(
-        h('div', { class: 'fbox-head' }, h('b', null, helpLabel('큐', '이 패드가 울린 뒤 무엇을 할지. 비워 두면 보통 패드와 똑같아요.'))),
-        row(helpLabel('다음', '이 패드 다음에 울릴 패드. 랜덤 = 이 보드에서 아무거나.'), nextSel),
-        p.qNext ? row(helpLabel('언제', '끝나면 = 이 패드가 끝까지 울리면(손으로 끄면 안 이어짐). 동시에 = 누르는 순간 같이.'),
-          seg([['end', '끝나면'], ['with', '동시에']], p.qWhen || 'end', v => set(p, 'qWhen', v, refresh))) : null,
-        row(helpLabel('늦게 시작', '누르거나 불리고 나서 이만큼 기다렸다 울려요. 기다리는 중에 패드를 다시 누르면 취소.'),
-          stepper(p.qDelay || 0, 0, 60, 0.5, v => v ? v + '초' : '없음', v => set(p, 'qDelay', v, refresh))),
-        row(helpLabel('넘기기', '이 패드가 울릴 때 바로 앞 큐(GO·누름으로 튼 것)를 이 시간에 걸쳐 줄여 꺼요.'),
-          stepper(p.qXfade || 0, 0, 10, 0.5, v => v ? v + '초' : '없음', v => set(p, 'qXfade', v, refresh))),
-        row(helpLabel('낮추기', '이 패드가 울리는 동안 다른 소리를 작게. 끝나면 원래대로.'),
-          seg([[0, '끔'], [0.5, '반'], [0.25, '1/4'], [0.1, '1/10']], p.qDuck || 0, v => set(p, 'qDuck', v, refresh))),
-        row(helpLabel('시각', '앱이 켜져 있으면 이 시각에 저절로 울려요(하루 한 번). 지우면 끔.'), at, h('button', { class: 'rst', onclick: () => { at.value = ''; set(p, 'qAt', '', refresh); } }, '↺')),
-        h('div', { class: 'row col' }, h('label', null, helpLabel('메모', 'GO를 누를 때 잠깐 보이고, GO 단추에 다음 큐로 보여요.')), memo),
-      );
-    };
+  // 설정 [큐] 칸: 모든 줄을 펼친 채로 한꺼번에 손보기
+  function tab(body) {
+    const b = board(), L = cues(b);
+    const box = h('div', { class: 'qlist full' });
+    const draw = () => { box.replaceChildren(...L.map((c, i) => rowEl(b, c, i, true)), !L.length ? h('div', { class: 'qempty' }, '큐가 없어요 — 큐보드의 [+ 담기]로 넣어요') : ''); };
+    body.append(h('div', { class: 'fbox' },
+      h('div', { class: 'fbox-head' }, h('b', null, helpLabel(`${b.name}의 큐 ${L.length}개`, '보드마다 큐 목록이 하나예요. 여기선 모든 줄이 펼쳐져 있어요. 바꾸는 즉시 적용, [취소]로 되돌림.'))),
+      h('div', { class: 'trow' },
+        h('button', { class: 'sbtn', disabled: !L.length, onclick: () => { L.forEach(c => { c.when = 'go'; }); save(); draw(); paint(); } }, '모두 GO로'),
+        h('button', { class: 'sbtn danger', disabled: !L.length, onclick: () => { if (!confirm(`큐 ${L.length}개를 모두 지울까요?`)) return; L.length = 0; sb[b.id] = 0; save(); draw(); paint(); } }, '모두 지우기')),
+      box));
     draw();
-    return box;
+    tabDraw = () => { if (box.isConnected) draw(); else tabDraw = null; };
   }
+  let tabDraw = null;
+  function rerender() { paint(); if (tabDraw) tabDraw(); }
 
-  // ---------- 내보내기·가져오기: '다음'을 번호로 바꿔 담았다가 새 id로 ----------
-  function exportFix(jsonPads, srcPads) {
-    srcPads.forEach((p, i) => {
-      const j = jsonPads[i]; if (!j || !j.qNext) return;
-      delete j.qNext;
-      if (p.qNext === '*') j.qNext = '*';
-      else { const k = srcPads.findIndex(q => q.id === p.qNext); if (k >= 0) j.qNextN = k + 1; }
-    });
+  // ---------- 내보내기·가져오기: 큐의 패드를 번호로 ----------
+  function exportFix(json, srcPads, b) {
+    if (!b.cues || !b.cues.length) return;
+    json.board.cues = b.cues.map(c => { const { id, pad, ...r } = c; const k = srcPads.findIndex(p => p.id === pad); return { ...r, padN: pad === '*' ? '*' : k + 1 }; }).filter(c => c.padN);
   }
-  function importFix(newIds) {
-    newIds.forEach(id => {
-      const p = id && S.pads[id]; if (!p) return;
-      if (p.qNextN) { const t = newIds[p.qNextN - 1]; if (t) p.qNext = t; delete p.qNextN; }
-      else if (p.qNext && p.qNext !== '*' && !S.pads[p.qNext]) delete p.qNext;
-    });
+  function importFix(nb, newIds, json) {
+    const src = json.board && json.board.cues; if (!Array.isArray(src)) return;
+    nb.cues = src.map(c => { const { padN, ...r } = c; return { ...r, id: uid(), pad: padN === '*' ? '*' : newIds[padN - 1] }; }).filter(c => c.pad);
     save();
   }
 
-  // 보드를 바꾸면 GO 표시도
-  new MutationObserver(() => paintGo()).observe($('tabs'), { childList: true });
-  if (on()) { paintGo(); renderGrid(); }
-  return { tap, go, decorate, settingRow, padRows, exportFix, importFix };
+  if (on()) paint();
+  return { tap, go, settingRow, tab, exportFix, importFix, paint: rerender };
 })();
