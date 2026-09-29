@@ -33,7 +33,7 @@ button:disabled{cursor:default}
 .grp.r{flex:none}
 /* 오른쪽 칸: 위 = 전체 시간·패드 수(또는 상태), 아래 = MASTER */
 .side{display:flex;flex-direction:column;gap:10px;min-height:0}
-.total{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:16px;background:var(--bg1);border:1px solid var(--line);
+.total{flex:none;height:104px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:16px;background:var(--bg1);border:1px solid var(--line);
   font-size:11px;color:var(--text-dim);font-variant-numeric:tabular-nums;text-align:center;line-height:1.25;padding:8px 2px;min-height:0;overflow:hidden}
 .total b{color:var(--text);font-weight:700;font-size:12px}
 .total i{width:24px;height:1px;background:var(--line);margin:6px 0}
