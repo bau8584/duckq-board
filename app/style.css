@@ -344,6 +344,8 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 /* MASTER 키우기 켜짐 */
 #mVal.boost{color:#f59a3c;font-weight:900}
 [data-theme="light"] #mVal.boost{color:#c25e00}
+.master.over .slider i{background:#f59a3c;opacity:1}
+[data-theme="light"] .master.over .slider i{background:#c25e00}
 /* 작은 패드(8열): 표시 칸 줄임 */
 [data-cols="8"] .icons{grid-template-columns:18px 18px 1fr 18px 18px;gap:2px;min-height:18px}
 [data-cols="8"] .icons .slot,[data-cols="8"] .icons svg{width:18px;height:18px;padding:3px}

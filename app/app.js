@@ -251,7 +251,9 @@ function renderMaster() {
   $('mKnob').style.top = ((1 - v) * 100) + '%';
   const bst = S.settings.masterBoost || 1;
   $('mVal').textContent = Math.round(v * bst * 100) + '%';
-  $('mVal').classList.toggle('boost', bst > 1);
+  const over = v * bst > 1.001;   // 실제 100%를 넘으면 막대·숫자 색이 바뀐다
+  $('mVal').classList.toggle('boost', over);
+  $('master').classList.toggle('over', over);
   sl.setAttribute('aria-valuenow', Math.round(v * 100));
 }
 
@@ -594,7 +596,7 @@ hit($('btnFade'), () => { logLine(`◣ 전체 페이드 ${S.settings.fadeSec}초
     let v = Math.round(Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height)) * 100) / 100;
     // 키웠을 때 실제 100% 근처(±4%)면 딱 100%에 붙는다
     const bst = S.settings.masterBoost || 1;
-    if (bst > 1 && Math.abs(v * bst - 1) <= 0.04) v = 1 / bst;
+    if (bst > 1 && Math.abs(v - 1 / bst) <= 0.05) v = 1 / bst;
     S.master = v;
     Engine.setMaster(S.master); renderMaster();
   };
