@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.12 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.13 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -683,13 +683,16 @@ function sw(on, onchange) {
 }
 // 슬라이더 + −/＋ (손가락으로 정확히 맞추기 어려워서)
 // mixed = 여러 패드 값이 제각각 → 값 대신 '제각각'으로 보이고, 손대는 순간 그 값으로 모두 같아짐
-function stepper(val, min, max, step, show, onchange, mixed) {
+// map = {to(값→슬라이더 자리), from(자리→값), min, max} : 슬라이더 눈금을 값과 다르게(볼륨: 100%를 가운데에)
+function stepper(val, min, max, step, show, onchange, mixed, map) {
   const out = h('output', null, mixed ? '제각각' : show(val));
-  const rng = h('input', { type: 'range', min, max, step, value: val });
+  const to = map ? map.to : v => v, from = map ? map.from : v => v;
+  const rng = h('input', { type: 'range', min: map ? map.min : min, max: map ? map.max : max, step: map ? 'any' : step, value: to(val) });
   const dec = String(step).split('.')[1]?.length || 0;
-  const set = v => { v = Math.min(max, Math.max(min, +(+v).toFixed(dec))); val = v; rng.value = v; out.textContent = show(v); box.classList.remove('mixed'); onchange(v); };
-  rng.oninput = () => set(rng.value);
+  const set = v => { v = Math.min(max, Math.max(min, +(+v).toFixed(dec))); val = v; rng.value = to(v); out.textContent = show(v); box.classList.remove('mixed'); onchange(v); };
+  rng.oninput = () => set(Math.round(from(+rng.value) / step) * step);
   const box = h('div', { class: 'step' + (mixed ? ' mixed' : '') }, h('button', { onclick: () => set(val - step), 'aria-label': '줄이기' }, '−'), rng, h('button', { onclick: () => set(val + step), 'aria-label': '늘리기' }, '＋'), out);
+  box.set = set;
   return box;
 }
 function seg(opts, cur, onchange) {
@@ -711,7 +714,24 @@ function colorChips(cur, withNone, onchange) {
   return box;
 }
 const sec1 = v => v.toFixed(1) + '초';
-const volTxt = v => v + '%' + (v > 100 ? ' ↑' : '');   // 볼륨 0~200%, 가운데 100% = 원래 소리
+const volTxt = v => v + '%' + (v > 100 ? ' ↑' : '');   // 볼륨 0~300%, 슬라이더 가운데 = 100%(원래 소리)
+const VOL_MAP = { min: 0, max: 200, to: v => v <= 100 ? v : 100 + (v - 100) / 2, from: x => x <= 100 ? x : 100 + (x - 100) * 2 };
+// 이름 옆 [?]: 누르면 설명 말풍선
+function helpLabel(name, text) {
+  const tip = h('span', { class: 'tip', hidden: true }, text);
+  const q = h('button', { class: 'qbtn', 'aria-label': name + ' 설명' }, '?');
+  const toggle = e => { e.stopPropagation(); const was = tip.hidden; document.querySelectorAll('.tip').forEach(t => { t.hidden = true; }); tip.hidden = !was; };
+  q.onclick = toggle;
+  const nm = h('span', { class: 'hname' }, name); nm.onclick = toggle;
+  return h('span', { class: 'hl' }, nm, q, tip);
+}
+document.addEventListener('click', () => document.querySelectorAll('.tip').forEach(t => { t.hidden = true; }));   // 다른 곳 누르면 말풍선 닫힘
+const HELP = {
+  vol: '이 곡만의 크기예요. 100% = 파일 원래 소리. 100%보다 키우면 원래보다 커지고(최대 300%), 너무 키우면 소리가 찌그러질 수 있어요. 전체 크기는 오른쪽 MASTER로.',
+  pan: '소리를 왼쪽·오른쪽 스피커 중 어디로 보낼지예요. 가운데 = 양쪽 똑같이. 왼쪽 100 = 왼쪽 스피커에서만. 스피커가 하나면 차이가 없어요.',
+};
+// 볼륨·팬 한 줄: [?] 설명 + 조절 + [원래대로]
+const volRow = (label, stp, def) => h('div', { class: 'row col' }, h('label', null, label), h('div', { class: 'end' }, stp, h('button', { class: 'sbtn', onclick: () => stp.set(def) }, '원래대로')));
 const panTxt = v => v === 0 ? '가운데' : (v < 0 ? '왼쪽 ' : '오른쪽 ') + Math.abs(v);
 
 // 트림: 파일은 그대로, 시작·끝 지점만 기억. 파형(효과음) 위 두 손잡이 + 0.1초/1초 단추
@@ -801,8 +821,8 @@ function openPadSheet(id) {
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
       row('미리 듣기', h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, Engine.dur(id) - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
       (trim = trimBox(id, () => { refresh(); renderTop(); })).el,
-      row(h('span', null, '볼륨', h('span', { class: 'sub' }, '100% = 원래 소리 · 넘기면 키움(너무 크면 찌그러질 수 있음)')), stepper(Math.round(p.vol * 100), 0, 200, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); })),
-      row(h('span', null, '팬', h('span', { class: 'sub' }, '왼쪽·오른쪽 스피커로 치우치게')), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); })),
+      volRow(helpLabel('볼륨', HELP.vol), stepper(Math.round(p.vol * 100), 0, 300, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); }, false, VOL_MAP), 100),
+      volRow(helpLabel('팬', HELP.pan), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); }), 0),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
       row(h('span', null, '솔로', h('span', { class: 'sub' }, '이 패드를 틀면 다른 소리를 끔')), sw(p.solo, on => { p.solo = on; refresh(); })),
       h('div', { class: 'row col' }, h('label', null, '페이드', h('span', { class: 'sub' }, '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 곡 끝 + 다시 눌러 끌 때')),
@@ -836,13 +856,13 @@ function openBulkSheet(ids) {
   const tag = k => mixed(k) ? h('span', { class: 'sub mix' }, '지금 제각각 — 고르면 모두 같아짐') : null;
   const lab = (name, ...k) => h('span', null, name, k.some(mixed) ? h('span', { class: 'sub mix' }, '지금 제각각 — 고르면 모두 같아짐') : null);
   const onoff = (k, extra) => seg([[true, '켬'], [false, '끔']], same(k), v => { set(q => { q[k] = v; extra && extra(q, v); }); });
-  const num = (k, scale, min, max, step, show, apply) =>
-    stepper(Math.round((mixed(k) ? avg(k) : same(k)) * scale / step) * step, min, max, step, show, v => set(q => apply(q, v)), mixed(k));
+  const num = (k, scale, min, max, step, show, apply, map) =>
+    stepper(Math.round((mixed(k) ? avg(k) : same(k)) * scale / step) * step, min, max, step, show, v => set(q => apply(q, v)), mixed(k), map);
   openSheet(`${ps.length}개 일괄 수정`, body => body.append(
     h('div', { class: 'row' }, h('div', { class: 'info' }, '모두 같은 항목은 그 값이, 서로 다른 항목은 "제각각"으로 보여요. 손댄 항목만 고른 패드 모두에 같은 값으로 들어가요.')),
     h('div', { class: 'row col' }, h('label', null, '색', tag('color')), colorChips(same('color'), true, k => set(q => { q.color = k; }))),
-    row(lab('볼륨', 'vol'), num('vol', 100, 0, 200, 5, volTxt, (q, v) => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); })),
-    row(lab('팬', 'pan'), num('pan', 100, -100, 100, 10, panTxt, (q, v) => { q.pan = v / 100; Engine.setPan(q.id, q.pan); })),
+    volRow(h('span', null, helpLabel('볼륨', HELP.vol), mixed('vol') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('vol', 100, 0, 300, 5, volTxt, (q, v) => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); }, VOL_MAP), 100),
+    volRow(h('span', null, helpLabel('팬', HELP.pan), mixed('pan') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('pan', 100, -100, 100, 10, panTxt, (q, v) => { q.pan = v / 100; Engine.setPan(q.id, q.pan); }), 0),
     row(lab('반복(루프)', 'loop'), onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
     row(lab('솔로', 'solo'), onoff('solo')),
     fadeRow('페이드인', mixed('fin') || mixed('finSec') ? '지금 제각각 — 고르면 모두 같아짐' : '', onoff('fin'), num('finSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.finSec = v; })),
