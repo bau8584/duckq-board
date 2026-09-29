@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.37 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.38 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -416,12 +416,17 @@ grid.addEventListener('pointerdown', e => {
 window.addEventListener('pointermove', e => {
   const t = touches.get(e.pointerId); if (!t) return;
   if (t.drag) { t.cx = e.clientX; t.cy = e.clientY; dragMove(t); return; }
-  if (Math.hypot(e.clientX - t.x, e.clientY - t.y) > MOVE_PX) cancelTouch(t);
+  if (t.brush) return brushOver(t, e);
+  const dx = e.clientX - t.x, dy = e.clientY - t.y;
+  // 편집 모드에서 옆으로 쓸면 = 지나가는 패드를 고르기(첫 패드가 이미 골라져 있으면 빼기). 위아래로 쓸면 스크롤
+  if (editMode && !t.dead && !t.rename && Math.abs(dx) > MOVE_PX && Math.abs(dx) > Math.abs(dy)) return startBrush(t, e);
+  if (Math.hypot(dx, dy) > MOVE_PX) cancelTouch(t);
 });
 window.addEventListener('pointerup', e => {
   const t = touches.get(e.pointerId); if (!t) return;
   touches.delete(e.pointerId); clearTimeout(t.timer);
   if (t.drag) return endDrag(t);
+  if (t.brush) { brush = null; logLine(`쓸어서 고르기 → ${sel.size}개`); return; }
   unpress(t.el); t.el.classList.remove('rn');
   if (t.dead) return;
   if (t.rename) return renamePad(t.id);   // 손 뗄 때(사용자 동작 안) 열어야 아이패드 자판이 뜬다
@@ -431,7 +436,28 @@ window.addEventListener('pointercancel', e => {
   const t = touches.get(e.pointerId); if (!t) return;
   touches.delete(e.pointerId); clearTimeout(t.timer);
   if (t.drag) endDrag(t); else t.el.classList.remove('press');
+  brush = null;
 });
+// 쓸어서 고르기: 지나간 패드를 모두 같은 쪽(고름/뺌)으로
+let brush = null;
+function startBrush(t, e) {
+  clearTimeout(t.timer); t.el.classList.remove('press');
+  t.brush = true; brush = t; t.add = !sel.has(t.id); t.seen = new Set();
+  t.lx = t.x; t.ly = t.y; brushAt(t, t.x, t.y); brushOver(t, e);
+}
+// 빨리 쓸어도 건너뛰지 않게 지난 자리와 지금 자리 사이를 12px 간격으로 훑음
+function brushOver(t, e) {
+  const x = e.clientX, y = e.clientY, n = Math.max(1, Math.ceil(Math.hypot(x - t.lx, y - t.ly) / 12));
+  for (let i = 1; i <= n; i++) brushAt(t, t.lx + (x - t.lx) * i / n, t.ly + (y - t.ly) * i / n);
+  t.lx = x; t.ly = y;
+}
+function brushAt(t, x, y) {
+  const hit = document.elementFromPoint(x, y), el = hit && hit.closest('.pad[data-id]');
+  if (!el || !grid.contains(el) || t.seen.has(el.dataset.id)) return;
+  const id = el.dataset.id; t.seen.add(id);
+  if (t.add) sel.add(id); else sel.delete(id);
+  paintPad(id); renderSelBar();
+}
 // 보드 탭 길게 누르기(0.5초) → 보드 설정
 function longPress(el, fn) {
   let tm = 0, x = 0, y = 0;
@@ -442,7 +468,7 @@ function longPress(el, fn) {
   el.addEventListener('contextmenu', e => e.preventDefault());
 }
 // 끄는 중엔 화면이 같이 스크롤되지 않게
-document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, { passive: false });
+document.addEventListener('touchmove', e => { if (drag || brush) e.preventDefault(); }, { passive: false });
 ['gesturestart', 'dblclick'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
 
 // ---------- 흔들며 순서 바꾸기 (편집 모드) ----------
