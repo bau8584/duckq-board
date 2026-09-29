@@ -117,7 +117,7 @@ button:disabled{cursor:default}
 .editing .pad .edit{border-radius:50%;border:2px solid currentColor;background:none;font-size:0}
 .editing .pad.sel .edit{background:var(--text);border-color:var(--text);color:var(--bg0);font-size:15px;font-weight:900}
 .editing .pad.sel{box-shadow:0 0 0 3px var(--bg1),0 0 0 6px var(--text)}
-.pad.lift{animation:none!important;transition:none;z-index:9;pointer-events:none;opacity:.92;box-shadow:0 14px 30px rgba(0,0,0,.35)}
+.pad.lift{animation:none!important;transition:none;z-index:9;pointer-events:none;opacity:.92;overflow:visible;box-shadow:0 14px 30px rgba(0,0,0,.35)}
 
 /* MASTER */
 .master{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;border-radius:16px;background:var(--bg1);border:1px solid var(--line);
@@ -202,6 +202,14 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .bulk{padding:8px 0 4px}.bulk>b{font-size:13px;color:var(--text-dim)}
 .bulk .trow{margin-top:6px}.bulk .gap{flex:1}
 .trow button.pri{background:var(--board);border-color:var(--board);color:#0b0c0e;padding:0 12px}
+/* 일괄 수정: 제각각인 항목 */
+.sub.mix{color:var(--board)}
+.step.mixed output{color:var(--text-dim);font-size:13px}
+.step.mixed input[type=range]{opacity:.35}
+/* 여러 개 끌기: 나머지는 숨고 들린 패드에 개수 배지 */
+.pad.gathered{display:none}
+.pad.lift[data-n]::after{content:attr(data-n);position:absolute;top:-6px;right:-6px;min-width:30px;height:30px;padding:0 8px;border-radius:15px;
+  background:var(--stop);color:#fff;font:800 15px/30px var(--font);text-align:center}
 /* 편집 모드 아래 막대: 고른 패드 다루기 */
 .editing .grid{padding-bottom:80px}  /* 아래 막대에 마지막 줄이 가리지 않게 */
 .selbar{position:fixed;left:50%;bottom:calc(max(12px,env(safe-area-inset-bottom)) + 66px);transform:translateX(-50%);z-index:8;max-width:calc(100% - 28px);

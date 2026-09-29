@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.6 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.7 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -316,6 +316,12 @@ function startDrag(t) {
   const g = grid.getBoundingClientRect();
   t.gx = t.x - (g.left + t.el.offsetLeft); t.gy = t.y - (g.top + t.el.offsetTop);
   t.el.classList.remove('press'); t.el.classList.add('lift');
+  // 고른 패드를 끌면 고른 것 전부가 함께 옮겨짐(아이폰처럼 한데 모임)
+  if (sel.has(t.id) && sel.size > 1) {
+    t.group = selIds();
+    t.group.forEach(id => { if (id !== t.id) padEls.get(id)?.classList.add('gathered'); });
+    t.el.dataset.n = t.group.length;
+  }
   place(t);
   const tick = () => {   // 가장자리에 대고 있으면 저절로 스크롤
     if (drag !== t) return;
@@ -342,7 +348,12 @@ function dragMove(t) {
 function endDrag(t) {
   drag = null;
   t.el.classList.remove('lift'); t.el.style.transform = '';
-  const order = [...grid.querySelectorAll('.pad[data-id]')].map(x => x.dataset.id);
+  let order = [...grid.querySelectorAll('.pad[data-id]')].map(x => x.dataset.id);
+  if (t.group) {   // 끈 패드 자리에 고른 것들을 원래 순서대로
+    order = order.filter(id => id === t.id || !t.group.includes(id));
+    order.splice(order.indexOf(t.id), 1, ...t.group);
+    logLine(`${t.group.length}개 함께 옮김`);
+  }
   const b = board();
   if (order.join() !== b.pads.join()) { b.pads = order; save(); }
   renderGrid();
@@ -629,13 +640,15 @@ function sw(on, onchange) {
   return b;
 }
 // 슬라이더 + −/＋ (손가락으로 정확히 맞추기 어려워서)
-function stepper(val, min, max, step, show, onchange) {
-  const out = h('output', null, show(val));
+// mixed = 여러 패드 값이 제각각 → 값 대신 '제각각'으로 보이고, 손대는 순간 그 값으로 모두 같아짐
+function stepper(val, min, max, step, show, onchange, mixed) {
+  const out = h('output', null, mixed ? '제각각' : show(val));
   const rng = h('input', { type: 'range', min, max, step, value: val });
   const dec = String(step).split('.')[1]?.length || 0;
-  const set = v => { v = Math.min(max, Math.max(min, +(+v).toFixed(dec))); val = v; rng.value = v; out.textContent = show(v); onchange(v); };
+  const set = v => { v = Math.min(max, Math.max(min, +(+v).toFixed(dec))); val = v; rng.value = v; out.textContent = show(v); box.classList.remove('mixed'); onchange(v); };
   rng.oninput = () => set(rng.value);
-  return h('div', { class: 'step' }, h('button', { onclick: () => set(val - step), 'aria-label': '줄이기' }, '−'), rng, h('button', { onclick: () => set(val + step), 'aria-label': '늘리기' }, '＋'), out);
+  const box = h('div', { class: 'step' + (mixed ? ' mixed' : '') }, h('button', { onclick: () => set(val - step), 'aria-label': '줄이기' }, '−'), rng, h('button', { onclick: () => set(val + step), 'aria-label': '늘리기' }, '＋'), out);
+  return box;
 }
 function seg(opts, cur, onchange) {
   const box = h('div', { class: 'seg' });
@@ -775,20 +788,28 @@ function openPadSheet(id) {
 }
 
 // 여러 패드를 같은 값으로 — 바꾸는 항목만 모두에게 바로 적용
+// 여러 패드를 같은 값으로. 모두 같은 항목은 그 값, 다른 항목은 '제각각'(아무것도 안 골라진 상태)으로 보이고
+// 손댄 항목만 모두에게 같은 값으로 들어간다.
 function openBulkSheet(ids) {
   const ps = ids.map(id => S.pads[id]).filter(Boolean); if (!ps.length) return;
   const same = k => ps.every(q => q[k] === ps[0][k]) ? ps[0][k] : undefined;
+  const mixed = k => same(k) === undefined;
+  const avg = k => ps.reduce((a, q) => a + (q[k] || 0), 0) / ps.length;
   const set = fn => { ps.forEach(q => { fn(q); touchEdit(q); }); save(); logLine(`일괄 수정 ${ps.length}개 → ` + ps.map(q => `${q.label}(vol ${Math.round(q.vol * 100)} 인 ${q.fin ? q.finSec : '끔'} 아웃 ${q.fout ? q.foutSec : '끔'} 루프 ${q.loop ? 1 : 0} 색 ${q.color})`).join(', ')); };
+  const tag = k => mixed(k) ? h('span', { class: 'sub mix' }, '지금 제각각 — 고르면 모두 같아짐') : null;
+  const lab = (name, ...k) => h('span', null, name, k.some(mixed) ? h('span', { class: 'sub mix' }, '지금 제각각 — 고르면 모두 같아짐') : null);
   const onoff = (k, extra) => seg([[true, '켬'], [false, '끔']], same(k), v => { set(q => { q[k] = v; extra && extra(q, v); }); });
+  const num = (k, scale, min, max, step, show, apply) =>
+    stepper(Math.round((mixed(k) ? avg(k) : same(k)) * scale / step) * step, min, max, step, show, v => set(q => apply(q, v)), mixed(k));
   openSheet(`${ps.length}개 일괄 수정`, body => body.append(
-    h('div', { class: 'row' }, h('div', { class: 'info' }, '바꾼 항목만 고른 패드 모두에 같은 값으로 들어가요. 안 건드린 항목은 그대로예요.')),
-    h('div', { class: 'row col' }, h('label', null, '색'), colorChips(same('color'), true, k => set(q => { q.color = k; }))),
-    row('볼륨', stepper(Math.round((same('vol') ?? ps[0].vol) * 100), 0, 100, 5, v => v + '%', v => set(q => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); }))),
-    row('팬', stepper(Math.round((same('pan') ?? 0) * 100), -100, 100, 10, panTxt, v => set(q => { q.pan = v / 100; Engine.setPan(q.id, q.pan); }))),
-    row('반복(루프)', onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
-    row('솔로', onoff('solo')),
-    fadeRow('페이드인', '', onoff('fin'), stepper(same('finSec') ?? 1, 0.1, 10, 0.1, sec1, v => set(q => { q.finSec = v; }))),
-    fadeRow('페이드아웃', '곡 끝 + 끌 때', onoff('fout'), stepper(same('foutSec') ?? 2, 0.1, 10, 0.1, sec1, v => set(q => { q.foutSec = v; }))),
+    h('div', { class: 'row' }, h('div', { class: 'info' }, '모두 같은 항목은 그 값이, 서로 다른 항목은 "제각각"으로 보여요. 손댄 항목만 고른 패드 모두에 같은 값으로 들어가요.')),
+    h('div', { class: 'row col' }, h('label', null, '색', tag('color')), colorChips(same('color'), true, k => set(q => { q.color = k; }))),
+    row(lab('볼륨', 'vol'), num('vol', 100, 0, 100, 5, v => v + '%', (q, v) => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); })),
+    row(lab('팬', 'pan'), num('pan', 100, -100, 100, 10, panTxt, (q, v) => { q.pan = v / 100; Engine.setPan(q.id, q.pan); })),
+    row(lab('반복(루프)', 'loop'), onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
+    row(lab('솔로', 'solo'), onoff('solo')),
+    fadeRow('페이드인', mixed('fin') || mixed('finSec') ? '지금 제각각 — 고르면 모두 같아짐' : '', onoff('fin'), num('finSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.finSec = v; })),
+    fadeRow('페이드아웃', '곡 끝 + 끌 때' + (mixed('fout') || mixed('foutSec') ? ' · 지금 제각각' : ''), onoff('fout'), num('foutSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.foutSec = v; })),
   ));
 }
 
