@@ -70,15 +70,17 @@ button:disabled{cursor:default}
   text-align:center;color:var(--ink);background:var(--h);overflow:hidden;min-width:0;min-height:0;touch-action:pan-y;
   transition:transform .06s,background-color .06s,box-shadow .06s}
 .pad.press{transform:scale(.975)}
-.icons{position:relative;display:flex;gap:4px;min-height:22px;padding-right:34px}
-.icons .slot{flex:0 0 22px;width:22px;height:22px;display:block}
+/* 윗줄 자리 고정: 인 · 루프 · (번호 가운데) · 솔로 · 아웃 */
+.icons{position:relative;display:grid;grid-template-columns:22px 22px 1fr 22px 22px;gap:4px;min-height:22px}
+.icons .slot{width:22px;height:22px;display:block}
+.icons .slot:nth-child(3){grid-column:4}.icons .slot:nth-child(4){grid-column:5}
 .icons svg{width:22px;height:22px;padding:4px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent);
   stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.idx{position:absolute;top:11px;right:14px;font:800 11px ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.04em;opacity:.5}
-.pad .edit{position:absolute;top:8px;right:9px;width:26px;height:26px;border-radius:8px;display:none;align-items:center;justify-content:center;
+.idx{position:absolute;top:9px;left:50%;transform:translateX(-50%);font:800 15px ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.04em;opacity:.55}
+.pad .edit{position:absolute;top:8px;left:50%;margin-left:-13px;width:26px;height:26px;border-radius:8px;display:none;align-items:center;justify-content:center;
   font-size:14px;background:color-mix(in srgb,currentColor 16%,transparent)}
 .editing .pad .edit{display:flex}.editing .pad .idx,.editing .pad .eq{display:none!important}
-.eq{position:absolute;top:11px;right:13px;display:none;gap:2.5px;align-items:flex-end;height:16px}
+.eq{position:absolute;top:11px;left:50%;transform:translateX(-50%);display:none;gap:2.5px;align-items:flex-end;height:16px}
 .eq i{width:4px;background:currentColor;border-radius:2px;height:5px;animation:eq .9s ease-in-out infinite}
 .eq i:nth-child(2){animation-duration:.6s;animation-delay:-.2s}.eq i:nth-child(3){animation-duration:1.1s;animation-delay:-.5s}
 @keyframes eq{0%,100%{height:4px}50%{height:16px}}
@@ -342,3 +344,7 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 /* MASTER 키우기 켜짐 */
 #mVal.boost{color:#f59a3c;font-weight:900}
 [data-theme="light"] #mVal.boost{color:#c25e00}
+/* 작은 패드(8열): 표시 칸 줄임 */
+[data-cols="8"] .icons{grid-template-columns:18px 18px 1fr 18px 18px;gap:2px;min-height:18px}
+[data-cols="8"] .icons .slot,[data-cols="8"] .icons svg{width:18px;height:18px;padding:3px}
+[data-cols="8"] .idx{font-size:13px;top:8px}
