@@ -1,17 +1,25 @@
 // 큐보드 (설정 → 일반 → 큐). 꺼져 있으면 아무 일도 안 한다 — 기존 동작·화면 그대로.
 // 보드마다 큐 목록 하나: board.cues = [{id, pad, act, sec, when, wait, memo, at}] (값 없음 = 큐 없음)
-//   pad: 패드 id | '*'(랜덤) · act: play|stop|fade|duck|restore · sec: 페이드 초 / 작게 비율
+//   pad: 패드 id | '*'(랜덤) · act: play|stop|duck|restore · sec: 작게 비율
+//   트랙대로가 기본, 다를 때만 따로(값 없음 = 트랙 설정): fin 재생 페이드인 초 · vol 재생 볼륨(1=100%) · fout 끄기 페이드아웃 초(0=바로)
 //   when: go(GO를 누를 때) | end(앞 소리가 끝나면) | with(앞 큐와 동시에) · wait: 기다렸다가 초 · at: 'HH:MM' 그 시각에
 // 연극식 번호: GO로 나가는 줄만 번호(큐 1, 큐 2…), 따라 나가는 줄은 ↳
 'use strict';
 window.Cue = (() => {
   const on = () => !!S.settings.cue;
-  const cues = (b = board()) => b.cues || (b.cues = []);
+  // 옛 '◣ N초 끄기'(act fade) → '■ 끄기 · 따로 N초'
+  const fix = c => { if (c.act === 'fade') { c.act = 'stop'; c.fout = c.sec || 3; delete c.sec; } return c; };
+  const cues = (b = board()) => { const L = b.cues || (b.cues = []); L.forEach(fix); return L; };
   const isGo = (L, i) => i === 0 || !L[i].when || L[i].when === 'go';
   const goNo = (L, i) => { let n = 0; for (let j = 0; j <= i; j++) if (isGo(L, j)) n++; return n; };
-  const ACTS = { play: '▶ 재생', stop: '■ 끄기', fade: '◣ 줄이며 끄기', duck: '↓ 작게', restore: '↺ 원래 크기' };
+  const ACTS = { play: '▶ 재생', stop: '■ 끄기', duck: '↓ 작게', restore: '↺ 원래 크기' };
   const WHENS = { go: 'GO를 누를 때', end: '앞 줄 소리가 끝나면', with: '앞 줄과 동시에' };
-  const actTxt = c => c.act === 'fade' ? `◣ ${c.sec || 3}초 끄기` : c.act === 'duck' ? `↓ 1/${Math.round(1 / (c.sec || 0.25))}로` : (ACTS[c.act] || ACTS.play);
+  const own = c => c.fin != null || c.vol != null || c.fout != null;   // 이 큐만 따로 정한 값이 있나
+  const actTxt = c => c.act === 'duck' ? `↓ 1/${Math.round(1 / (c.sec || 0.25))}로` :
+    c.act === 'stop' ? '■ 끄기' + (c.fout == null ? '' : c.fout ? ` ${c.fout}초` : ' 바로') :
+    c.act === 'restore' ? ACTS.restore :
+    ACTS.play + (c.fin != null ? ` 인${c.fin}초` : '') + (c.vol != null ? ` ${Math.round(c.vol * 100)}%` : '');
+  const fadeOutOf = (c, p) => c.fout != null ? c.fout : foutOf(p);   // 끄기: 따로 없으면 패드를 다시 눌러 끌 때와 같게
   const padName = c => c.pad === '*' ? '랜덤 소리' : S.pads[c.pad] ? S.pads[c.pad].label || '(이름 없음)' : '(지운 패드)';
   const cueLabel = (L, i) => isGo(L, i) ? `큐 ${goNo(L, i)}` : `큐 ${goNo(L, i)}↳`;
 
@@ -22,7 +30,8 @@ window.Cue = (() => {
   const manual = new Set();    // 손으로(또는 큐로) 끈 패드 — 끝나도 '앞 소리가 끝나면' 줄을 안 부름
   const ducked = new Map();    // 패드 id → 비율
   const live = new Map();      // 큐 id → 패드 id (그 큐가 튼 소리가 울리는 중)
-  let adding = false, addAct = 'play', lastGo = 0, open = true, edit = null, help = false;
+  const volOver = new Set();   // 이 큐만 볼륨을 따로 준 패드 — 끝나면 트랙 볼륨으로
+  let adding = false, lastGo = 0, open = true, edit = null, help = false;
 
   function run(b, i) {
     const L = cues(b), c = L[i]; if (!c) return;
@@ -34,12 +43,14 @@ window.Cue = (() => {
       const p = S.pads[pid];
       if (!p) { logLine(`${tag} 건너뜀 (패드 없음)`, 'w'); return after(b, i, null); }
       logLine(`${tag} ${actTxt(c)} ${nm(pid)}${c.memo ? ' · ' + c.memo : ''}`);
-      if (c.act === 'stop' || c.act === 'fade') { if (Engine.isPlaying(pid)) { manual.add(pid); Engine.stop(pid, c.act === 'fade' ? (c.sec || 3) : 0); } }
+      if (c.act === 'stop') { if (Engine.isPlaying(pid)) { manual.add(pid); Engine.stop(pid, fadeOutOf(c, p)); } }
       else if (c.act === 'duck') { ducked.set(pid, c.sec || 0.25); Engine.setVolume(pid, p.vol * (c.sec || 0.25)); }
       else if (c.act === 'restore') { if (ducked.delete(pid)) Engine.setVolume(pid, p.vol); }
       else if (status[pid] === 'ready') {
         if (p.solo) soloOthers(pid);
-        if (Engine.play(pid, playOpt(p))) { lastId = pid; p.played = true; S.lastUse = Date.now(); save(); live.set(c.id, pid); }
+        const o = playOpt(p); if (c.fin != null) o.fadeIn = c.fin;
+        if (c.vol != null) { Engine.setVolume(pid, c.vol); volOver.add(pid); } else if (volOver.delete(pid)) Engine.setVolume(pid, p.vol);
+        if (Engine.play(pid, o)) { lastId = pid; p.played = true; S.lastUse = Date.now(); save(); live.set(c.id, pid); }
       }
       paintPad(pid); soon();
       after(b, i, pid);
@@ -55,13 +66,14 @@ window.Cue = (() => {
     const L = cues(b), c = L[i], n = L[i + 1]; if (!n || isGo(L, i + 1)) return;
     if (n.when === 'with') return run(b, i + 1);
     if (c.act === 'play' && pid && Engine.isPlaying(pid)) { const a = waitEnd.get(pid) || []; a.push([b, i + 1]); waitEnd.set(pid, a); }
-    else if (c.act === 'fade') setTimeout(() => run(b, i + 1), (c.sec || 3) * 1000);
+    else if (c.act === 'stop' && pid && S.pads[pid] && fadeOutOf(c, S.pads[pid]) > 0) setTimeout(() => run(b, i + 1), fadeOutOf(c, S.pads[pid]) * 1000);
     else run(b, i + 1);
   }
   Engine.on('play', () => soon());
   Engine.on('end', (id, why) => {
     const m = manual.delete(id);
     ducked.delete(id);
+    if (volOver.delete(id) && S.pads[id]) Engine.setVolume(id, S.pads[id].vol);
     live.forEach((pid, cid) => { if (pid === id) live.delete(cid); });
     soon();
     const w = waitEnd.get(id); if (!w) return;
@@ -111,8 +123,9 @@ window.Cue = (() => {
     if (!on()) return false;
     if (Engine.isPlaying(id)) manual.add(id);
     if (!adding || S.lock) return false;
-    const L = cues(), c = { id: uid(), pad: id, act: addAct, when: 'go' };
-    if (addAct === 'fade') c.sec = 3;
+    // 목록에서 이 소리의 마지막 동작이 '재생'이면 이번엔 '끄기' — 패드 누르는 손 그대로(한 번 켜기, 또 한 번 끄기)
+    const L = cues(), last = [...L].reverse().find(x => x.pad === id && (x.act === 'play' || x.act === 'stop'));
+    const c = { id: uid(), pad: id, act: last && last.act === 'play' ? 'stop' : 'play', when: 'go' };
     L.push(c); save();
     logLine(`큐 담음 ${cueLabel(L, L.length - 1)} ${actTxt(c)} ${nm(id)}`); paint(true);
     const el = padEls.get(id); if (el) { el.classList.add('qadd'); setTimeout(() => el.classList.remove('qadd'), 250); }
@@ -166,10 +179,28 @@ window.Cue = (() => {
     const r = h('div', { class: cls, 'data-i': i, role: 'button', 'aria-label': `${cueLabel(L, i)} ${padName(c)} — 다음으로` },
       h('span', { class: 'qn' }, isGo(L, i) ? String(goNo(L, i)) : '↳'),
       h('span', { class: 'qmain' }, h('b', { class: 'qname' }, padName(c)), h('small', { class: 'qsub' }, subTxt(L, i, c))),
-      h('span', { class: 'qact' + (c.act && c.act !== 'play' ? ' x' : '') }, actTxt(c)),
+      h('span', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') }, actTxt(c)),
       lock ? '' : h('button', { class: 'qed', 'aria-label': '이 큐 고치기', onclick: e => { e.stopPropagation(); edit = edit === c.id ? null : c.id; paint(); } }, edit === c.id ? '✕' : '⋯'));
     r.onclick = () => { if (i !== k) setSb(i, '줄 누름'); };
     return edit === c.id && !lock ? [r, editor(b, L, i)] : [r];
+  }
+  // 트랙대로(기본) / 이 큐만 따로 — 트랙 값을 흐리게 보여 주고, 다를 때만 고름
+  function overrides(b, c, ch) {
+    const p = c.pad !== '*' && S.pads[c.pad];
+    const tv = (k, t) => h('small', { class: 'qtrack' }, p ? t : '랜덤 소리는 각 트랙대로');
+    const out = [];
+    const tsec = v => v ? `${v}초` : '없음';
+    if (c.act === 'play' || !c.act) {
+      out.push(h('div', { class: 'qsec' }, h('small', null, '페이드인'), tv('fin', `트랙대로 = ${tsec(p && p.fin ? p.finSec : 0)}`)),
+        opts([[null, '트랙대로'], [0, '없음'], [1, '1초'], [3, '3초'], [5, '5초'], [10, '10초']], c.fin == null ? null : c.fin, v => ch(() => { if (v == null) delete c.fin; else c.fin = v; })),
+        h('div', { class: 'qsec' }, h('small', null, '볼륨'), tv('vol', `트랙대로 = ${p ? Math.round(p.vol * 100) : 100}%`)),
+        opts([[null, '트랙대로'], ['own', '이 큐만 따로']], c.vol == null ? null : 'own', v => ch(() => { if (v == null) delete c.vol; else c.vol = p ? p.vol : 1; })));
+      if (c.vol != null) out.push(stepper(Math.round(c.vol * 100), 0, 300, 5, volTxt, v => { c.vol = v / 100; save(); }, false, VOL_MAP));
+    } else if (c.act === 'stop') {
+      out.push(h('div', { class: 'qsec' }, h('small', null, '페이드아웃'), tv('fout', `트랙대로 = ${p ? tsec(foutOf(p)) : '각 트랙'}`)),
+        opts([[null, '트랙대로'], [0, '바로'], [1, '1초'], [3, '3초'], [5, '5초'], [10, '10초']], c.fout == null ? null : c.fout, v => ch(() => { if (v == null) delete c.fout; else c.fout = v; })));
+    }
+    return out;
   }
   function editor(b, L, i) {
     const c = L[i], ch = fn => { fn(); save(); paint(); };
@@ -187,9 +218,9 @@ window.Cue = (() => {
       i === 0 ? h('div', { class: 'qnote' }, '첫 줄은 GO를 누를 때 나가요') :
         opts(Object.entries(WHENS), c.when || 'go', v => ch(() => { c.when = v; })),
       sec('무엇을 해요?'),
-      opts(Object.entries(ACTS), c.act || 'play', v => ch(() => { c.act = v; if (v === 'fade') c.sec = c.sec > 1 ? c.sec : 3; else if (v === 'duck') c.sec = 0.25; else delete c.sec; })),
-      c.act === 'fade' ? opts([[1, '1초'], [3, '3초'], [5, '5초'], [10, '10초']], c.sec || 3, v => ch(() => { c.sec = v; })) : '',
+      opts(Object.entries(ACTS), c.act || 'play', v => ch(() => { c.act = v; delete c.fin; delete c.vol; delete c.fout; if (v === 'duck') c.sec = 0.25; else delete c.sec; })),
       c.act === 'duck' ? opts([[0.5, '1/2'], [0.25, '1/4'], [0.1, '1/10']], c.sec || 0.25, v => ch(() => { c.sec = v; })) : '',
+      ...overrides(b, c, ch),
       sec('어떤 소리?'), tgt,
       sec('기다렸다가'), stepper(c.wait || 0, 0, 60, 0.5, v => v ? v + '초 뒤' : '바로', v => { if (v) c.wait = v; else delete c.wait; save(); }),
       sec('메모 (GO 단추에 보임)'), memo,
@@ -204,7 +235,7 @@ window.Cue = (() => {
     return box;
   }
   const HELP = [
-    ['+ 담기', '를 누르고 패드를 차례로 누르면 큐가 쌓여요 (소리는 안 나요)'],
+    ['+ 담기', '를 누르고 패드를 차례로 누르면 큐가 쌓여요 (또 누르면 끄기)'],
     ['GO', '(아래 단추)를 누르면 색칠된 줄("다음")이 나가요'],
     ['줄', '을 누르면 그 줄이 "다음"이 돼요 · ▲ ▼ 로도 옮겨요'],
     ['⋯', '를 누르면 언제 나갈지 · 무엇을 할지 바꿔요'],
@@ -245,8 +276,8 @@ window.Cue = (() => {
         h('span', null, L.length ? `GO ${goNo(L, L.length - 1)}번` : ''),
         h('button', { class: 'qb qhelp-b' + (help ? ' on' : ''), 'aria-label': '큐 사용법', onclick: () => { help = !help; paint(); } }, '?'),
         addB),
-      adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 아래에 쌓여요 (소리 안 남) · 담을 동작:'),
-        opts([['play', '▶ 재생'], ['fade', '◣ 줄이며 끄기'], ['stop', '■ 끄기']], addAct, v => { addAct = v; paint(); })) : '',
+      adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 아래에 쌓여요 (소리 안 남)'),
+        h('div', { class: 'qdim' }, '한 번 누르면 ▶ 재생, 켜 둔 소리를 또 누르면 ■ 끄기로 담겨요')) : '',
       help || !L.length ? helpBox() : '',
       box,
       h('div', { class: 'qfoot' }, nav, h('div', { class: 'qnext' }, h('small', null, '다음'), h('b', null, next ? `${cueLabel(L, k)} · ${next.memo || padName(next)}` : L.length ? '끝 — ▲로 되돌리기' : '—'))));
@@ -278,7 +309,7 @@ window.Cue = (() => {
 
   // ---------- 설정 ----------
   function settingRow() {
-    return row(helpLabel('큐', '켜면 오른쪽에 큐보드, 아래에 GO 단추가 생겨요. [+ 담기] → 패드를 차례로 누르면 큐가 쌓이고, GO를 누를 때마다 차례로 나가요. 줄의 ⋯로 "앞 소리가 끝나면 저절로"·"줄이며 끄기" 등을 정해요. 끄면 전부 숨고 원래대로 — 넣은 큐는 남아 있어요.'),
+    return row(helpLabel('큐', '켜면 오른쪽에 큐보드, 아래에 GO 단추가 생겨요. [+ 담기] → 패드를 차례로 누르면 큐가 쌓이고, GO를 누를 때마다 차례로 나가요. 켜 둔 소리를 또 누르면 끄기로 담겨요. 줄의 ⋯로 "앞 줄 소리가 끝나면 저절로" 같은 것을 정해요. 페이드·볼륨은 트랙 설정대로, 이 큐만 다르게 할 때만 ⋯에서 따로. 끄면 전부 숨고 원래대로 — 넣은 큐는 남아 있어요.'),
       sw(on(), v => {
         S.settings.cue = v; save(); logLine(`큐 ${v ? '켬' : '끔'}`);
         if (!v) { cancelAll('큐 끔'); ducked.forEach((_, id) => S.pads[id] && Engine.setVolume(id, S.pads[id].vol)); ducked.clear(); }
