@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.39 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.40 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -740,6 +740,89 @@ function addBoard() {
   openBoardSheet();
 }
 
+// ---------- 보드 내보내기·가져오기 (zip: 패드이름.확장자 + board.json) ----------
+// 원본 형식 그대로 담고 이름만 패드 이름으로. 가져오기는 늘 새 보드로 더한다(기존 판은 안 건드림).
+const BIG_MB = 300;
+const MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', mov: 'video/quicktime', flac: 'audio/flac' };
+const safeName = s => (s || '소리').replace(/[\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80) || '소리';
+async function exportBoard(b) {
+  const pads = b.pads.map(id => S.pads[id]).filter(Boolean);
+  const names = new Map(), used = new Set(), entries = [], miss = [];
+  for (const p of pads) {
+    if (names.has(p.file)) continue;
+    const rec = files.get(p.file); if (!rec) { miss.push(p.label); continue; }
+    const ext = ((rec.name || '').match(/\.([^.\/]+)$/) || [])[1] || (MIME_EXT[rec.type] || 'mp3');
+    let base = safeName(p.label), nm = `${base}.${ext}`;
+    for (let k = 2; used.has(nm.toLowerCase()); k++) nm = `${base} (${k}).${ext}`;
+    used.add(nm.toLowerCase()); names.set(p.file, nm); entries.push({ name: nm, blob: rec.blob });
+  }
+  const mb = entries.reduce((a, e) => a + e.blob.size, 0) / 1048576;
+  if (mb > BIG_MB && !confirm(`소리가 ${mb.toFixed(0)}MB예요. 아이패드에서 오래 걸리거나 실패할 수 있어요. 계속할까요?`)) return;
+  const json = { app: 'duckq-board', v: 1, ver: APP_VER, board: { name: b.name, color: b.color },
+    pads: pads.filter(p => names.has(p.file)).map(p => { const { id, file, played, ...rest } = p; return { ...rest, file: names.get(p.file) }; }) };
+  entries.unshift({ name: 'board.json', blob: new Blob([JSON.stringify(json, null, 1)], { type: 'application/json' }) });
+  const t0 = performance.now();
+  logLine(`내보내기 시작 "${b.name}" · 패드 ${pads.length}개 · 파일 ${entries.length - 1}개 · ${mb.toFixed(1)}MB${miss.length ? ' · 파일 없음 ' + miss.length : ''}`);
+  let zip;
+  try { zip = await Zip.make(entries, (i, n) => toast(`내보내는 중… ${i}/${n}`, 60000)); }
+  catch (e) { logLine('내보내기 실패: ' + (e && e.message), 'e'); toast('내보내기 실패 — ' + (e && e.message), 5000); return; }
+  const fname = `${safeName(b.name)}.duckq.zip`;
+  logLine(`내보내기 만듦 ${fname} · ${(zip.size / 1048576).toFixed(1)}MB · ${((performance.now() - t0) / 1000).toFixed(1)}초`);
+  // 아이패드는 손가락 누름 직후에만 공유 창이 열려서, 다 만든 뒤 [저장] 한 번 더 누르게 한다
+  toast(`준비됐어요 (${(zip.size / 1048576).toFixed(0)}MB)${miss.length ? ` · 파일 없는 패드 ${miss.length}개 뺌` : ''}`, 30000, { label: '저장', fn: () => saveBlob(zip, fname) });
+}
+const MIME_EXT = Object.fromEntries(Object.entries(MIME).map(([k, v]) => [v, k]));
+async function saveBlob(blob, fname) {
+  const file = new File([blob], fname, { type: 'application/zip' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); logLine('내보내기 공유 창 완료'); return; }
+    catch (e) { if (e.name === 'AbortError') { logLine('내보내기 공유 창 닫음'); return; } logLine(`공유 창 실패(${e.name}) → 다운로드로`, 'w'); }
+  } else logLine('공유 창 없음 → 다운로드로');
+  const a = h('a', { href: URL.createObjectURL(file), download: fname });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+  logLine('내보내기 다운로드 시작');
+}
+function pickImport() { if (S.lock) return; $('zipIn').click(); }
+$('zipIn').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = '';
+  if (!f) return;
+  const t0 = performance.now();
+  logLine(`가져오기 시작 "${f.name}" · ${(f.size / 1048576).toFixed(1)}MB`);
+  let map, json;
+  try {
+    map = await Zip.read(f);
+    const j = map.get('board.json'); if (!j) throw new Error('DuckQ 보드 파일이 아니에요(board.json 없음)');
+    json = JSON.parse(await j.text());
+    if (json.app !== 'duckq-board' || !Array.isArray(json.pads)) throw new Error('DuckQ 보드 파일이 아니에요');
+  } catch (err) { logLine('가져오기 실패: ' + err.message, 'e'); toast('가져오기 실패 — ' + err.message, 5000); return; }
+  closeSheet();
+  const src = json.board || {};
+  const nb = { id: uid(), name: String(src.name || '가져온 보드').slice(0, 20), color: COLORS[src.color] ? src.color : 'sky', pads: [] };
+  const fileIds = new Map(), bad = [];
+  S.boards.push(nb); S.cur = S.boards.length - 1; save();
+  applyBoardColor(); renderTop(); renderTabs(); renderGrid();
+  for (let i = 0; i < json.pads.length; i++) {
+    const jp = json.pads[i], blob = map.get(jp.file);
+    toast(`가져오는 중… ${i + 1}/${json.pads.length}`, 60000);
+    if (!blob) { bad.push(jp.label || jp.file); continue; }
+    let fid = fileIds.get(jp.file);
+    if (!fid) {
+      const ext = (jp.file.match(/\.([^.]+)$/) || [])[1] || '';
+      const rec = { id: uid(), name: jp.file, size: blob.size, type: MIME[ext.toLowerCase()] || '', blob: new File([blob], jp.file, { type: MIME[ext.toLowerCase()] || '' }) };
+      try { await Store.putFile(rec); } catch (err) { bad.push(jp.label || jp.file); logLine(`파일 저장 실패 "${jp.file}": ${err && err.message}`, 'e'); continue; }
+      files.set(rec.id, rec); fid = rec.id; fileIds.set(jp.file, fid);
+    }
+    const base = newPad(fid, String(jp.label || '소리'), +jp.dur || 0);
+    const p = { ...base, ...jp, id: base.id, file: fid, played: false, added: base.added };
+    S.pads[p.id] = p; nb.pads.push(p.id); save();
+    renderTop(); renderGrid();
+    await loadPad(p.id);
+  }
+  logLine(`가져오기 완료 "${nb.name}" · 패드 ${nb.pads.length}개${bad.length ? ' · 못 가져옴 ' + bad.length : ''} · ${((performance.now() - t0) / 1000).toFixed(1)}초`);
+  toast(bad.length ? `못 가져온 패드 ${bad.length}개: ${bad.join(', ')}` : `"${nb.name}" 보드로 ${nb.pads.length}개 가져왔어요`, bad.length ? 6000 : 2500);
+});
+
 // ---------- 설정 판(시트) ----------
 let onSheetClose = null;
 // anchor(선택) = 설정 대상(패드·보드 탭)을 돌려주는 함수 → 그 옆에 말풍선처럼 띄우고, 대상만 떨리고 나머지는 흐리게
@@ -1194,6 +1277,9 @@ function openBoardSheet() {
         if (!confirm(`"${b.name}" 보드와 패드 ${b.pads.length}개를 지울까요?`)) return;
         [...b.pads].forEach(id => removePad(id)); S.boards.splice(S.cur, 1); S.cur = Math.max(0, S.cur - 1); save(); applyBoardColor(); closeSheet();
       } }, '삭제')),
+      row(helpLabel('파일', '이 보드를 zip 파일 하나로 저장해요. 안의 소리 이름은 패드 이름이에요. 다른 아이패드에서 [가져오기]하면 새 보드로 들어가요'),
+        h('button', { class: 'sbtn', disabled: !b.pads.length, onclick: () => exportBoard(b) }, '내보내기'),
+        h('button', { class: 'sbtn', disabled: S.lock, onclick: pickImport }, '가져오기')),
     );
   }, () => $('tabs').querySelector('.tab.on'), { board: true });
 }
