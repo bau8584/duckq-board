@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.32 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.33 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -370,16 +370,25 @@ const touches = new Map();
 let lastScroll = 0, drag = null;
 const MOVE_PX = 10, HOLD_MS = 250, LONG_MS = 500, RENAME_MS = 400;
 // 패드 이름 바로 고치기: 이름 자리에 입력 칸을 띄움. 완료(Enter)·바깥 누름 = 저장, Esc = 취소
+// 이름 칸 오른쪽 작은 × — 누르면 이름을 다 지우고 바로 새로 쓰게(입력 칸에서 손이 안 떠나게 pointerdown에서 막음)
+function clearable(inp, cls = 'clr') {
+  const x = h('button', { class: 'clrx', type: 'button', 'aria-label': '이름 지우기', tabindex: -1 }, '×');
+  x.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); });
+  x.addEventListener('mousedown', e => e.preventDefault());
+  x.onclick = e => { e.stopPropagation(); inp.value = ''; inp.dispatchEvent(new Event('input')); inp.focus(); };
+  return h('span', { class: cls }, inp, x);
+}
 function renamePad(id) {
   const el = padEls.get(id), p = S.pads[id]; if (!el || !p) return;
   const r = el.querySelector('.label').getBoundingClientRect(), pr = el.getBoundingClientRect();
   const inp = h('input', { class: 'rn-in', value: p.label, maxlength: 40, enterkeyhint: 'done' });
-  inp.style.cssText = `left:${pr.left + 6}px;top:${r.top + r.height / 2 - 24}px;width:${pr.width - 12}px`;
-  document.body.append(inp); inp.focus(); inp.select();
+  const box = clearable(inp, 'clr rn-box');
+  box.style.cssText = `left:${pr.left + 6}px;top:${r.top + r.height / 2 - 24}px;width:${pr.width - 12}px`;
+  document.body.append(box); inp.focus(); inp.select();
   let done = false;
   const finish = ok => {
     if (done) return; done = true;
-    const v = inp.value.trim(); inp.remove();
+    const v = inp.value.trim(); box.remove();
     if (ok && v && v !== p.label) { logLine(`이름 바꿈 ${nm(id)} → "${v}"`); p.label = v; touchEdit(p); save(); const n = board().pads.indexOf(id) + 1; el.replaceWith(makePad(id, n)); }
   };
   inp.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); });
@@ -938,7 +947,7 @@ function openPadSheet(id) {
       } }, '삭제'));
     const head = body.previousSibling; head.insertBefore(act, head.lastChild);   // 닫기 왼쪽
     body.append(
-      h('div', { class: 'row col' }, name),
+      h('div', { class: 'row col' }, clearable(name)),
       h('div', { class: 'row col' }, h('label', null, helpLabel('색', '평소엔 어둡고 탁하게, 재생 중엔 밝게 켜져요. 투명 = 무채색(재생 중 밝은 회백색)')),
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
       (trim = trimBox(id, () => { refresh(); renderTop(); }, preview)).el,
@@ -1117,7 +1126,7 @@ function openBoardSheet() {
     const name = h('input', { class: 'txt', value: b.name, maxlength: 20, placeholder: '보드 이름' });
     name.oninput = () => { b.name = name.value || '보드'; save(); renderTabs(); };
     body.append(
-      h('div', { class: 'row col' }, name),
+      h('div', { class: 'row col' }, clearable(name)),
       h('div', { class: 'row col' }, h('label', null, helpLabel('보드 색', '보드 탭·판 테두리·뒷 배경에 쓰여요')),
         colorChips(b.color, false, k => { b.color = k; save(); applyBoardColor(); renderTabs(); paintAll(); })),
       row('페이드', h('button', { class: 'sbtn', onclick: () => { fadeScope = b.id; openFadeSheet(); } }, '이 보드 페이드 설정')),
