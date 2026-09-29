@@ -1,12 +1,13 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.24 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.25 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
 // '투명'(색 없음) 패드: 평소 중립, 재생 중엔 이 밝은 무채색으로 — 다른 색과 같은 규칙(보드 색 안 씀, 소유자 결정 2026-09-29)
-const CLEAR_LIT = '#E4E8EF';
-const padHex = p => p.color === 'none' || !COLORS[p.color] ? CLEAR_LIT : COLORS[p.color];
+// 화이트 화면에선 흰 패드 위에서 안 보이므로 반대로 짙은 먹색으로 켜짐
+const CLEAR_LIT = { dark: '#E4E8EF', light: '#2E343D' };
+const padHex = p => p.color === 'none' || !COLORS[p.color] ? CLEAR_LIT[S.settings.theme === 'light' ? 'light' : 'dark'] : COLORS[p.color];
 const ROWS = { 4: 3, 6: 4, 8: 5 };           // 패드 크기 = 열 수 → 한 화면에 보이는 줄 수 (넘치면 세로 스크롤)
 // 새 곡 페이드 기본값은 모두 끔(PLAN-app-fix1 3번). 패드 글자 크기 s/m/l
 const DEF_SETTINGS = { theme: 'dark', cols: 6, fadeSec: 2, fadeOverride: false, soloMode: 'each', labelSize: 'm', newFin: false, newFinSec: 1, newFout: false, newFoutSec: 2, fadeMax: 10 };
@@ -112,6 +113,7 @@ const grid = $('grid'), tray = $('tray');
 function applyTheme() {
   document.documentElement.dataset.theme = S.settings.theme;
   document.querySelector('meta[name=theme-color]').content = S.settings.theme === 'light' ? '#e9edf4' : '#0d1017';
+  paintAll(); if (typeof renderPlays === 'function') renderPlays();   // 투명 패드의 켜짐 색이 화면에 따라 다름
 }
 function applyBoardColor() { document.body.style.setProperty('--board', COLORS[board().color] || COLORS.sky); }
 
