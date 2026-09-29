@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.27 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.28 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -205,7 +205,6 @@ function tickPad(id, el) {
   el.classList.toggle('ending', !S.pads[id].loop && d - pos <= ENDING_SEC && d > ENDING_SEC);   // [시험 중] 끝나기 5초 전 신호
 }
 const ENDING_SEC = 5;
-const markAny = () => document.body.classList.toggle('anyplay', Engine.playingIds().length > 0);   // [시험 중] 나머지 어둡게
 function paintAll() { padEls.forEach((_, id) => paintPad(id)); }
 
 function renderMaster() {
@@ -295,7 +294,6 @@ function renderAll() { applyTheme(); applyBoardColor(); renderTop(); renderTabs(
 // 재생 중인 패드만 1초에 4번 갱신 (DESIGN §6)
 setInterval(() => {
   for (const id of Engine.playingIds()) { const el = padEls.get(id); if (el) tickPad(id, el); }
-  markAny();
   renderPlays();
 }, 250);
 
@@ -483,7 +481,6 @@ const nm = id => `"${(S.pads[id] || {}).label || id}"`;   // 기록용 패드 �
 // 시험 기록(PLAN-app-fix1 시험표): 무엇을 눌러 무슨 일이 났는지 로그로 남겨 PC에서 분석
 const WHY = { ended: '트랙 끝', faded: '페이드 끝', stop: '바로 정지', restart: '다시 시작', hidden: '홈 복귀', ousted: '다른 창', error: '오류', unload: '지움' };
 var playT = {};   // id → 튼 시각(재생 줄 순서)
-Engine.on('play', markAny); Engine.on('end', markAny);
 Engine.on('play', id => {
   const p = S.pads[id]; playT[id] = performance.now();
   if (p) logLine(`▶ ${nm(id)} 구간 ${Engine.dur(id).toFixed(1)}초 · 인 ${p.fin ? p.finSec + '초' : '끔'} · 아웃 ${foutOf(p) ? foutOf(p) + '초' : '끔'}${p.loop ? ' · 반복' : ''}`);
@@ -766,7 +763,8 @@ function seg(opts, cur, onchange) {
 }
 function colorChips(cur, withNone, onchange) {
   const box = h('div', { class: 'chips' });
-  const keys = withNone ? ['none', ...COLOR_KEYS] : COLOR_KEYS;
+  // 트랙 색: 투명 + 7색(회색은 투명과 구분이 안 돼 뺌 — 이미 회색인 트랙은 그대로 보임). 보드 색은 8색
+  const keys = withNone ? ['none', ...COLOR_KEYS.filter(k => k !== 'gray' || cur === 'gray')] : COLOR_KEYS;
   keys.forEach(k => {
     const c = h('button', { class: 'chip' + (k === 'none' ? ' none' : '') + (k === cur ? ' sel' : ''), 'aria-label': k === 'none' ? '투명' : COLOR_KO[k], title: k === 'none' ? '투명' : COLOR_KO[k] }, k === 'none' ? '투명' : '');
     if (k !== 'none') c.style.setProperty('--c', COLORS[k]);

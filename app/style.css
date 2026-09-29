@@ -94,18 +94,15 @@ button:disabled{cursor:default}
 .meta b{font-size:10px;letter-spacing:.08em;visibility:hidden}
 
 /* 재생 중: 색 유지 + 더 밝은 같은 색이 왼쪽에서 진행만큼 차오름 · 커짐 · 색 그림자 · 레벨미터 */
-/* 재생 중: 더 밝고 쨍하게(평소의 탁한 색과 확실히 갈리게) */
+/* 재생 중 = 밝고 쨍한 색 + 겉 테두리(패드와 2px 띄움) + 진행 채움. 번짐·크게 키우기는 뺌(소유자 결정 2026-09-29) */
+:root{--ring:#ffffff}[data-theme="light"]{--ring:#15181c}
 .pad.playing{filter:saturate(1.35) brightness(1.12);background:linear-gradient(90deg,color-mix(in srgb,var(--h) 58%,#fff) var(--p),var(--h) var(--p));
-  transform:scale(1.06);z-index:2;
-  box-shadow:0 0 26px 6px color-mix(in srgb,var(--h) 75%,transparent),0 8px 18px rgba(0,0,0,.3)}
-[data-theme="light"] .pad.playing{box-shadow:0 0 22px 5px color-mix(in srgb,var(--h) 60%,transparent),0 8px 18px rgba(0,0,0,.35)}
-.pad.playing.press{transform:scale(1.03)}
-/* [시험 중 — 기각 가능] 끝나기 5초 전: 빛이 숨 쉬듯 밝아졌다 어두워짐 */
-@keyframes endglow{0%{box-shadow:0 0 14px 2px color-mix(in srgb,var(--h) 50%,transparent),0 8px 18px rgba(0,0,0,.3)}100%{box-shadow:0 0 38px 12px color-mix(in srgb,var(--h) 95%,transparent),0 8px 18px rgba(0,0,0,.3)}}
-.pad.playing.ending{animation:endglow .5s ease-in-out infinite alternate}
+  transform:scale(1.02);z-index:2;box-shadow:0 0 0 2px var(--bg1),0 0 0 5px var(--ring)}
+.pad.playing.press{transform:scale(1)}
+/* [시험 중 — 기각 가능] 끝나기 5초 전: 테두리가 깜빡 */
+@keyframes endring{0%{box-shadow:0 0 0 2px var(--bg1),0 0 0 5px var(--ring)}100%{box-shadow:0 0 0 2px var(--bg1),0 0 0 5px transparent}}
+.pad.playing.ending{animation:endring .45s steps(1,end) infinite alternate}
 .pad.playing.ending .meta span:last-child{font-weight:900;opacity:1}
-/* [시험 중 — 기각 가능] 무언가 울리는 동안 나머지 패드를 한 단계 더 어둡게 */
-.anyplay .pad[data-id]:not(.playing){opacity:.55}
 .pad.playing .idx{display:none}
 .pad.playing .eq{display:flex}
 /* 평소(재생 안 함) = 어둡고 탁한 색, 재생 중에만 원래 밝은 색 (소유자 결정 2026-09-29). PLAYED는 색은 그대로, 칩만 */
@@ -130,7 +127,6 @@ button:disabled{cursor:default}
 /* 고른 패드: 오른쪽 위 동그라미가 채워지고 테두리 대신 살짝 떠 보임 */
 .editing .pad .edit{border-radius:50%;border:2px solid currentColor;background:none;font-size:0}
 .editing .pad.sel .edit{background:var(--text);border-color:var(--text);color:var(--bg0);font-size:15px;font-weight:900}
-.editing .pad.sel{box-shadow:0 0 0 3px var(--bg1),0 0 0 6px var(--text)}
 .pad.lift{animation:none!important;transition:none;z-index:9;pointer-events:none;opacity:.92;overflow:visible;box-shadow:0 14px 30px rgba(0,0,0,.35)}
 
 /* MASTER */
