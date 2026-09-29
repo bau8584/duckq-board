@@ -24,11 +24,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_POST(self):
-        if self.path != '/log':
+        # /log = 엔진 검증 창, /log-app = 앱(app/) — 파일을 따로 쌓는다
+        if self.path not in ('/log', '/log-app'):
             self.send_error(404); return
         body = self.rfile.read(int(self.headers.get('Content-Length', 0))).decode('utf-8', 'replace')
         os.makedirs(LOG_DIR, exist_ok=True)
-        path = os.path.join(LOG_DIR, f'engine-{datetime.date.today()}.txt')
+        path = os.path.join(LOG_DIR, f"{'app' if self.path == '/log-app' else 'engine'}-{datetime.date.today()}.txt")
         with open(path, 'a', encoding='utf-8') as f:
             f.write(body if body.endswith('\n') else body + '\n')
         self.send_response(204); self.end_headers()

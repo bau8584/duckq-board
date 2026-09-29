@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.1 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -42,7 +42,24 @@ function h(tag, attrs, ...kids) {
 const LOG = [];
 function logLine(msg, lv) {
   LOG.push(`${new Date().toTimeString().slice(0, 8)} ${lv === 'e' ? '✖ ' : lv === 'w' ? '! ' : ''}${msg}`);
+  logTotal++;
   if (LOG.length > 300) LOG.shift();
+}
+// PC로 자동 전송: q.deokgu.com(또는 PC의 log-server)에서 열었을 때만, 5초마다 → logs/app-날짜.txt. PC가 꺼져 있으면 밀린 것까지 다음에.
+let logTotal = 0, logSent = 0;
+const LOG_SEND = location.hostname === 'q.deokgu.com' || location.port === '8765';
+async function flushLog() {
+  if (!LOG_SEND || logSent >= logTotal) return;
+  const upto = logTotal, lines = LOG.slice(Math.max(0, LOG.length - (upto - logSent)));
+  const head = logSent === 0 ? `\n##### 앱 세션 ${new Date().toISOString()} · ${navigator.userAgent.slice(0, 80)} #####\n` : '';
+  try {
+    const r = await fetch('/log-app', { method: 'POST', body: head + lines.join('\n') });
+    if (r.ok) logSent = upto;
+  } catch {}
+}
+if (LOG_SEND) {
+  setInterval(flushLog, 5000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushLog(); });
 }
 window.addEventListener('error', e => logLine('오류: ' + e.message + ' @' + e.lineno, 'e'));
 window.addEventListener('unhandledrejection', e => logLine('오류: ' + (e.reason && e.reason.message || e.reason), 'e'));
