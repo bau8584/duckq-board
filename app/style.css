@@ -48,22 +48,20 @@ button:disabled{cursor:default}
 .tab.on{color:var(--text);background:color-mix(in srgb,var(--c) 22%,var(--bg1));border-color:var(--c)}
 .tab.new{border-style:dashed}.tab.new::before{display:none}
 .editing .tab.on::after{content:"✎";font-size:12px;opacity:.7}
-.pager{display:flex;align-items:center;gap:6px;font:600 13px var(--font);color:var(--text-dim);font-variant-numeric:tabular-nums;flex:none}
-.pager button{width:44px;height:34px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);font-size:16px}
-.pager button:disabled{opacity:.3}
 
 /* 본판 */
 .stage{position:relative;display:grid;grid-template-columns:1fr 64px;gap:12px;min-height:0}
-.tray{min-height:0;padding:12px;border-radius:18px;background:var(--bg1);
+.tray{min-height:0;padding:12px;border-radius:18px;background:var(--bg1);overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;
   border:2px solid color-mix(in srgb,var(--board) 70%,var(--bg1));
   box-shadow:inset 0 0 40px color-mix(in srgb,var(--board) 8%,transparent)}
-.grid{--cols:6;--rows:4;height:100%;display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));grid-template-rows:repeat(var(--rows),minmax(0,1fr));gap:10px}
-.empty{grid-column:1/-1;grid-row:1/-1;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:15px}
+/* 한 화면에 6×4(보통)가 딱 맞는 줄 높이(--rowh, JS가 계산), 넘치면 세로 스크롤 */
+.grid{--cols:6;position:relative;display:grid;grid-template-columns:repeat(var(--cols),minmax(0,1fr));grid-auto-rows:var(--rowh,140px);gap:10px;padding:4px 0}
+.empty{grid-column:1/-1;min-height:200px;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:15px}
 
 /* 패드 — 굵은 블록 (DESIGN §3) */
 .pad{--h:#4FC3E0;--ink:#0b0c0e;--p:0%;
   position:relative;border:0;border-radius:20px;padding:12px 12px 9px;display:flex;flex-direction:column;justify-content:space-between;
-  text-align:center;color:var(--ink);background:var(--h);overflow:hidden;min-width:0;min-height:0;
+  text-align:center;color:var(--ink);background:var(--h);overflow:hidden;min-width:0;min-height:0;touch-action:pan-y;
   transition:transform .06s,background-color .06s,box-shadow .06s}
 .pad.press{transform:scale(.975)}
 .icons{position:relative;display:flex;gap:4px;min-height:22px;padding-right:34px}
@@ -108,6 +106,12 @@ button:disabled{cursor:default}
 /* 파일 넣기 칸 */
 .pad.add{background:transparent;color:var(--text-dim);border:2px dashed var(--line);justify-content:center;gap:4px;font:700 15px var(--font)}
 .pad.add big{font-size:30px;font-weight:300;line-height:1}
+/* 편집 모드: 아이폰 홈 화면처럼 흔들림(편집 중에만 — 공연 중엔 안 움직임), 꾹 눌러 들어 올려 옮김 */
+@keyframes jig{0%{transform:rotate(-1.2deg)}100%{transform:rotate(1.2deg)}}
+.editing .pad[data-id]{animation:jig .14s ease-in-out infinite alternate}
+.editing .pad[data-id]:nth-child(2n){animation-duration:.16s;animation-delay:-.07s}
+.editing .pad[data-id]:nth-child(3n){animation-duration:.13s;animation-delay:-.04s}
+.pad.lift{animation:none!important;transition:none;z-index:9;pointer-events:none;opacity:.92;box-shadow:0 14px 30px rgba(0,0,0,.35)}
 
 /* MASTER */
 .master{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;border-radius:16px;background:var(--bg1);border:1px solid var(--line);
@@ -176,7 +180,22 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .logbox{font:11px/1.4 ui-monospace,Menlo,monospace;color:var(--text-dim);background:var(--bg0);border-radius:10px;padding:8px;max-height:200px;overflow:auto;white-space:pre-wrap;-webkit-user-select:text;user-select:text}
 
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:30;background:var(--bg2);color:var(--text);border:1px solid var(--line);
-  border-radius:12px;padding:10px 16px;font:600 14px var(--font);max-width:80%;text-align:center}
+  border-radius:12px;padding:10px 16px;font:600 14px var(--font);max-width:80%;text-align:center;display:flex;align-items:center;gap:14px}
+.tact{border:0;background:var(--text);color:var(--bg0);font:700 14px var(--font);border-radius:9px;padding:0 14px;height:36px;flex:none}
+
+/* 트림 막대: 파형 + 고른 구간 + 두 손잡이 */
+.tbar{position:relative;height:72px;margin:10px 12px 6px;border-radius:10px;background:var(--bg0);color:var(--text-faint);touch-action:none}
+.tbar::before{content:"";position:absolute;inset:0 -12px}  /* 양 끝 손잡이도 손가락으로 잡히게 */
+.tbar canvas{position:absolute;inset:0;width:100%;height:100%;border-radius:10px}
+.tsel{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--board) 22%,transparent);box-shadow:inset 0 0 0 2px var(--board)}
+.th{position:absolute;top:0;bottom:0;width:22px;margin-left:-11px}
+.th::after{content:"";position:absolute;left:8px;top:14px;bottom:14px;width:6px;border-radius:3px;background:var(--board)}
+.trow{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
+.trow>span:first-child{min-width:34px;font-weight:600;font-size:14px}
+.trow button{min-width:48px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);font:600 14px var(--font)}
+.trow button:active{background:var(--btn-press)}
+.trow output{min-width:74px;text-align:center;font:700 15px var(--font);font-variant-numeric:tabular-nums}
+.trow .sub{flex:1;font-size:13px;color:var(--text-dim)}
 
 /* 좁은 화면(세로 아이패드·폰)에서도 가로로 안 넘치게 */
 @media (max-width:820px){

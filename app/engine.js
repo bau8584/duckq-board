@@ -46,7 +46,7 @@ const Engine = (() => {
     tracks.forEach(tr => { if (tr.v) end(tr, 'rebuild'); dropEl(tr); });
     const old = ctx; old.onstatechange = null; try { old.close(); } catch {}
     makeCtx(); ctx.resume(); silent();
-    tracks.forEach(tr => { tr.vol = ctx.createGain(); tr.vol.gain.value = tr.volume; tr.vol.connect(master); });
+    tracks.forEach(wire);
     log(`소리 출구 새로 만듦 (${(performance.now() - s).toFixed(0)}ms)`);
     emit('rebuild');
   }
@@ -66,9 +66,10 @@ const Engine = (() => {
   async function load(id, blob, opt = {}) {
     ensure();
     const had = tracks.get(id); if (had) return info(had);
-    const tr = { id, blob, size: blob.size, dur: opt.dur || 0, volume: opt.volume ?? 1, loop: !!opt.loop, v: null, bytes: 0 };
+    const tr = { id, blob, size: blob.size, dur: opt.dur || 0, volume: opt.volume ?? 1, loop: !!opt.loop, v: null, bytes: 0,
+      start: opt.start || 0, end: opt.end || 0, pan: opt.pan || 0 };
     tracks.set(id, tr);
-    tr.vol = ctx.createGain(); tr.vol.gain.value = tr.volume; tr.vol.connect(master);
+    wire(tr);
     try {
       if (!(tr.dur > 0)) tr.dur = await probeDuration(blob);
       if (tr.dur < 0) throw new Error('재생할 수 없는 형식');
@@ -90,10 +91,24 @@ const Engine = (() => {
   }
   const info = tr => ({ kind: tr.kind, dur: tr.dur, mode: tr.kind === 'sfx' ? '메모리' : tr.d ? 'D ' + tr.d.fmt : 'A' });
 
+  // 패드마다: 볼륨 → 팬(좌우) → MASTER
+  function wire(tr) {
+    tr.vol = ctx.createGain(); tr.vol.gain.value = tr.volume;
+    tr.pn = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+    if (tr.pn) { tr.pn.pan.value = tr.pan; tr.vol.connect(tr.pn); tr.pn.connect(master); } else tr.vol.connect(master);
+  }
+  // 트림: 파일은 그대로 두고 틀 구간만 정한다. end 0 = 파일 끝까지.
+  function seg(tr) {
+    const D = tr.dur > 0 ? tr.dur : 0;
+    const s = Math.min(Math.max(0, tr.start || 0), Math.max(0, D - 0.05));
+    const e = tr.end > s ? Math.min(tr.end, D || tr.end) : D;
+    return { s, e, L: Math.max(0.05, e - s), cut: tr.end > s && tr.end < D - 0.01 };
+  }
+
   function unload(id) {
     const tr = tracks.get(id); if (!tr) return;
     if (tr.v) end(tr, 'unload');
-    dropEl(tr); try { tr.vol.disconnect(); } catch {}
+    dropEl(tr); try { tr.vol.disconnect(); if (tr.pn) tr.pn.disconnect(); } catch {}
     loadedBytes -= tr.bytes; tracks.delete(id);
   }
 
@@ -103,7 +118,7 @@ const Engine = (() => {
     if (tr.el) return tr.el;
     tr.url = URL.createObjectURL(tr.blob);
     const el = new Audio(); el.preload = 'auto'; el.src = tr.url;
-    el.addEventListener('ended', () => { if (tr.el === el && tr.v && tr.v.el === el && !el.loop) end(tr, 'ended'); });
+    el.addEventListener('ended', () => { if (tr.el === el && tr.v && tr.v.el === el) aEdge(tr); });
     el.addEventListener('error', () => log(`<audio> 오류 code=${el.error && el.error.code}`, 'e'));
     tr.el = el; tr.node = ctx.createMediaElementSource(el);
     return el;
@@ -116,29 +131,40 @@ const Engine = (() => {
     tr.node = null; URL.revokeObjectURL(tr.url);
   }
 
+  // A: 구간 끝에 닿으면 반복이면 시작점으로, 아니면 끝
+  function aEdge(tr) {
+    const v = tr.v; if (!v || !v.el) return;
+    if (tr.loop) { v.el.currentTime = seg(tr).s; v.el.play().catch(() => {}); } else end(tr, 'ended');
+  }
+
+  // opt.fadeIn: 페이드인 초 · opt.from: 구간 안에서 몇 초부터 (미리 듣기용)
   function play(id, opt = {}) {
     const tr = tracks.get(id); if (!tr || !tr.kind || ousted) return false;
     if (needRebuild) rebuild();
     if (paused) resumeAll();
     if (ctx.state !== 'running') ctx.resume().catch(() => {});
     if (tr.v) end(tr, 'restart');
+    const S = seg(tr), from = Math.min(Math.max(0, opt.from || 0), S.L - 0.05);
     const rise = Math.max(EDGE, opt.fadeIn || 0), now = ctx.currentTime;
-    const v = { g: ctx.createGain(), fading: false, rise };
+    const v = { g: ctx.createGain(), fading: false, rise, seg: S };
     v.g.gain.value = 0; v.g.connect(tr.vol); tr.v = v;
     if (tr.kind === 'sfx') {
-      const src = ctx.createBufferSource(); src.buffer = tr.buffer; src.loop = tr.loop; src.connect(v.g);
+      const src = ctx.createBufferSource(); src.buffer = tr.buffer; src.connect(v.g);
       v.g.gain.setValueAtTime(0, now); v.g.gain.linearRampToValueAtTime(1, now + rise);
       src.onended = () => { if (tr.v === v) end(tr, 'ended'); };
-      src.start(now); v.src = src; v.t0 = now;
+      if (tr.loop) { src.loop = true; src.loopStart = S.s; src.loopEnd = S.e; src.start(now, S.s + from); }
+      else src.start(now, S.s + from, S.L - from);
+      v.src = src; v.t0 = now - from;
     } else if (tr.d) {
-      v.ds = new DStream(tr, v, 0);
+      v.ds = new DStream(tr, v, from);
     } else {
-      const el = ensureEl(tr); el.loop = tr.loop;
+      const el = ensureEl(tr); el.loop = false;
       try { tr.node.disconnect(); } catch {}
       tr.node.connect(v.g); v.el = el;
-      el.currentTime = 0;
+      el.currentTime = S.s + from;
       v.g.gain.setValueAtTime(0, now); v.g.gain.linearRampToValueAtTime(1, now + rise);
       el.play().catch(e => { log(`play() 거부: ${e.message}`, 'e'); if (tr.v === v) end(tr, 'error'); });
+      if (S.cut) v.watch = setInterval(() => { if (tr.v === v && el.currentTime >= S.e - 0.03) aEdge(tr); }, 40);
     }
     emit('play', id);
     return true;
@@ -159,7 +185,7 @@ const Engine = (() => {
 
   function end(tr, why) {
     const v = tr.v; if (!v) return;
-    tr.v = null; clearTimeout(v.fadeTimer);
+    tr.v = null; clearTimeout(v.fadeTimer); clearTimeout(v.cut); clearInterval(v.watch);
     const now = ctx.currentTime, at = now + EDGE + 0.005;
     try { const g = v.g.gain; g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(0, now + EDGE); } catch {}
     if (v.src) { v.src.onended = null; try { v.src.stop(at); } catch {} }
@@ -194,9 +220,10 @@ const Engine = (() => {
   function pos(id) {
     const tr = tracks.get(id); if (!tr || !tr.v || !ctx) return 0;
     const v = tr.v;
-    if (v.src) { const p = ctx.currentTime - v.t0; return tr.dur > 0 ? p % tr.dur : p; }
+    // 구간 안에서의 위치(0 ~ 구간 길이)
+    if (v.src) { const p = ctx.currentTime - v.t0; return tr.loop ? p % v.seg.L : Math.min(p, v.seg.L); }
     if (v.ds) return v.ds.pos();
-    if (v.el) return v.el.currentTime;
+    if (v.el) return Math.max(0, v.el.currentTime - v.seg.s);
     return 0;
   }
 
@@ -204,11 +231,31 @@ const Engine = (() => {
     const tr = tracks.get(id); if (!tr) return;
     tr.volume = x; tr.vol.gain.setTargetAtTime(x, ctx.currentTime, 0.02);
   }
+  function setPan(id, x) {
+    const tr = tracks.get(id); if (!tr) return;
+    tr.pan = x; if (tr.pn) tr.pn.pan.setTargetAtTime(x, ctx.currentTime, 0.02);
+  }
+  // 다음 재생부터 적용 (재생 중인 소리는 그대로)
+  function setTrim(id, start, end) {
+    const tr = tracks.get(id); if (!tr) return;
+    tr.start = start || 0; tr.end = end || 0;
+  }
   function setLoop(id, on) {
     const tr = tracks.get(id); if (!tr) return;
+    const v = tr.v, rem = v ? v.seg.L - pos(id) : 0;
     tr.loop = !!on;
-    if (tr.v && tr.v.src) tr.v.src.loop = tr.loop;
-    if (tr.el) tr.el.loop = tr.loop;
+    // 반복을 끄면 지금 바퀴 끝에서 멈춤. 켜는 건 다음 재생부터(효과음)
+    if (v && v.src && !on && v.src.loop) { v.src.loop = false; try { v.src.stop(ctx.currentTime + rem); } catch {} }
+    // 긴 곡(D)은 몇 초 앞까지 미리 이어 붙여 두므로, 지금 바퀴 끝에 맞춰 끈다
+    if (v && v.ds && !on) { clearTimeout(v.cut); v.cut = setTimeout(() => { if (tr.v === v && !tr.loop) end(tr, 'ended'); }, rem * 1000); }
+  }
+  // 파형(효과음만 — 긴 곡은 통째로 풀지 않으므로 없음)
+  function peaks(id, n) {
+    const tr = tracks.get(id); if (!tr || !tr.buffer) return null;
+    if (tr.peaks && tr.peaks.length === n) return tr.peaks;
+    const d = tr.buffer.getChannelData(0), step = Math.max(1, Math.floor(d.length / n)), out = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let m = 0; for (let j = i * step, e = Math.min(d.length, j + step); j < e; j += 4) { const a = d[j] < 0 ? -d[j] : d[j]; if (a > m) m = a; } out[i] = m; }
+    return (tr.peaks = out);
   }
   function setMaster(x) {
     masterVol = x;
@@ -446,10 +493,11 @@ const Engine = (() => {
   }
 
   class DStream {
+    // off = 구간 시작에서 몇 초 뒤부터. 구간 끝(트림)은 풀린 소리 샘플 수로 정확히 자른다.
     constructor(tr, v, off) {
-      Object.assign(this, { tr, v, d: tr.d, off, alive: true, eof: false, started: false, pumping: false,
+      Object.assign(this, { tr, v, d: tr.d, off, seg: v.seg, left: -1, gen: 0, alive: true, eof: false, started: false, pumping: false,
         pend: [], pendOff: 0, pendLen: 0, sr: 0, nextTime: 0, t0: 0, pkts: 0, srcs: new Set(), bytes: 0, chunks: 0, gaps: 0 });
-      this.reader = makeReader(tr, off);
+      this.reader = makeReader(tr, v.seg.s + off);
       if (this.d.fmt !== 'wav') {
         this.dec = new AudioDecoder({ output: ad => this.onData(ad), error: e => log(`D 풀기 오류: ${e.message}`, 'e') });
         this.dec.configure(this.d.cfg);
@@ -457,13 +505,41 @@ const Engine = (() => {
       this.timer = setInterval(() => this.pump(), 250);
       this.pump();
     }
-    pos() { if (!this.started) return 0; const p = ctx.currentTime - this.t0, dur = this.tr.dur; return dur > 0 ? (this.tr.loop ? p % dur : Math.min(p, dur)) : Math.max(0, p); }
+    pos() { if (!this.started) return 0; const p = Math.max(0, ctx.currentTime - this.t0), L = this.seg.L; return this.tr.loop ? p % L : Math.min(p, L); }
     onData(ad) {
       try { if (this.alive) this.push(adToPlanar(ad), ad.sampleRate); }
       catch (e) { log(`D 변환 오류: ${e.message}`, 'e'); }
       finally { ad.close(); }
     }
-    push(chs, sr) { if (!this.sr) this.sr = sr; this.pend.push(chs); this.pendLen += chs[0].length; this.emitReady(false); }
+    push(chs, sr) {
+      if (!this.sr) this.sr = sr;
+      if (this.seg.cut) {
+        if (this.left < 0) this.left = Math.round((this.seg.L - this.off) * sr);
+        if (this.left <= 0) return;   // 구간 끝 뒤 소리는 버림 (반복 준비 중)
+        if (chs[0].length >= this.left) {
+          const k = this.left; chs = chs.map(a => a.subarray(0, k)); this.left = 0;
+          this.pend.push(chs); this.pendLen += k; this.segEnd();
+          if (!this.eof) this.emitReady(false);
+          return;
+        }
+        this.left -= chs[0].length;
+      }
+      this.pend.push(chs); this.pendLen += chs[0].length; this.emitReady(false);
+    }
+    segEnd() {
+      if (this.tr.loop) { queueMicrotask(() => this.restart()); return; }
+      this.eof = true; this.emitReady(true);
+      if (this.alive && !this.srcs.size && !this.pendLen) this.finish();
+    }
+    // 반복: 풀던 것을 버리고 구간 시작부터 다시 읽는다. 남은 꼬리 조각(pend)은 그대로 이어 붙음
+    restart() {
+      if (!this.alive) return;
+      this.gen++;
+      if (this.dec) { try { this.dec.reset(); this.dec.configure(this.d.cfg); } catch (e) { log(`D 반복 준비 오류: ${e.message}`, 'e'); } }
+      this.reader = makeReader(this.tr, this.seg.s);
+      this.left = Math.round(this.seg.L * this.sr);
+      this.pump();
+    }
     emitReady(all) {
       while (this.alive) {
         const need = Math.round(this.sr * (this.started ? D_CHUNK_SEC : D_FIRST_SEC));
@@ -511,19 +587,25 @@ const Engine = (() => {
           const ahead = (this.started ? this.nextTime - ctx.currentTime : 0) + this.pendLen / sr + (this.dec ? this.dec.decodeQueueSize * this.d.pktSec : 0);
           if (ahead >= D_AHEAD_SEC) break;
           const sec = this.started ? D_CHUNK_SEC : D_FIRST_SEC;
-          let got = false;
+          let got = false; const gen = this.gen;
           if (this.d.fmt === 'wav') {
             const p = await this.reader.nextPcm(Math.round(this.d.sr * sec));
-            if (!this.alive) break;
+            if (!this.alive || this.eof) break;
+            if (gen !== this.gen) continue;
             if (p) { this.push(p, this.d.sr); got = true; }
           } else {
             const pk = await this.reader.next(Math.ceil(sec / this.d.pktSec) + (this.started ? 0 : 4));
-            if (!this.alive) break;
+            if (!this.alive || this.eof) break;
+            if (gen !== this.gen) continue;
             for (const data of pk) this.dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: Math.round(this.pkts++ * this.d.pktSec * 1e6), data }));
             got = pk.length > 0;
           }
           if (got) continue;
-          if (this.tr.loop) { this.reader = makeReader(this.tr, 0); continue; }   // 반복: 처음부터 다시 읽어 이어 붙임
+          if (this.tr.loop) {   // 반복: 구간 시작부터 다시 읽어 이어 붙임
+            this.reader = makeReader(this.tr, this.seg.s);
+            if (this.seg.cut && this.sr) this.left = Math.round(this.seg.L * this.sr);
+            continue;
+          }
           this.eof = true;
           if (this.dec) { try { await this.dec.flush(); } catch {} }
           this.emitReady(true);
@@ -550,10 +632,11 @@ const Engine = (() => {
     SFX_MAX_SEC,
     on(ev, f) { (ls[ev] || (ls[ev] = [])).push(f); },
     unlock, probeDuration, load, unload, play, stop, stopAll, pauseAll, resumeAll,
-    pos, setVolume, setLoop, setMaster, playingIds,
+    pos, setVolume, setPan, setTrim, setLoop, setMaster, playingIds, peaks,
     isPlaying: id => !!(tracks.get(id) && tracks.get(id).v),
     isFading: id => !!(tracks.get(id) && tracks.get(id).v && tracks.get(id).v.fading),
-    dur: id => (tracks.get(id) || {}).dur || 0,
+    dur: id => { const tr = tracks.get(id); return tr ? (tr.v ? tr.v.seg.L : seg(tr).L) : 0; },   // 구간 길이
+    fileDur: id => (tracks.get(id) || {}).dur || 0,
     get paused() { return paused; },
     get unlocked() { return unlocked; },
     get loadedBytes() { return loadedBytes; },

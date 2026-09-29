@@ -1,10 +1,10 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.1.0 (2026-09-29)';
+const VER = 'DuckQ Board 0.2.1 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
-const ROWS = { 4: 3, 6: 4, 8: 5 };           // 패드 크기 = 열 수 → 한 쪽에 들어가는 줄 수
+const ROWS = { 4: 3, 6: 4, 8: 5 };           // 패드 크기 = 열 수 → 한 화면에 보이는 줄 수 (넘치면 세로 스크롤)
 const DEF_SETTINGS = { theme: 'dark', cols: 6, fadeSec: 2, fadeOverride: false, soloMode: 'each' };
 const IC = {
   fi: '<svg viewBox="0 0 24 24"><path d="M3 19L21 5v14z"/></svg>',
@@ -15,6 +15,7 @@ const $ = id => document.getElementById(id);
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
 const fmtH = s => { s = Math.max(0, Math.round(s || 0)); return Math.floor(s / 3600) + ':' + String(Math.floor(s / 60) % 60).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); };
+const fmtT = s => { s = Math.max(0, s || 0); return Math.floor(s / 60) + ':' + (s % 60).toFixed(1).padStart(4, '0'); };   // 0:05.3
 // 색 위 글자: 흰/검 중 대비가 큰 쪽 (CSS contrast-color는 구형 사파리 미지원)
 const ink = hex => {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(v => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4);
@@ -47,8 +48,9 @@ Engine.on('log', (m, lv) => logLine(m, lv));
 
 // ---------- 판 상태 ----------
 // S = { boards:[{id,name,color,pads:[padId]}], cur, pads:{id:{...}}, master, lock, settings }
+// 패드: label color vol pan loop solo fin finSec fout foutSec start end(0=끝까지) played added edited
 const freshState = () => ({ v: 1, boards: [{ id: uid(), name: '보드 1', color: 'sky', pads: [] }], cur: 0, pads: {}, master: 1, lock: false, settings: { ...DEF_SETTINGS } });
-const newPad = (file, label, dur) => ({ id: uid(), file, label, dur, color: 'none', vol: 1, loop: false, solo: false, fin: false, finSec: 1, fout: true, foutSec: 2, played: false });
+const newPad = (file, label, dur) => { const t = Date.now(); return { id: uid(), file, label, dur, color: 'none', vol: 1, pan: 0, loop: false, solo: false, fin: false, finSec: 1, fout: true, foutSec: 2, start: 0, end: 0, played: false, added: t, edited: t }; };
 let S = Store.loadState();
 if (!S || !Array.isArray(S.boards) || !S.boards.length) S = freshState();
 S.settings = { ...DEF_SETTINGS, ...(S.settings || {}) };
@@ -66,13 +68,18 @@ function save() {
   saveFail = !ok;
 }
 const board = () => S.boards[S.cur];
+const addedAt = p => p.added || parseInt(p.id.slice(0, 8), 36) || 0;   // 옛 패드는 id 앞부분이 만든 시각
+const editedAt = p => p.edited || addedAt(p);
+const segLen = p => Math.max(0.05, ((p.end > (p.start || 0) ? p.end : p.dur) || 0) - (p.start || 0));   // 트림한 구간 길이
+const touchEdit = p => { p.edited = Date.now(); };
 
 // 실행 중에만 쓰는 것
 const status = {};          // padId → 'wait' | 'ready' | 'bad'
 const badWhy = {};
 let files = new Map();      // fileId → {id,name,size,type,blob}
-let editMode = false, page = 0, lastId = null, started = false;
+let editMode = false, lastId = null, started = false;
 const padEls = new Map();   // padId → 화면의 패드 버튼
+const grid = $('grid'), tray = $('tray');
 
 // ---------- 그리기 ----------
 function applyTheme() {
@@ -82,10 +89,10 @@ function applyTheme() {
 function applyBoardColor() { document.body.style.setProperty('--board', COLORS[board().color] || COLORS.sky); }
 
 function renderTop() {
-  const b = board(), total = b.pads.reduce((a, id) => a + (S.pads[id].dur || 0), 0);
+  const b = board(), total = b.pads.reduce((a, id) => a + segLen(S.pads[id]), 0);
   const t = $('total');
   if (Engine.paused) t.innerHTML = '<b>⏸ 일시정지 중</b> · ⏸를 다시 누르면 이어서';
-  else if (editMode) t.innerHTML = '<b>편집 중</b> · 패드를 누르면 설정 · 보드 탭을 누르면 보드 설정';
+  else if (editMode) t.innerHTML = '<b>편집 중</b> · 누르면 설정 · 꾹 눌러 끌면 순서 바꾸기';
   else t.textContent = `전체 ${fmtH(total)} · 패드 ${b.pads.length}개`;
   const L = S.lock;
   $('btnLock').classList.toggle('on', L);
@@ -93,6 +100,7 @@ function renderTop() {
   $('lockArc').setAttribute('d', L ? 'M8 11V8a4 4 0 0 1 8 0v3' : 'M8 11V8a4 4 0 0 1 8 0');
   $('btnSet').disabled = L; $('btnEdit').disabled = L; $('btnAdd').disabled = L;
   $('btnEdit').classList.toggle('on', editMode);
+  $('btnSort').hidden = !editMode;
   document.body.classList.toggle('editing', editMode);
 }
 
@@ -104,35 +112,25 @@ function renderTabs() {
     box.append(t);
   });
   if (editMode) box.append(h('button', { class: 'tab new', onclick: addBoard }, '＋ 보드'));
-  box.querySelector('.tab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const on = box.querySelector('.tab.on');
+  if (on) box.scrollLeft = Math.max(0, on.offsetLeft - 40);
 }
 
-function pageInfo() {
-  const cols = S.settings.cols, rows = ROWS[cols] || 4, per = cols * rows;
-  const n = board().pads.length + (S.lock ? 0 : 1);
-  return { cols, rows, per, pages: Math.max(1, Math.ceil(n / per)) };
+// 한 화면에 cols × rows 칸이 딱 맞게 줄 높이를 정하고, 넘치면 세로 스크롤
+function sizeRows() {
+  const rows = ROWS[S.settings.cols] || 4, gap = 10;
+  const H = tray.clientHeight - 24 - 8;
+  grid.style.setProperty('--rowh', Math.max(64, (H - gap * (rows - 1)) / rows) + 'px');
 }
-function renderPager() {
-  const { pages } = pageInfo(), box = $('pager'); box.textContent = '';
-  if (pages <= 1) return;
-  box.append(
-    h('button', { onclick: () => { page--; renderGrid(); }, disabled: page === 0, 'aria-label': '앞 쪽' }, '‹'),
-    h('span', null, `${page + 1} / ${pages}`),
-    h('button', { onclick: () => { page++; renderGrid(); }, disabled: page >= pages - 1, 'aria-label': '다음 쪽' }, '›'));
-}
+new ResizeObserver(sizeRows).observe(tray);
 
 function renderGrid() {
-  const { cols, rows, per, pages } = pageInfo(), g = $('grid'), ids = board().pads;
-  if (page >= pages) page = pages - 1;
-  g.style.setProperty('--cols', cols); g.style.setProperty('--rows', rows); g.dataset.cols = cols;
-  g.textContent = ''; padEls.clear();
-  const start = page * per, end = Math.min(start + per, ids.length);
-  for (let k = start; k < end; k++) g.append(makePad(ids[k], k + 1));
-  if (!S.lock && ids.length >= start && ids.length < start + per) {
-    g.append(h('button', { class: 'pad add', onclick: pickFiles }, h('big', null, '＋'), ids.length ? '파일 넣기' : '소리 파일 넣기'));
-  }
-  if (S.lock && !ids.length) g.append(h('div', { class: 'empty' }, '이 보드엔 패드가 없어요'));
-  renderPager();
+  const cols = S.settings.cols, ids = board().pads;
+  grid.style.setProperty('--cols', cols); grid.dataset.cols = cols; sizeRows();
+  grid.textContent = ''; padEls.clear();
+  ids.forEach((id, k) => grid.append(makePad(id, k + 1)));
+  if (!S.lock) grid.append(h('button', { class: 'pad add', onclick: pickFiles }, h('big', null, '＋'), ids.length ? '파일 넣기' : '소리 파일 넣기'));
+  if (S.lock && !ids.length) grid.append(h('div', { class: 'empty' }, '이 보드엔 패드가 없어요'));
 }
 
 function makePad(id, n) {
@@ -161,11 +159,11 @@ function paintPad(id) {
   if (!playing) {
     el.style.setProperty('--p', '0%');
     el._el.textContent = '00:00';
-    el._rm.textContent = st === 'bad' ? (badWhy[id] || '못 틂') : (st === 'ready' ? '-' + fmt(p.dur) : '불러오는 중');
+    el._rm.textContent = st === 'bad' ? (badWhy[id] || '못 틂') : (st === 'ready' ? '-' + fmt(Math.ceil(segLen(p))) : '불러오는 중');
   } else tickPad(id, el);
 }
 function tickPad(id, el) {
-  const p = S.pads[id], d = Engine.dur(id) || p.dur || 1, pos = Engine.pos(id);
+  const d = Engine.dur(id) || segLen(S.pads[id]), pos = Engine.pos(id);
   el.style.setProperty('--p', Math.min(100, pos / d * 100).toFixed(1) + '%');
   el._el.textContent = fmt(pos); el._rm.textContent = '-' + fmt(Math.ceil(d - pos));
 }
@@ -183,7 +181,7 @@ function renderScrub() {
   const box = document.querySelector('.scrub');
   const p = lastId && S.pads[lastId];
   if (!p) { $('sName').textContent = '—'; $('sFill').style.width = '0'; $('sTime').textContent = '00:00 / 00:00'; box.classList.add('idle'); return; }
-  const playing = Engine.isPlaying(lastId), d = Engine.dur(lastId) || p.dur, pos = playing ? Engine.pos(lastId) : 0;
+  const playing = Engine.isPlaying(lastId), d = Engine.dur(lastId) || segLen(p), pos = playing ? Engine.pos(lastId) : 0;
   $('sName').textContent = p.label;
   $('sFill').style.width = playing ? Math.min(100, pos / d * 100) + '%' : '0';
   $('sTime').textContent = fmt(pos) + ' / ' + fmt(d);
@@ -231,21 +229,83 @@ function soloOthers(id) {
   }
 }
 
-const grid = $('grid');
+// 손가락 한 개 = 한 기록. 소리는 '손 뗄 때'(소유자 결정 2026-09-29) — 움직이면 스크롤로 보고 안 울림.
+// 편집 모드: 짧게 누르고 떼면 설정, 꾹(0.25초) 누른 채 끌면 순서 바꾸기.
+const touches = new Map();
+let lastScroll = 0, drag = null;
+const MOVE_PX = 10, HOLD_MS = 250;
+const unpress = el => setTimeout(() => el.classList.remove('press'), 60);
+function cancelTouch(t) { if (t.drag || t.dead) return; t.dead = true; clearTimeout(t.timer); t.el.classList.remove('press'); }
+tray.addEventListener('scroll', () => { lastScroll = performance.now(); touches.forEach(cancelTouch); }, { passive: true });
 grid.addEventListener('pointerdown', e => {
   const el = e.target.closest('.pad'); if (!el || !el.dataset.id) return;
-  el.classList.add('press');
-  if (editMode) return;
-  e.preventDefault();
-  tapPad(el.dataset.id);   // 손 닿는 순간 바로 (떼는 걸 기다리지 않음)
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  // 스크롤이 미끄러지는 중에 댄 손가락은 '멈추기'로 보고 소리 안 냄
+  const t = { el, id: el.dataset.id, x: e.clientX, y: e.clientY, dead: performance.now() - lastScroll < 120 };
+  touches.set(e.pointerId, t);
+  if (!t.dead) el.classList.add('press');
+  if (editMode && !t.dead) t.timer = setTimeout(() => startDrag(t), HOLD_MS);
 });
-const unpress = e => { const el = e.target.closest && e.target.closest('.pad'); if (el) setTimeout(() => el.classList.remove('press'), 60); };
-grid.addEventListener('pointerup', unpress); grid.addEventListener('pointercancel', unpress); grid.addEventListener('pointerleave', unpress, true);
-grid.addEventListener('click', e => {
-  const el = e.target.closest('.pad'); if (!el || !el.dataset.id || !editMode) return;
-  openPadSheet(el.dataset.id);
+window.addEventListener('pointermove', e => {
+  const t = touches.get(e.pointerId); if (!t) return;
+  if (t.drag) { t.cx = e.clientX; t.cy = e.clientY; dragMove(t); return; }
+  if (Math.hypot(e.clientX - t.x, e.clientY - t.y) > MOVE_PX) cancelTouch(t);
 });
+window.addEventListener('pointerup', e => {
+  const t = touches.get(e.pointerId); if (!t) return;
+  touches.delete(e.pointerId); clearTimeout(t.timer);
+  if (t.drag) return endDrag(t);
+  unpress(t.el);
+  if (t.dead) return;
+  if (editMode) openPadSheet(t.id); else tapPad(t.id);
+});
+window.addEventListener('pointercancel', e => {
+  const t = touches.get(e.pointerId); if (!t) return;
+  touches.delete(e.pointerId); clearTimeout(t.timer);
+  if (t.drag) endDrag(t); else t.el.classList.remove('press');
+});
+// 끄는 중엔 화면이 같이 스크롤되지 않게
+document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, { passive: false });
 ['gesturestart', 'dblclick'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
+
+// ---------- 흔들며 순서 바꾸기 (편집 모드) ----------
+function startDrag(t) {
+  if (t.dead || !editMode || drag) return;
+  t.drag = true; drag = t; t.cx = t.x; t.cy = t.y;
+  const g = grid.getBoundingClientRect();
+  t.gx = t.x - (g.left + t.el.offsetLeft); t.gy = t.y - (g.top + t.el.offsetTop);
+  t.el.classList.remove('press'); t.el.classList.add('lift');
+  place(t);
+  const tick = () => {   // 가장자리에 대고 있으면 저절로 스크롤
+    if (drag !== t) return;
+    const r = tray.getBoundingClientRect(), edge = 70;
+    const v = t.cy < r.top + edge ? -Math.ceil((r.top + edge - t.cy) / 6) : t.cy > r.bottom - edge ? Math.ceil((t.cy - r.bottom + edge) / 6) : 0;
+    if (v) { tray.scrollTop += v; dragMove(t); }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+function place(t) {
+  const g = grid.getBoundingClientRect();
+  t.el.style.transform = `translate(${t.cx - t.gx - g.left - t.el.offsetLeft}px,${t.cy - t.gy - g.top - t.el.offsetTop}px) scale(1.08)`;
+}
+function dragMove(t) {
+  const hit = document.elementFromPoint(t.cx, t.cy), under = hit && hit.closest('.pad[data-id]');
+  if (under && under !== t.el && under !== t.lastUnder && grid.contains(under)) {
+    const pads = [...grid.querySelectorAll('.pad[data-id]')];
+    grid.insertBefore(t.el, pads.indexOf(t.el) < pads.indexOf(under) ? under.nextSibling : under);
+  }
+  t.lastUnder = under;
+  place(t);
+}
+function endDrag(t) {
+  drag = null;
+  t.el.classList.remove('lift'); t.el.style.transform = '';
+  const order = [...grid.querySelectorAll('.pad[data-id]')].map(x => x.dataset.id);
+  const b = board();
+  if (order.join() !== b.pads.join()) { b.pads = order; save(); }
+  renderGrid();
+}
 
 Engine.on('play', id => paintPad(id));
 Engine.on('end', id => paintPad(id));
@@ -264,15 +324,15 @@ hit($('btnFade'), () => { Engine.stopAll(S.settings.fadeSec); paintAll(); });
 
 // MASTER 세로 슬라이더
 (() => {
-  const sl = $('mSlider'); let drag = false;
+  const sl = $('mSlider'); let on = false;
   const set = e => {
     const r = sl.getBoundingClientRect();
     S.master = Math.round(Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height)) * 100) / 100;
     Engine.setMaster(S.master); renderMaster();
   };
-  $('master').addEventListener('pointerdown', e => { drag = true; $('master').setPointerCapture(e.pointerId); set(e); });
-  $('master').addEventListener('pointermove', e => { if (drag) set(e); });
-  const up = () => { if (drag) { drag = false; save(); } };
+  $('master').addEventListener('pointerdown', e => { on = true; $('master').setPointerCapture(e.pointerId); set(e); });
+  $('master').addEventListener('pointermove', e => { if (on) set(e); });
+  const up = () => { if (on) { on = false; save(); } };
   $('master').addEventListener('pointerup', up); $('master').addEventListener('pointercancel', up);
   sl.setAttribute('role', 'slider'); sl.setAttribute('aria-label', 'MASTER 볼륨');
 })();
@@ -298,11 +358,37 @@ $('btnLock').onclick = () => {
 $('btnEdit').onclick = () => { if (S.lock) return; editMode = !editMode; renderTop(); renderTabs(); };
 $('btnAdd').onclick = () => pickFiles();
 $('btnSet').onclick = () => { if (!S.lock) openSettings(); };
+$('btnSort').onclick = () => { if (editMode) openSort(); };
 
 function onTab(i) {
   if (i === S.cur) { if (editMode && !S.lock) openBoardSheet(); return; }
-  S.cur = i; page = 0; save();
-  applyBoardColor(); renderTop(); renderTabs(); renderGrid();
+  S.cur = i; save();
+  applyBoardColor(); renderTop(); renderTabs(); renderGrid(); tray.scrollTop = 0;
+}
+
+// ---------- 정렬 (한 번만 — 누른 뒤 새로 넣는 패드는 그냥 맨 뒤) ----------
+const SORTS = [
+  ['name', '이름순', '가나다', (a, b) => a.label.localeCompare(b.label, 'ko', { numeric: true })],
+  ['added', '추가한 순', '먼저 넣은 것부터', (a, b) => addedAt(a) - addedAt(b)],
+  ['edited', '최근 수정한 순', '방금 고친 것부터', (a, b) => editedAt(b) - editedAt(a)],
+  ['len', '길이순', '짧은 것부터', (a, b) => segLen(a) - segLen(b)],
+];
+function openSort() {
+  openSheet('정렬', body => {
+    body.append(h('div', { class: 'row' }, h('div', { class: 'info' }, '지금 보드의 순서를 한 번만 바꿔요. 계속 정렬된 채로 있지 않아요.')));
+    SORTS.forEach(([, name, sub, cmp]) => body.append(h('div', { class: 'row' },
+      h('label', null, name, h('span', { class: 'sub' }, sub)),
+      h('button', { class: 'sbtn', onclick: () => sortBoard(name, cmp) }, '이 순서로'))));
+  });
+}
+function sortBoard(name, cmp) {
+  const b = board(), before = [...b.pads];
+  b.pads.sort((x, y) => cmp(S.pads[x], S.pads[y]) || before.indexOf(x) - before.indexOf(y));
+  save(); closeSheet(); tray.scrollTop = 0;
+  toast(`${name}으로 바꿨어요`, 8000, { label: '되돌리기', fn: () => {
+    if ([...before].sort().join() !== [...b.pads].sort().join()) return toast('그사이 패드가 바뀌어 되돌릴 수 없어요');
+    b.pads = before; save(); renderGrid();
+  } });
 }
 
 // ---------- 파일 넣기 ----------
@@ -320,8 +406,8 @@ $('files').addEventListener('change', async e => {
     files.set(rec.id, rec);
     const p = newPad(rec.id, f.name.replace(/\.[^.]+$/, ''), dur);
     S.pads[p.id] = p; b.pads.push(p.id); save();
-    page = Math.floor((b.pads.length - 1) / pageInfo().per);
     renderTop(); renderGrid();
+    padEls.get(p.id)?.scrollIntoView({ block: 'nearest' });
     await loadPad(p.id);
   }
   toast(bad.length ? `못 넣은 파일 ${bad.length}개: ${bad.join(', ')}` : `${list.length - bad.length}개 넣었어요`, bad.length ? 6000 : 1800);
@@ -333,7 +419,7 @@ async function loadPad(id) {
   if (!rec) { status[id] = 'bad'; badWhy[id] = '파일 없음'; paintPad(id); return; }
   status[id] = 'wait'; paintPad(id);
   try {
-    const inf = await Engine.load(id, rec.blob, { dur: p.dur, volume: p.vol, loop: p.loop });
+    const inf = await Engine.load(id, rec.blob, { dur: p.dur, volume: p.vol, loop: p.loop, pan: p.pan || 0, start: p.start || 0, end: p.end || 0 });
     if (!S.pads[id] || !inf) return;
     status[id] = 'ready';
     if (inf.dur > 0 && Math.abs(inf.dur - p.dur) > 0.3) { p.dur = inf.dur; save(); renderTop(); }
@@ -358,7 +444,7 @@ function removePad(id) {
   dropFileIfUnused(p.file);
 }
 function clonePad(id) {
-  const q = { ...S.pads[id], id: uid(), played: false };
+  const t = Date.now(), q = { ...S.pads[id], id: uid(), played: false, added: t, edited: t };
   S.pads[q.id] = q; loadPad(q.id);
   return q.id;
 }
@@ -367,14 +453,16 @@ function clonePad(id) {
 function addBoard() {
   const used = S.boards.map(b => b.color), color = COLOR_KEYS.find(c => !used.includes(c)) || 'sky';
   S.boards.push({ id: uid(), name: '보드 ' + (S.boards.length + 1), color, pads: [] });
-  S.cur = S.boards.length - 1; page = 0; save();
+  S.cur = S.boards.length - 1; save();
   applyBoardColor(); renderTop(); renderTabs(); renderGrid();
   openBoardSheet();
 }
 
 // ---------- 설정 판(시트) ----------
+let onSheetClose = null;
 function openSheet(title, build) {
   const sh = $('sheet'); sh.textContent = '';
+  onSheetClose = null;
   const body = h('div', { class: 'sh-body' });
   sh.append(h('div', { class: 'sh-head' }, h('b', null, title), h('button', { class: 'ibtn', onclick: closeSheet }, '닫기')), body);
   build(body);
@@ -382,6 +470,7 @@ function openSheet(title, build) {
 }
 function closeSheet() {
   if ($('sheetWrap').hidden) return;
+  if (onSheetClose) { try { onSheetClose(); } catch {} onSheetClose = null; }
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   $('sheetWrap').hidden = true; $('sheet').textContent = '';
   renderTop(); renderTabs(); renderGrid();
@@ -422,16 +511,72 @@ function colorChips(cur, withNone, onchange) {
   return box;
 }
 const sec1 = v => v.toFixed(1) + '초';
+const panTxt = v => v === 0 ? '가운데' : (v < 0 ? '왼쪽 ' : '오른쪽 ') + Math.abs(v);
+
+// 트림: 파일은 그대로, 시작·끝 지점만 기억. 파형(효과음) 위 두 손잡이 + 0.1초/1초 단추
+function trimBox(id, onchange) {
+  const p = S.pads[id], D = Engine.fileDur(id) || p.dur || 0;
+  let s = p.start || 0, e = p.end > s ? Math.min(p.end, D) : D;
+  const cv = h('canvas', { class: 'wave' }), sel = h('div', { class: 'tsel' });
+  const hs = h('div', { class: 'th' }), he = h('div', { class: 'th' });
+  const bar = h('div', { class: 'tbar' }, cv, sel, hs, he);
+  const sOut = h('output'), eOut = h('output'), lenOut = h('span', { class: 'sub' });
+  const draw = () => {
+    const a = D ? s / D * 100 : 0, b = D ? e / D * 100 : 100;
+    sel.style.left = a + '%'; sel.style.width = (b - a) + '%';
+    hs.style.left = a + '%'; he.style.left = b + '%';
+    sOut.textContent = fmtT(s); eOut.textContent = fmtT(e);
+    lenOut.textContent = `틀 길이 ${fmtT(e - s)} / 전체 ${fmtT(D)}`;
+  };
+  const commit = () => { p.start = +s.toFixed(2); p.end = e >= D - 0.05 ? 0 : +e.toFixed(2); Engine.setTrim(id, p.start, p.end); touchEdit(p); save(); onchange(); };
+  const setS = v => { s = Math.min(Math.max(0, v), e - 0.1); draw(); };
+  const setE = v => { e = Math.max(Math.min(D, v), s + 0.1); draw(); };
+  const wave = () => {
+    const r = bar.getBoundingClientRect(), dpr = devicePixelRatio || 1; if (!r.width) return;
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    const c = cv.getContext('2d'), pk = Engine.peaks(id, Math.floor(r.width / 3)), mid = cv.height / 2;
+    c.fillStyle = getComputedStyle(bar).color;
+    if (!pk) { c.fillRect(0, mid - dpr, cv.width, 2 * dpr); return; }
+    const w = cv.width / pk.length;
+    pk.forEach((v, i) => { const hh = Math.max(dpr, v * mid * 0.95); c.fillRect(i * w, mid - hh, Math.max(dpr, w - dpr), hh * 2); });
+  };
+  let which = null;
+  bar.addEventListener('pointerdown', ev => {
+    const r = bar.getBoundingClientRect(), t = (ev.clientX - r.left) / r.width * D;
+    which = Math.abs(t - s) <= Math.abs(t - e) ? 's' : 'e';
+    bar.setPointerCapture(ev.pointerId); (which === 's' ? setS : setE)(t);
+  });
+  bar.addEventListener('pointermove', ev => { if (!which) return; const r = bar.getBoundingClientRect(); (which === 's' ? setS : setE)((ev.clientX - r.left) / r.width * D); });
+  const up = () => { if (which) { which = null; commit(); } };
+  bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
+  const nb = (label, fn) => h('button', { onclick: () => { fn(); commit(); } }, label);
+  requestAnimationFrame(() => { wave(); draw(); });
+  draw();
+  return h('div', { class: 'row col' },
+    h('label', null, '구간(트림)', h('span', { class: 'sub' }, Engine.peaks(id, 8) ? '손잡이를 끌거나 단추로 맞춰요. 파일은 잘리지 않아요' : '긴 곡은 파형 없이 시간으로 맞춰요. 파일은 잘리지 않아요')),
+    bar,
+    h('div', { class: 'trow' }, h('span', null, '시작'), nb('−1', () => setS(s - 1)), nb('−.1', () => setS(s - 0.1)), sOut, nb('+.1', () => setS(s + 0.1)), nb('+1', () => setS(s + 1))),
+    h('div', { class: 'trow' }, h('span', null, '끝'), nb('−1', () => setE(e - 1)), nb('−.1', () => setE(e - 0.1)), eOut, nb('+.1', () => setE(e + 0.1)), nb('+1', () => setE(e + 1))),
+    h('div', { class: 'trow' }, lenOut, h('button', { class: 'sbtn', onclick: () => { s = 0; e = D; draw(); commit(); } }, '전체로')),
+  );
+}
 
 function openPadSheet(id) {
   const p = S.pads[id]; if (!p) return;
   const b = board(), rec = files.get(p.file);
-  const refresh = () => { save(); const el = padEls.get(id); if (el) { const n = b.pads.indexOf(id) + 1; el.replaceWith(makePad(id, n)); } };
+  const refresh = () => { touchEdit(p); save(); const el = padEls.get(id); if (el) { const n = b.pads.indexOf(id) + 1; el.replaceWith(makePad(id, n)); } };
+  // 미리 듣기: 편집 모드에선 패드를 눌러도 설정이 열리므로 여기서 듣는다
+  const preview = (from, btn) => {
+    if (status[id] !== 'ready' || !started) return;
+    if (Engine.isPlaying(id)) { Engine.stop(id, 0); return; }
+    Engine.play(id, { fadeIn: p.fin ? p.finSec : 0, from }); lastId = id; paintPad(id);
+  };
+  onSheetClose = () => { if (Engine.isPlaying(id) && editMode) Engine.stop(id, 0); };
   openSheet('패드 설정', body => {
     const name = h('input', { class: 'txt', value: p.label, maxlength: 40, placeholder: '패드 이름' });
     name.oninput = () => { p.label = name.value; refresh(); };
-    const fin = stepper(p.finSec, 0.1, 10, 0.1, sec1, v => { p.finSec = v; save(); });
-    const fout = stepper(p.foutSec, 0.1, 10, 0.1, sec1, v => { p.foutSec = v; save(); });
+    const fin = stepper(p.finSec, 0.1, 10, 0.1, sec1, v => { p.finSec = v; touchEdit(p); save(); });
+    const fout = stepper(p.foutSec, 0.1, 10, 0.1, sec1, v => { p.foutSec = v; touchEdit(p); save(); });
     fin.classList.toggle('off', !p.fin); fout.classList.toggle('off', !p.fout);
     const moveSel = h('select', { class: 'sel' }, h('option', { value: '' }, '다른 보드로…'),
       S.boards.filter(x => x !== b).map(x => h('option', { value: x.id }, x.name)));
@@ -440,21 +585,19 @@ function openPadSheet(id) {
       b.pads.splice(b.pads.indexOf(id), 1); to.pads.push(id); save();
       toast(`"${p.label}" → ${to.name}`); closeSheet();
     };
-    const order = d => {
-      const k = b.pads.indexOf(id), j = k + d; if (j < 0 || j >= b.pads.length) return;
-      [b.pads[k], b.pads[j]] = [b.pads[j], b.pads[k]]; save();
-      page = Math.floor(j / pageInfo().per); renderGrid();
-    };
+    const L = () => segLen(p);
     body.append(
       h('div', { class: 'row col' }, name),
       h('div', { class: 'row col' }, h('label', null, '색', h('span', { class: 'sub' }, '없음 = 평소 무채색, 재생 중엔 보드 색으로 켜짐')),
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
-      row('볼륨', stepper(Math.round(p.vol * 100), 0, 100, 5, v => v + '%', v => { p.vol = v / 100; Engine.setVolume(id, p.vol); save(); })),
+      row('미리 듣기', h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, L() - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
+      trimBox(id, () => { refresh(); renderTop(); }),
+      row('볼륨', stepper(Math.round(p.vol * 100), 0, 100, 5, v => v + '%', v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); })),
+      row(h('span', null, '팬', h('span', { class: 'sub' }, '왼쪽·오른쪽 스피커로 치우치게')), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); })),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
       row(h('span', null, '솔로', h('span', { class: 'sub' }, '이 패드를 틀면 다른 소리를 끔')), sw(p.solo, on => { p.solo = on; refresh(); })),
       row('페이드인', sw(p.fin, on => { p.fin = on; fin.classList.toggle('off', !on); refresh(); }), fin),
-      row(h('span', null, '페이드아웃', h('span', { class: 'sub' }, '재생 중 다시 누를 때')), sw(p.fout, on => { p.fout = on; fout.classList.toggle('off', !on); save(); }), fout),
-      row('순서', h('button', { class: 'sbtn', onclick: () => order(-1) }, '◀ 앞으로'), h('button', { class: 'sbtn', onclick: () => order(1) }, '뒤로 ▶')),
+      row(h('span', null, '페이드아웃', h('span', { class: 'sub' }, '재생 중 다시 누를 때')), sw(p.fout, on => { p.fout = on; fout.classList.toggle('off', !on); touchEdit(p); save(); }), fout),
       row('패드', h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
       } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: () => {
@@ -477,11 +620,11 @@ function openBoardSheet() {
       h('div', { class: 'row col' }, h('label', null, '보드 색', h('span', { class: 'sub' }, '탭·판 테두리·뒷 배경, 색 없는 패드의 재생 색')),
         colorChips(b.color, false, k => { b.color = k; save(); applyBoardColor(); renderTabs(); paintAll(); })),
       row('보드', h('button', { class: 'sbtn', onclick: () => {
-        const nb = { id: uid(), name: b.name + ' 복사', color: b.color, pads: b.pads.map(clonePad) };
-        S.boards.splice(S.cur + 1, 0, nb); S.cur++; page = 0; save(); applyBoardColor(); closeSheet(); toast('보드를 복제했어요');
+        const nb = { id: uid(), name: b.name + ' 복사', color: b.color, pads: b.pads.map(id => clonePad(id)) };
+        S.boards.splice(S.cur + 1, 0, nb); S.cur++; save(); applyBoardColor(); closeSheet(); toast('보드를 복제했어요');
       } }, '복제'), h('button', { class: 'sbtn danger', disabled: S.boards.length < 2, onclick: () => {
         if (!confirm(`"${b.name}" 보드와 패드 ${b.pads.length}개를 지울까요?`)) return;
-        [...b.pads].forEach(removePad); S.boards.splice(S.cur, 1); S.cur = Math.max(0, S.cur - 1); page = 0; save(); applyBoardColor(); closeSheet();
+        [...b.pads].forEach(id => removePad(id)); S.boards.splice(S.cur, 1); S.cur = Math.max(0, S.cur - 1); save(); applyBoardColor(); closeSheet();
       } }, '삭제')),
     );
   });
@@ -493,7 +636,7 @@ function openSettings() {
     const logBox = h('div', { class: 'logbox', hidden: true });
     body.append(
       row('화면', seg([['dark', '다크'], ['light', '화이트']], st.theme, v => { st.theme = v; save(); applyTheme(); })),
-      row('패드 크기', seg([[8, '작게'], [6, '보통'], [4, '크게']], st.cols, v => { st.cols = v; page = 0; save(); renderGrid(); })),
+      row('패드 크기', seg([[8, '작게'], [6, '보통'], [4, '크게']], st.cols, v => { st.cols = v; save(); renderGrid(); })),
       row(h('span', null, '전체 페이드 시간', h('span', { class: 'sub' }, '◣ 버튼')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
       row(h('span', null, '모든 패드에 이 시간 쓰기', h('span', { class: 'sub' }, '켜면 패드를 끌 때도 위 시간으로 페이드')), sw(st.fadeOverride, on => { st.fadeOverride = on; save(); })),
       h('div', { class: 'row col' }, h('label', null, '솔로 패드를 틀 때 다른 소리'),
@@ -513,18 +656,18 @@ function openSettings() {
   });
 }
 
-// ---------- 알림 ----------
+// ---------- 알림 (act = {label, fn} 이면 단추 하나) ----------
 let toastT = 0;
-function toast(msg, ms = 1800) {
+function toast(msg, ms = 1800, act) {
   const t = $('toast'); t.textContent = msg; t.hidden = false;
+  if (act) t.append(h('button', { class: 'tact', onclick: () => { t.hidden = true; act.fn(); } }, act.label));
   clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, ms);
 }
 
 // ---------- 화면 꺼짐 방지 ----------
-let wake = null;
 async function reqWake() {
   if (!started || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
-  try { wake = await navigator.wakeLock.request('screen'); } catch (e) { logLine('화면 꺼짐 방지 실패: ' + e.message, 'w'); }
+  try { await navigator.wakeLock.request('screen'); } catch (e) { logLine('화면 꺼짐 방지 실패: ' + e.message, 'w'); }
 }
 
 // ---------- 시작 ----------
@@ -544,8 +687,7 @@ async function boot() {
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(ok => logLine('영구 저장 ' + (ok ? '허용' : '거부'), ok ? 'i' : 'w'));
   const recs = await Store.allFiles();
   files = new Map(recs.map(r => [r.id, r]));
-  const used = new Set(Object.values(S.pads).map(p => p.file));
-  recs.forEach(r => { if (!used.has(r.id)) dropFileIfUnused(r.id); });   // 넣다가 꺼진 파일 정리
+  recs.forEach(r => dropFileIfUnused(r.id));   // 넣다가 꺼진 파일 정리
   // 지금 보드 먼저, 나머지 보드는 뒤에
   const order = [...board().pads, ...S.boards.flatMap((b, i) => i === S.cur ? [] : b.pads)];
   for (const id of order) await loadPad(id);

@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#0d1017">
 <title>DuckQ Board</title>
 <script>try{var s=JSON.parse(localStorage.getItem('duckq-board-v1'));if(s&&s.settings&&s.settings.theme==='light')document.documentElement.dataset.theme='light'}catch(e){}</script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=0.2.1">
 </head>
 <body>
 <div class="app" id="app">
@@ -21,6 +21,7 @@
     </div>
     <div class="total" id="total"></div>
     <div class="grp r">
+      <button class="ibtn" id="btnSort" hidden><svg viewBox="0 0 24 24"><path d="M7 4v16M3 16l4 4 4-4M14 6h7M14 12h5M14 18h3"/></svg><span>정렬</span></button>
       <button class="ibtn" id="btnEdit"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg><span>편집</span></button>
       <button class="ibtn add" id="btnAdd">＋ 추가</button>
     </div>
@@ -28,11 +29,10 @@
 
   <div class="tabsrow">
     <div class="tabs" id="tabs"></div>
-    <div class="pager" id="pager"></div>
   </div>
 
   <div class="stage">
-    <div class="tray"><div class="grid" id="grid"></div></div>
+    <div class="tray" id="tray"><div class="grid" id="grid"></div></div>
     <div class="master" id="master"><span>MASTER</span><div class="slider" id="mSlider"><i id="mFill"></i><u id="mKnob"></u></div><span id="mVal">100%</span></div>
   </div>
 
@@ -53,8 +53,8 @@
 <div class="toast" id="toast" hidden></div>
 <input type="file" id="files" class="vh" multiple accept="audio/*,video/*,.m4a,.mp3,.wav,.aac,.ogg" tabindex="-1" aria-hidden="true">
 
-<script src="engine.js"></script>
-<script src="store.js"></script>
-<script src="app.js"></script>
+<script src="engine.js?v=0.2.1"></script>
+<script src="store.js?v=0.2.1"></script>
+<script src="app.js?v=0.2.1"></script>
 </body>
 </html>
