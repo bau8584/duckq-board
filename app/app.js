@@ -1,9 +1,12 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.21 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.23 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
+// '투명'(색 없음) 패드: 평소 중립, 재생 중엔 이 밝은 무채색으로 — 다른 색과 같은 규칙(보드 색 안 씀, 소유자 결정 2026-09-29)
+const CLEAR_LIT = '#E4E8EF';
+const padHex = p => p.color === 'none' || !COLORS[p.color] ? CLEAR_LIT : COLORS[p.color];
 const ROWS = { 4: 3, 6: 4, 8: 5 };           // 패드 크기 = 열 수 → 한 화면에 보이는 줄 수 (넘치면 세로 스크롤)
 // 새 곡 페이드 기본값은 모두 끔(PLAN-app-fix1 3번). 패드 글자 크기 s/m/l
 const DEF_SETTINGS = { theme: 'dark', cols: 6, fadeSec: 2, fadeOverride: false, soloMode: 'each', labelSize: 'm', newFin: false, newFinSec: 1, newFout: false, newFoutSec: 2, fadeMax: 10 };
@@ -176,7 +179,7 @@ function makePad(id, n) {
 
 function paintPad(id) {
   const el = padEls.get(id), p = S.pads[id]; if (!el || !p) return;
-  const none = p.color === 'none', hex = none ? COLORS[board().color] : COLORS[p.color];
+  const none = p.color === 'none', hex = padHex(p);
   const playing = Engine.isPlaying(id), st = status[id];
   el.style.setProperty('--h', hex); el.style.setProperty('--ink', ink(hex));
   el.classList.toggle('none', none);
@@ -215,7 +218,12 @@ const playRows = new Map();           // id → 줄
 function playRow(id) {
   let r = playRows.get(id);
   if (!r) {
-    r = h('div', { class: 'prow', 'data-id': id }, h('i', { class: 'pdot' }), h('span', { class: 'pname' }), h('div', { class: 'ptrack' }, h('i')), h('span', { class: 'ptime' }));
+    // 끝의 ◣ = 이 트랙만 끄기(그 트랙의 페이드아웃대로)
+    const stopB = h('button', { class: 'pstop', 'aria-label': '이 트랙 끄기', onclick: () => {
+      const p = S.pads[id]; if (!p || !Engine.isPlaying(id)) return;
+      logLine(`◣ 줄에서 끔 ${nm(id)} · ${foutOf(p) ? foutOf(p) + '초' : '바로'}`); Engine.stop(id, foutOf(p)); paintPad(id);
+    } }, '◣');
+    r = h('div', { class: 'prow', 'data-id': id }, h('i', { class: 'pdot' }), h('span', { class: 'pname' }), h('div', { class: 'ptrack' }, h('i')), h('span', { class: 'ptime' }), stopB);
     playRows.set(id, r);
   }
   return r;
@@ -228,7 +236,7 @@ function renderPlays() {
   const shown = playsOpen || ids.length <= PLAY_ROWS ? ids : ids.slice(0, PLAY_ROWS - 1);
   const kids = shown.map(id => {
     const r = playRow(id), p = S.pads[id] || {}, d = Engine.dur(id) || segLen(p), pos = seek && seek.id === id ? seek.f * d : Engine.pos(id);
-    r.firstChild.style.background = COLORS[p.color] || COLORS[board().color];
+    r.firstChild.style.background = padHex(p);
     r.children[1].textContent = p.label || '';
     r.children[2].firstChild.style.width = Math.min(100, pos / d * 100) + '%';
     r.children[3].textContent = fmt(pos) + ' / ' + fmt(d);
@@ -236,7 +244,7 @@ function renderPlays() {
   });
   if (!ids.length) {   // 아무것도 안 울릴 때: 마지막 트랙 이름만 흐리게
     const p = lastId && S.pads[lastId];
-    kids.push(h('div', { class: 'prow idle' }, h('i', { class: 'pdot' }), h('span', { class: 'pname' }, p ? p.label : '—'), h('div', { class: 'ptrack' }, h('i')), h('span', { class: 'ptime' }, '')));
+    kids.push(h('div', { class: 'prow idle' }, h('i', { class: 'pdot' }), h('span', { class: 'pname' }, p ? p.label : '—'), h('div', { class: 'ptrack' }, h('i')), h('span', { class: 'ptime' }, ''), h('span')));
   }
   if (ids.length > PLAY_ROWS) kids.push(h('button', { class: 'pmore', onclick: () => { playsOpen = !playsOpen; renderPlays(); } }, playsOpen ? '접기' : `+${ids.length - shown.length}개 더`));
   box.classList.toggle('open', playsOpen);
@@ -752,7 +760,7 @@ function colorChips(cur, withNone, onchange) {
   const box = h('div', { class: 'chips' });
   const keys = withNone ? ['none', ...COLOR_KEYS] : COLOR_KEYS;
   keys.forEach(k => {
-    const c = h('button', { class: 'chip' + (k === 'none' ? ' none' : '') + (k === cur ? ' sel' : ''), 'aria-label': k === 'none' ? '색 없음' : COLOR_KO[k], title: k === 'none' ? '색 없음' : COLOR_KO[k] }, k === 'none' ? '없음' : '');
+    const c = h('button', { class: 'chip' + (k === 'none' ? ' none' : '') + (k === cur ? ' sel' : ''), 'aria-label': k === 'none' ? '투명' : COLOR_KO[k], title: k === 'none' ? '투명' : COLOR_KO[k] }, k === 'none' ? '투명' : '');
     if (k !== 'none') c.style.setProperty('--c', COLORS[k]);
     c.onclick = () => { [...box.children].forEach(x => x.classList.toggle('sel', x === c)); onchange(k); };
     box.append(c);
@@ -886,7 +894,7 @@ function openPadSheet(id) {
     const head = body.previousSibling; head.insertBefore(act, head.lastChild);   // 닫기 왼쪽
     body.append(
       h('div', { class: 'row col' }, name),
-      h('div', { class: 'row col' }, h('label', null, helpLabel('색', '없음 = 평소 무채색, 재생 중엔 보드 색으로 켜짐')),
+      h('div', { class: 'row col' }, h('label', null, helpLabel('색', '평소엔 어둡고 탁하게, 재생 중엔 밝게 켜져요. 투명 = 무채색(재생 중 밝은 회백색)')),
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
       (trim = trimBox(id, () => { refresh(); renderTop(); }, preview)).el,
       volRow(helpLabel('볼륨', HELP.vol), stepper(Math.round(p.vol * 100), 0, 300, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); }, false, VOL_MAP), 100),
@@ -1065,7 +1073,7 @@ function openBoardSheet() {
     name.oninput = () => { b.name = name.value || '보드'; save(); renderTabs(); };
     body.append(
       h('div', { class: 'row col' }, name),
-      h('div', { class: 'row col' }, h('label', null, helpLabel('보드 색', '탭·판 테두리·뒷 배경, 색 없는 패드의 재생 색')),
+      h('div', { class: 'row col' }, h('label', null, helpLabel('보드 색', '보드 탭·판 테두리·뒷 배경에 쓰여요')),
         colorChips(b.color, false, k => { b.color = k; save(); applyBoardColor(); renderTabs(); paintAll(); })),
       row('페이드', h('button', { class: 'sbtn', onclick: () => { fadeScope = b.id; openFadeSheet(); } }, '이 보드 페이드 설정')),
       row('보드', h('button', { class: 'sbtn', onclick: () => {

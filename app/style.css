@@ -94,15 +94,16 @@ button:disabled{cursor:default}
 .meta b{font-size:10px;letter-spacing:.08em;visibility:hidden}
 
 /* 재생 중: 색 유지 + 더 밝은 같은 색이 왼쪽에서 진행만큼 차오름 · 커짐 · 색 그림자 · 레벨미터 */
-.pad.playing{background:linear-gradient(90deg,color-mix(in srgb,var(--h) 58%,#fff) var(--p),var(--h) var(--p));
+/* 재생 중: 더 밝고 쨍하게(평소의 탁한 색과 확실히 갈리게) */
+.pad.playing{filter:saturate(1.35) brightness(1.12);background:linear-gradient(90deg,color-mix(in srgb,var(--h) 58%,#fff) var(--p),var(--h) var(--p));
   transform:scale(1.035);z-index:2;
   box-shadow:0 10px 26px -2px color-mix(in srgb,var(--h) 70%,transparent),0 2px 6px rgba(0,0,0,.25)}
 .pad.playing.press{transform:scale(1.005)}
 .pad.playing .idx{display:none}
 .pad.playing .eq{display:flex}
 /* 평소(재생 안 함) = 어둡고 탁한 색, 재생 중에만 원래 밝은 색 (소유자 결정 2026-09-29). PLAYED는 색은 그대로, 칩만 */
-.pad:not(.playing):not(.none){background:color-mix(in srgb,var(--h) 38%,#2b2f36);color:var(--text)}
-[data-theme="light"] .pad:not(.playing):not(.none){background:color-mix(in srgb,var(--h) 45%,#b9bec7);color:var(--text)}
+.pad:not(.playing):not(.none){background:color-mix(in srgb,var(--h) 26%,#23262c);color:color-mix(in srgb,var(--text) 80%,transparent)}
+[data-theme="light"] .pad:not(.playing):not(.none){background:color-mix(in srgb,var(--h) 30%,#b4b9c2);color:var(--text)}
 .pad.none:not(.playing){background:color-mix(in srgb,var(--text) 15%,var(--bg1));color:var(--text)}
 [data-theme="light"] .pad.none:not(.playing){background:#fff;box-shadow:inset 0 0 0 1px var(--line)}
 .pad.played .meta b{visibility:visible;background:color-mix(in srgb,currentColor 16%,transparent);padding:2px 6px;border-radius:5px}
@@ -139,7 +140,7 @@ button:disabled{cursor:default}
 .plays{position:relative;display:flex;flex-direction:column;justify-content:center;gap:3px;height:92px;min-width:0}
 .plays.open{justify-content:flex-end;height:auto;max-height:60vh;overflow-y:auto;position:absolute;left:66px;right:310px;bottom:max(12px,env(safe-area-inset-bottom));z-index:6;
   padding:8px;border-radius:14px;background:var(--bg1);border:1px solid var(--line);box-shadow:0 -8px 24px rgba(0,0,0,.3)}
-.prow{display:grid;grid-template-columns:10px minmax(0,180px) 1fr auto;align-items:center;gap:10px;height:28px;font-size:13px;color:var(--text-dim);font-variant-numeric:tabular-nums}
+.prow{display:grid;grid-template-columns:10px minmax(0,180px) 1fr auto 34px;align-items:center;gap:10px;height:28px;font-size:13px;color:var(--text-dim);font-variant-numeric:tabular-nums}
 .pdot{width:10px;height:10px;border-radius:50%;background:var(--line)}
 .pname{color:var(--text);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .prow.idle .pname{color:var(--text-dim);font-weight:600}.prow.idle .pdot{opacity:.4}
@@ -149,6 +150,8 @@ button:disabled{cursor:default}
 .prow:not(.idle) .ptrack i::after{content:"";position:absolute;right:-7px;top:-4px;width:14px;height:14px;border-radius:50%;background:var(--lit)}
 .prow.drag .ptrack::before,.prow.drag .ptrack i{top:9px;height:10px}
 .ptime{min-width:92px;text-align:right}
+.pstop{width:34px;height:26px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;padding:0}
+.pstop:active{background:var(--btn-press)}
 .pmore{height:26px;border-radius:8px;border:1px dashed var(--line);background:none;color:var(--text-dim);font:700 12px var(--font)}
 .ctl{display:flex;gap:10px}
 .cbtn{width:88px;height:54px;border-radius:14px;border:1px solid var(--line);background:var(--bg2);color:var(--text);display:flex;align-items:center;justify-content:center}
@@ -328,6 +331,6 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 
 /* 좁은 화면(세로 아이패드·폰)에서도 가로로 안 넘치게 */
 @media (max-width:820px){
-  .cbtn{width:64px}.prow{grid-template-columns:10px minmax(0,90px) 1fr auto}.ptime{min-width:0}
+  .cbtn{width:64px}.prow{grid-template-columns:10px minmax(0,90px) 1fr auto 34px}.ptime{min-width:0}
   .stage{grid-template-columns:1fr 52px}
 }
