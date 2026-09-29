@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.14 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.15 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -116,7 +116,7 @@ function renderTop() {
   const b = board(), total = b.pads.reduce((a, id) => a + segLen(S.pads[id]), 0);
   const t = $('total');
   if (Engine.paused) t.innerHTML = '<b>⏸ 일시정지 중</b> · ⏸를 다시 누르면 이어서';
-  else if (editMode) t.innerHTML = '<b>편집 중</b> · 눌러서 여러 개 고르기 · 꾹 눌러 끌면 순서 바꾸기';
+  else if (editMode) t.innerHTML = '<b>편집 중</b> · 눌러서 고르기 · 꾹 끌면 옮기기 · 이름을 꾹 → 이름 바꾸기';
   else t.textContent = `전체 ${fmtH(total)} · 패드 ${b.pads.length}개`;
   const L = S.lock;
   $('btnLock').classList.toggle('on', L);
@@ -290,9 +290,26 @@ function soloOthers(id) {
 // 편집 모드: 짧게 누르면 고르기(여러 개), 꾹(0.25초) 누른 채 끌면 순서 바꾸기.
 const touches = new Map();
 let lastScroll = 0, drag = null;
-const MOVE_PX = 10, HOLD_MS = 250, LONG_MS = 500;
+const MOVE_PX = 10, HOLD_MS = 250, LONG_MS = 500, RENAME_MS = 400;
+// 패드 이름 바로 고치기: 이름 자리에 입력 칸을 띄움. 완료(Enter)·바깥 누름 = 저장, Esc = 취소
+function renamePad(id) {
+  const el = padEls.get(id), p = S.pads[id]; if (!el || !p) return;
+  const r = el.querySelector('.label').getBoundingClientRect(), pr = el.getBoundingClientRect();
+  const inp = h('input', { class: 'rn-in', value: p.label, maxlength: 40, enterkeyhint: 'done' });
+  inp.style.cssText = `left:${pr.left + 6}px;top:${r.top + r.height / 2 - 24}px;width:${pr.width - 12}px`;
+  document.body.append(inp); inp.focus(); inp.select();
+  let done = false;
+  const finish = ok => {
+    if (done) return; done = true;
+    const v = inp.value.trim(); inp.remove();
+    if (ok && v && v !== p.label) { logLine(`이름 바꿈 ${nm(id)} → "${v}"`); p.label = v; touchEdit(p); save(); const n = board().pads.indexOf(id) + 1; el.replaceWith(makePad(id, n)); }
+  };
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); else if (e.key === 'Escape') finish(false); });
+  const t0 = performance.now();   // 손 뗀 직후 따라오는 누름이 입력 칸을 빼앗아도 다시 잡음
+  inp.addEventListener('blur', () => { if (performance.now() - t0 < 400) return setTimeout(() => inp.isConnected && inp.focus()); finish(true); });
+}
 const unpress = el => setTimeout(() => el.classList.remove('press'), 60);
-function cancelTouch(t) { if (t.drag || t.dead) return; t.dead = true; clearTimeout(t.timer); t.el.classList.remove('press'); }
+function cancelTouch(t) { if (t.drag || t.dead) return; t.dead = true; t.rename = false; t.el.classList.remove('rn'); clearTimeout(t.timer); t.el.classList.remove('press'); }
 tray.addEventListener('scroll', () => { lastScroll = performance.now(); touches.forEach(cancelTouch); }, { passive: true });
 grid.addEventListener('pointerdown', e => {
   const el = e.target.closest('.pad'); if (!el || !el.dataset.id) return;
@@ -301,7 +318,9 @@ grid.addEventListener('pointerdown', e => {
   const t = { el, id: el.dataset.id, x: e.clientX, y: e.clientY, dead: performance.now() - lastScroll < 120 };
   touches.set(e.pointerId, t);
   if (!t.dead) el.classList.add('press');
-  if (editMode && !t.dead) t.timer = setTimeout(() => startDrag(t), HOLD_MS);
+  // 편집 모드: 이름(밑줄)을 꾹 → 손 떼면 바로 이름 고치기 / 이름 밖을 꾹 → 끌어 옮기기
+  if (editMode && !t.dead && e.target.closest('.label')) t.timer = setTimeout(() => { t.rename = true; el.classList.remove('press'); el.classList.add('rn'); }, RENAME_MS);
+  else if (editMode && !t.dead) t.timer = setTimeout(() => startDrag(t), HOLD_MS);
   else if (!t.dead && !S.lock) t.timer = setTimeout(() => { t.dead = true; t.el.classList.remove('press'); logLine(`길게 누름 → 패드 설정 ${nm(t.id)}`); openPadSheet(t.id); }, LONG_MS);
 });
 window.addEventListener('pointermove', e => {
@@ -313,8 +332,9 @@ window.addEventListener('pointerup', e => {
   const t = touches.get(e.pointerId); if (!t) return;
   touches.delete(e.pointerId); clearTimeout(t.timer);
   if (t.drag) return endDrag(t);
-  unpress(t.el);
+  unpress(t.el); t.el.classList.remove('rn');
   if (t.dead) return;
+  if (t.rename) return renamePad(t.id);   // 손 뗄 때(사용자 동작 안) 열어야 아이패드 자판이 뜬다
   if (editMode) toggleSel(t.id); else { logLine(`짧게 누름 ${nm(t.id)}${S.lock ? ' (공연 모드)' : ''}`); tapPad(t.id); }
 });
 window.addEventListener('pointercancel', e => {
