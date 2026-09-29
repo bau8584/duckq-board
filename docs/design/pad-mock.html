@@ -12,6 +12,14 @@
   --board:#56B4E9;
   --font:-apple-system,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif;
 }
+/* 라이트: 차가운 밝은 회색 바탕 + 흰 껍데기. 색 8종은 그대로 */
+[data-theme="light"]{
+  --bg0:#e9ecf0; --bg1:#f6f7f9; --bg2:#ffffff; --line:#d3d8df;
+  --text:#15181c; --text-dim:#59616b; --text-faint:#9099a4;
+  --lit:#15181c;
+  --pad-idle:#ffffff; --label-mix:#000; --label-pct:42%; --btn-press:#e4e7ec; --stop:#d2372b; --knob:#ffffff; --slider:#7a838f;
+}
+:root{--pad-idle:#16181b;--label-mix:#fff;--label-pct:62%;--btn-press:#2a2e34;--stop:#ff8f86;--knob:#f0f1f3;--slider:#c9ccd1}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;margin:0}
 body{background:var(--bg0);color:var(--text);font-family:var(--font);overflow:hidden;user-select:none;-webkit-user-select:none}
@@ -64,17 +72,17 @@ button{font-family:var(--font)}
 
 /* ① 플랫 + 점등 : 어두운 면에 색 글자·색 띠. 재생 중엔 면 전체가 켜진다 */
 [data-style="1"] .pad{
-  background:color-mix(in srgb,var(--h) 14%,#16181b);
+  background:color-mix(in srgb,var(--h) 14%,var(--pad-idle));
   box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--h) 34%,transparent),inset 0 5px 0 var(--h);
   padding-top:15px}
-[data-style="1"] .label{color:color-mix(in srgb,var(--h) 62%,#fff)}
-[data-style="1"] .icons{color:color-mix(in srgb,var(--h) 60%,#fff)}
+[data-style="1"] .label{color:color-mix(in srgb,var(--h) var(--label-pct),var(--label-mix))}
+[data-style="1"] .icons{color:color-mix(in srgb,var(--h) var(--label-pct),var(--label-mix))}
 [data-style="1"] .pad.playing{
   background:var(--h);color:var(--ink);
   box-shadow:0 0 0 3px var(--lit),0 0 26px 2px color-mix(in srgb,var(--h) 65%,transparent)}
 [data-style="1"] .pad.playing .label,[data-style="1"] .pad.playing .icons{color:var(--ink)}
 [data-style="1"] .pad.playing .bar{background:color-mix(in srgb,var(--ink) 22%,transparent)}
-[data-style="1"] .pad.played{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--h) 34%,transparent),inset 0 5px 0 color-mix(in srgb,var(--h) 45%,#16181b)}
+[data-style="1"] .pad.played{box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--h) 34%,transparent),inset 0 5px 0 color-mix(in srgb,var(--h) 45%,var(--pad-idle))}
 [data-style="1"] .pad.played .label{opacity:.72}
 
 /* ③ 굵은 색 블록 : 평소엔 꽉 찬 색, 재생 중엔 어두워지고 색 테두리·글자 */
@@ -85,13 +93,13 @@ button{font-family:var(--font)}
 [data-style="3"] .pad.playing{background:#0f1113;color:var(--h);box-shadow:inset 0 0 0 5px var(--h)}
 [data-style="3"] .pad.playing .label,[data-style="3"] .pad.playing .icons{color:var(--h)}
 [data-style="3"] .pad.playing .bar{background:rgba(255,255,255,.14);height:7px}
-[data-style="3"] .pad.played{background:color-mix(in srgb,var(--h) 78%,#15171a)}
+[data-style="3"] .pad.played{background:color-mix(in srgb,var(--h) 78%,var(--bg0))}
 
 /* 마스터 */
 .master{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;border-radius:16px;background:var(--bg1);border:1px solid var(--line);font-size:11px;color:var(--text-dim);letter-spacing:.06em}
 .slider{position:relative;flex:1;width:12px;border-radius:6px;background:var(--bg0)}
-.slider i{position:absolute;inset:0;border-radius:6px;background:#c9ccd1;opacity:.8}
-.slider u{position:absolute;left:50%;top:-6px;width:40px;height:24px;margin-left:-20px;border-radius:8px;background:#f0f1f3}
+.slider i{position:absolute;inset:0;border-radius:6px;background:var(--slider);opacity:.8}
+.slider u{position:absolute;left:50%;top:-6px;width:40px;height:24px;margin-left:-20px;border-radius:8px;background:var(--knob);border:1px solid var(--line)}
 
 /* 하단 */
 .bottom{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px}
@@ -100,10 +108,11 @@ button{font-family:var(--font)}
 .track{height:6px;border-radius:3px;background:var(--bg2);position:relative;overflow:hidden}
 .track i{position:absolute;inset:0 auto 0 0;width:0;background:var(--lit);border-radius:3px}
 .ctl{display:flex;gap:10px}
-.cbtn{width:88px;height:54px;border-radius:14px;border:0;background:var(--bg2);color:var(--text);display:flex;align-items:center;justify-content:center}
-.cbtn:active{transform:scale(.96);background:#2a2e34}
+.cbtn{width:88px;height:54px;border-radius:14px;border:1px solid var(--line);background:var(--bg2);color:var(--text);display:flex;align-items:center;justify-content:center}
+.cbtn:active{transform:scale(.96);background:var(--btn-press)}
 .cbtn svg{width:24px;height:24px;fill:currentColor}
-.cbtn.stop{color:#ff8f86}
+.cbtn.stop{color:var(--stop)}
+[data-theme="light"] .switch button.on{background:#15181c;color:#fff}
 </style>
 </head>
 <body data-style="1">
@@ -121,7 +130,10 @@ button{font-family:var(--font)}
 
   <div class="tabsrow">
     <div class="tabs" id="tabs"></div>
-    <div class="switch" id="sw"><button data-s="1" class="on">① 플랫+점등</button><button data-s="3">③ 굵은 블록</button></div>
+    <div style="display:flex;gap:8px">
+      <div class="switch" id="th"><button data-t="dark" class="on">다크</button><button data-t="light">화이트</button></div>
+      <div class="switch" id="sw"><button data-s="1" class="on">① 플랫+점등</button><button data-s="3">③ 굵은 블록</button></div>
+    </div>
   </div>
 
   <div class="stage">
@@ -187,6 +199,7 @@ setInterval(()=>{
 stopall.onclick=()=>st.forEach((s,i)=>{if(s.on){s.on=false;s.played=true;s.t=0;render(i)}});
 lock.onclick=e=>e.currentTarget.classList.toggle('on');
 sw.onclick=e=>{const b=e.target.closest('button');if(!b)return;document.body.dataset.style=b.dataset.s;[...sw.children].forEach(x=>x.classList.toggle('on',x===b))};
+th.onclick=e=>{const b=e.target.closest('button');if(!b)return;document.body.dataset.theme=b.dataset.t;[...th.children].forEach(x=>x.classList.toggle('on',x===b))};
 setBoard(0);
 </script>
 </body>
