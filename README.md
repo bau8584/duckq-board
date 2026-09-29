@@ -1,6 +1,9 @@
 # DuckQ Board
 
-극단용 사운드보드 웹앱. 지금은 **0단계 = 재생 엔진 검증** 중.
+극단용 사운드보드 웹앱. **0단계 = 재생 엔진 검증**과 **1단계 = 실제 앱(`app/`)** 을 나란히 진행 중.
+
+## 앱 (1단계)
+- `app/index.html` — 빌드 없음. 로컬: `.claude/launch.json`의 `app`(http://localhost:8766). 진행: `docs/PLAN-stage1.md` §6
 
 ## 검증 페이지
 - `test/engine.html` — 한 장짜리. 빌드 없음, 그대로 열면 됨.

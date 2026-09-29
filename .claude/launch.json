@@ -1,6 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "static", "runtimeExecutable": "python", "runtimeArgs": ["test/log-server.py"], "port": 8765 }
+    { "name": "static", "runtimeExecutable": "python", "runtimeArgs": ["test/log-server.py"], "port": 8765 },
+    { "name": "app", "runtimeExecutable": "python", "runtimeArgs": ["-m", "http.server", "8766", "--directory", "app"], "port": 8766 }
   ]
 }
