@@ -269,8 +269,9 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 /* 원래대로 ↺ */
 .rst,.trow .rst{min-width:0;width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--bg2);font:700 20px var(--font);padding:0;flex:none}
 .rst:active{background:var(--btn-press)}
-/* 패드 설정 맨 위: 복제·이동·삭제 */
-.row.pact{justify-content:flex-end;gap:8px;padding-top:4px}
+/* 패드 설정 머리줄: 제목 … [복제][보드 이동][삭제]  [닫기] */
+.hact{display:flex;gap:6px;margin-left:auto;margin-right:10px}
+.hact .sbtn,.hact select.sel{height:38px;font-size:14px;padding:0 10px}
 /* 트림 양 끝 [◀ 시간 ▶] */
 .tends{display:flex;justify-content:space-between;gap:8px;margin:4px 0 2px}
 .tend{display:flex;align-items:center;gap:4px}

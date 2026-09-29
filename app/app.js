@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.18 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.19 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -276,7 +276,7 @@ function tapPad(id) {
 const foutOf = p => S.settings.fadeOverride ? S.settings.fadeSec : p.fout ? p.foutSec : 0;
 const playOpt = (p, from) => ({ fadeIn: p.fin ? p.finSec : 0, fadeOut: foutOf(p), from });
 function soloOthers(id) {
-  const m = S.settings.soloMode;
+  const m = (S.pads[id] && S.pads[id].soloMode) || S.settings.soloMode;   // 트랙마다, 없으면 예전 전체 설정
   for (const o of Engine.playingIds()) {
     if (o === id) continue;
     const q = S.pads[o];
@@ -413,7 +413,7 @@ function renderSelBar() {
   const bar = $('selBar'), ids = selIds();
   bar.hidden = !editMode; bar.textContent = ''; if (!editMode) return;
   const b = board(), n = ids.length, dis = !n;
-  const moveSel = h('select', { class: 'sel', disabled: dis }, h('option', { value: '' }, '이동…'),
+  const moveSel = h('select', { class: 'sel', disabled: dis }, h('option', { value: '' }, '보드 이동'),
     S.boards.filter(x => x !== b).map(x => h('option', { value: x.id }, x.name)));
   moveSel.onchange = () => {
     const to = S.boards.find(x => x.id === moveSel.value); if (!to) return;
@@ -841,20 +841,24 @@ function openPadSheet(id) {
   openSheet('패드 설정', body => {
     const name = h('input', { class: 'txt', value: p.label, maxlength: 40, placeholder: '패드 이름' });
     name.oninput = () => { p.label = name.value; refresh(); };
-    const moveSel = h('select', { class: 'sel' }, h('option', { value: '' }, '이동…'),
+    const moveSel = h('select', { class: 'sel' }, h('option', { value: '' }, '보드 이동'),
       S.boards.filter(x => x !== b).map(x => h('option', { value: x.id }, x.name)));
     moveSel.onchange = () => {
       const to = S.boards.find(x => x.id === moveSel.value); if (!to) return;
       b.pads.splice(b.pads.indexOf(id), 1); to.pads.push(id); save();
       toast(`"${p.label}" → ${to.name}`); closeSheet();
     };
-    body.append(
-      h('div', { class: 'row pact' }, h('button', { class: 'sbtn', onclick: () => {
+    // 솔로를 켰을 때만: 이 솔로 트랙이 다른 트랙을 끄는 법(값 없음 = 예전 전체 설정 따름)
+    const soloBox = h('div', { class: 'row col', hidden: !p.solo }, h('label', null, helpLabel('이 솔로 트랙이 다른 트랙을 끄는 법', '다른 트랙들을 어떻게 끌지 — 각자 정한 페이드아웃으로 / ◣ 버튼 시간으로 / 바로 뚝.')),
+      seg([['each', '트랙별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], p.soloMode || S.settings.soloMode, v => { p.soloMode = v; touchEdit(p); save(); }));
+    const act = h('div', { class: 'hact' }, h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
       } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: () => {
         if (!confirm(`"${p.label}" 패드를 지울까요?`)) return;
         removePad(id); save(); closeSheet(); renderTop();
-      } }, '삭제')),
+      } }, '삭제'));
+    const head = body.previousSibling; head.insertBefore(act, head.lastChild);   // 닫기 왼쪽
+    body.append(
       h('div', { class: 'row col' }, name),
       h('div', { class: 'row col' }, h('label', null, helpLabel('색', '없음 = 평소 무채색, 재생 중엔 보드 색으로 켜짐')),
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
@@ -862,7 +866,8 @@ function openPadSheet(id) {
       volRow(helpLabel('볼륨', HELP.vol), stepper(Math.round(p.vol * 100), 0, 300, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); }, false, VOL_MAP), 100),
       volRow(helpLabel('팬', HELP.pan), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); }), 0),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
-      row(helpLabel('솔로', '이 패드를 틀면 다른 소리를 끔'), sw(p.solo, on => { p.solo = on; refresh(); })),
+      row(helpLabel('솔로', '이 트랙을 틀면 이미 울리던 다른 트랙을 끕니다.'), sw(p.solo, on => { p.solo = on; soloBox.hidden = !on; refresh(); })),
+      soloBox,
       h('div', { class: 'row col' }, h('label', null, helpLabel('페이드', '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 트랙 끝 + 다시 눌러 끌 때')),
         fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) refresh(); })),
       h('div', { class: 'row' }, h('div', { class: 'info' },
@@ -1020,8 +1025,6 @@ function fadeTab(body) {
       fadeEnv({ fout: st.fadeSec > 0, foutSec: st.fadeSec }, (side, sec, final) => { st.fadeSec = Math.max(0.1, sec); if (final) save(); }, { outOnly: true })),
     // 옛 설정: 켜 둔 사람만 보임(끌 수 있게)
     st.fadeOverride ? row(helpLabel('모든 패드에 ◣ 시간 쓰기', '옛 설정 — 끄면 트랙별 페이드를 따름'), sw(true, on => { st.fadeOverride = on; save(); })) : '',
-    h('div', { class: 'row col' }, h('label', null, helpLabel('솔로 트랙이 다른 트랙 끄는 법', '패드 설정에서 "솔로"를 켠 트랙을 틀면, 이미 울리던 다른 트랙들을 끕니다. 그때 어떻게 끌지 고르세요 — 트랙마다 정한 페이드아웃으로 / ◣ 버튼 시간으로 / 바로 뚝.')),
-      seg([['each', '트랙별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
     // 곡별 페이드: 보기 고르기·한 번에 바꾸기·목록이 한 설정임을 상자 하나로
     h('div', { class: 'fbox' },
       h('div', { class: 'fbox-head' }, h('b', null, helpLabel('트랙별 페이드', '비탈 손잡이를 좌우로 끌어요. 끝까지 밀면 페이드 없음. 페이드아웃은 트랙 끝과 다시 눌러 끌 때 둘 다 걸려요.'))),
