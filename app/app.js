@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.5 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.6 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -619,6 +619,9 @@ function closeSheet() {
 let sheetAt = 0;   // 길게 눌러 연 직후 손 떼는 것이 바깥 누름으로 잡혀 바로 닫히지 않게
 $('sheetWrap').addEventListener('click', e => { if (e.target === $('sheetWrap') && performance.now() - sheetAt > 400) closeSheet(); });
 
+// 페이드 줄: 윗줄 = 이름·설명 + 켬/끔, 아랫줄 = 시간 (인·아웃 모양을 똑같이)
+const fadeRow = (label, sub, onCtl, secCtl) => h('div', { class: 'row col frow2' },
+  h('div', { class: 'fhead2' }, h('label', null, label, sub ? h('span', { class: 'sub' }, sub) : null), onCtl), h('div', { class: 'end' }, secCtl));
 const row = (label, ...ctl) => h('div', { class: 'row' }, h('label', null, label), h('div', { class: 'end' }, ...ctl));
 function sw(on, onchange) {
   const b = h('button', { class: 'sw' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(!!on) });
@@ -751,8 +754,8 @@ function openPadSheet(id) {
       row(h('span', null, '팬', h('span', { class: 'sub' }, '왼쪽·오른쪽 스피커로 치우치게')), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); })),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
       row(h('span', null, '솔로', h('span', { class: 'sub' }, '이 패드를 틀면 다른 소리를 끔')), sw(p.solo, on => { p.solo = on; refresh(); })),
-      row('페이드인', sw(p.fin, on => { p.fin = on; fin.classList.toggle('off', !on); refresh(); }), fin),
-      row(h('span', null, '페이드아웃', h('span', { class: 'sub' }, '곡 끝에 닿을 때 + 다시 눌러 끌 때')), sw(p.fout, on => { p.fout = on; fout.classList.toggle('off', !on); touchEdit(p); save(); }), fout),
+      fadeRow('페이드인', '누르면 이 시간 동안 서서히 커짐', sw(p.fin, on => { p.fin = on; fin.classList.toggle('off', !on); refresh(); }), fin),
+      fadeRow('페이드아웃', '곡 끝에 닿을 때 + 다시 눌러 끌 때', sw(p.fout, on => { p.fout = on; fout.classList.toggle('off', !on); touchEdit(p); save(); }), fout),
       row('패드', h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
       } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: () => {
@@ -760,7 +763,7 @@ function openPadSheet(id) {
         removePad(id); save(); closeSheet(); renderTop();
       } }, '삭제')),
       h('div', { class: 'row' }, h('div', { class: 'info' },
-        h('button', { class: 'sbtn', style: 'margin-right:8px', onclick: openFadeSheet }, '보드 전체 페이드 보기'),
+        h('button', { class: 'sbtn', style: 'margin-right:8px', onclick: openFadeSheet }, '페이드 설정 (보드 전체)'),
         rec ? `파일: ${rec.name} · ${fmt(p.dur)} · ${(rec.size / 1048576).toFixed(1)}MB · ${p.dur <= Engine.SFX_MAX_SEC ? '메모리에 올려 둠' : '긴 곡(조금씩 풀기)'}` : '파일이 없어요 — 지우고 다시 넣어 주세요')),
     );
   }, () => padEls.get(id), { pad: id });
@@ -784,56 +787,81 @@ function openBulkSheet(ids) {
     row('팬', stepper(Math.round((same('pan') ?? 0) * 100), -100, 100, 10, panTxt, v => set(q => { q.pan = v / 100; Engine.setPan(q.id, q.pan); }))),
     row('반복(루프)', onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
     row('솔로', onoff('solo')),
-    row('페이드인', onoff('fin'), stepper(same('finSec') ?? 1, 0.1, 10, 0.1, sec1, v => set(q => { q.finSec = v; }))),
-    row(h('span', null, '페이드아웃', h('span', { class: 'sub' }, '곡 끝 + 끌 때')), onoff('fout'), stepper(same('foutSec') ?? 2, 0.1, 10, 0.1, sec1, v => set(q => { q.foutSec = v; }))),
+    fadeRow('페이드인', '', onoff('fin'), stepper(same('finSec') ?? 1, 0.1, 10, 0.1, sec1, v => set(q => { q.finSec = v; }))),
+    fadeRow('페이드아웃', '곡 끝 + 끌 때', onoff('fout'), stepper(same('foutSec') ?? 2, 0.1, 10, 0.1, sec1, v => set(q => { q.foutSec = v; }))),
   ));
 }
 
-// 페이드 설정 창: 지금 보드의 곡 전체를 한눈에 — 줄마다 페이드인/아웃 켬·초
-function openFadeSheet() {
-  const b = board(), st = S.settings;
+// 페이드 설정(설정의 [페이드] 칸): 보드를 골라 그 곡들의 페이드인/아웃을 한눈에. 줄마다 켬·초, 위에 목록 전체에 한 번에.
+let fadeScope = null;   // 보드 id | 'all'
+const openFadeSheet = () => openSettings('fade');
+function fadeTab(body) {
+  const st = S.settings;
+  if (fadeScope !== 'all' && !S.boards.some(b => b.id === fadeScope)) fadeScope = board().id;
+  const STEP = 0.2;
+  const clamp = v => Math.min(10, Math.max(STEP, +(+v).toFixed(1)));
   const mini = (on, sec, setOn, setSec) => {
     const o = h('output', null, sec1(sec));
     const box = h('div', { class: 'mini' + (on ? '' : ' off') });
     const s = sw(on, v => { box.classList.toggle('off', !v); setOn(v); });
-    const bump = d => { sec = Math.min(10, Math.max(0.1, +(sec + d).toFixed(1))); o.textContent = sec1(sec); setSec(sec); };
-    box.append(s, h('button', { onclick: () => bump(-0.5), 'aria-label': '줄이기' }, '−'), o, h('button', { onclick: () => bump(0.5), 'aria-label': '늘리기' }, '＋'));
+    const bump = d => { sec = clamp(sec + d); o.textContent = sec1(sec); setSec(sec); };
+    box.append(s, h('button', { onclick: () => bump(-STEP), 'aria-label': '줄이기' }, '−'), o, h('button', { onclick: () => bump(STEP), 'aria-label': '늘리기' }, '＋'));
     return box;
   };
-  const list = h('div', { class: 'flist' });
+  const ids = () => fadeScope === 'all' ? S.boards.flatMap(b => b.pads) : (S.boards.find(b => b.id === fadeScope) || board()).pads;
+  const scopeName = () => fadeScope === 'all' ? '모든 보드' : (S.boards.find(b => b.id === fadeScope) || board()).name;
+  const list = h('div', { class: 'flist' }), title = h('label');
   const draw = () => {
-    list.textContent = '';
+    const L = ids(); list.textContent = '';
+    title.textContent = `${scopeName()}의 곡 ${L.length}개`;
     list.append(h('div', { class: 'frow fhead' }, h('span', null, '곡'), h('span', null, '페이드인'), h('span', null, '페이드아웃')));
-    b.pads.forEach(id => { const p = S.pads[id]; list.append(h('div', { class: 'frow' },
+    L.forEach(id => { const p = S.pads[id]; list.append(h('div', { class: 'frow' },
       h('span', { class: 'fname' }, p.label || '(이름 없음)'),
       mini(p.fin, p.finSec, v => { p.fin = v; touchEdit(p); save(); }, v => { p.finSec = v; touchEdit(p); save(); }),
       mini(p.fout, p.foutSec, v => { p.fout = v; touchEdit(p); save(); }, v => { p.foutSec = v; touchEdit(p); save(); }))); });
-    if (!b.pads.length) list.append(h('div', { class: 'info' }, '이 보드엔 패드가 없어요'));
+    if (!L.length) list.append(h('div', { class: 'info' }, '곡이 없어요'));
   };
-  const all = fn => { b.pads.forEach(id => { const p = S.pads[id]; fn(p); touchEdit(p); }); save(); draw(); logLine(`페이드 창 전체 적용 → ` + b.pads.map(id => { const p = S.pads[id]; return `${p.label}(인 ${p.fin ? p.finSec : '끔'} 아웃 ${p.fout ? p.foutSec : '끔'})`; }).join(', ')); };
+  // 목록 전체에 한 번에 — 곡마다 따로 맞춘 값이 사라지므로 8초 안에 되돌리기
+  const all = (what, fn) => {
+    const L = ids(), before = L.map(id => { const p = S.pads[id]; return [id, p.fin, p.finSec, p.fout, p.foutSec]; });
+    L.forEach(id => { fn(S.pads[id]); touchEdit(S.pads[id]); }); save(); draw();
+    logLine(`페이드 한 번에(${scopeName()}) ${what} → ` + L.map(id => { const p = S.pads[id]; return `${p.label}(인 ${p.fin ? p.finSec : '끔'} 아웃 ${p.fout ? p.foutSec : '끔'})`; }).join(', '));
+    toast(`${L.length}곡 ${what}`, 8000, { label: '되돌리기', fn: () => {
+      before.forEach(([id, a, b, c, d]) => { const p = S.pads[id]; if (p) Object.assign(p, { fin: a, finSec: b, fout: c, foutSec: d }); });
+      save(); draw(); logLine(`페이드 한 번에 되돌리기 ${before.length}곡`);
+    } });
+  };
   const bulk = (label, onK, secK) => {
-    let n = 2; const o = h('output', null, sec1(n));
-    return h('div', { class: 'row col' }, h('label', null, label),
+    let n = onK === 'fin' ? 1 : 2; const o = h('output', null, sec1(n));
+    return h('div', { class: 'bulk' }, h('b', null, label),
       h('div', { class: 'trow' },
-        h('button', { onclick: () => all(p => { p[onK] = true; }) }, '전체 켜기'),
-        h('button', { onclick: () => all(p => { p[onK] = false; }) }, '전체 끄기'),
-        h('button', { onclick: () => { n = Math.max(0.5, n - 0.5); o.textContent = sec1(n); } }, '−'), o,
-        h('button', { onclick: () => { n = Math.min(10, n + 0.5); o.textContent = sec1(n); } }, '＋'),
-        h('button', { onclick: () => all(p => { p[onK] = true; p[secK] = n; }) }, '전체 이 시간으로')));
+        h('button', { onclick: () => all(`${label} 모두 켬`, p => { p[onK] = true; }) }, '모두 켬'),
+        h('button', { onclick: () => all(`${label} 모두 끔`, p => { p[onK] = false; }) }, '모두 끔'),
+        h('span', { class: 'gap' }),
+        h('button', { onclick: () => { n = clamp(n - STEP); o.textContent = sec1(n); } }, '−'), o,
+        h('button', { onclick: () => { n = clamp(n + STEP); o.textContent = sec1(n); } }, '＋'),
+        h('button', { class: 'pri', onclick: () => all(`${label} 모두 ${sec1(n)}`, p => { p[onK] = true; p[secK] = n; }) }, '모두 이 시간으로')));
   };
-  openSheet(`페이드 — ${b.name}`, body => {
-    draw();
-    body.append(
-      h('div', { class: 'row' }, h('div', { class: 'info' }, '페이드아웃은 곡 끝에 닿을 때와 다시 눌러 끌 때 둘 다 걸려요. 반복 곡은 끌 때만.')),
-      bulk('페이드인 — 이 보드 전체', 'fin', 'finSec'),
-      bulk('페이드아웃 — 이 보드 전체', 'fout', 'foutSec'),
-      list,
-      h('div', { class: 'row col' }, h('label', null, '새로 넣는 곡의 기본값'),
-        h('div', { class: 'frow' }, h('span', { class: 'fname' }, '새 곡'),
-          mini(st.newFin, st.newFinSec, v => { st.newFin = v; save(); }, v => { st.newFinSec = v; save(); }),
-          mini(st.newFout, st.newFoutSec, v => { st.newFout = v; save(); }, v => { st.newFoutSec = v; save(); }))),
-    );
-  });
+  const chips = h('div', { class: 'seg' });
+  const scopes = [...S.boards.map(b => [b.id, b.name]), ['all', '모든 보드']];
+  chips.append(...scopes.map(([v, name]) => h('button', { class: v === fadeScope ? 'on' : '', onclick: e => {
+    fadeScope = v; [...chips.children].forEach(x => x.classList.toggle('on', x === e.currentTarget)); draw();
+  } }, name)));
+  draw();
+  body.append(
+    row(h('span', null, '◣ 버튼 페이드 시간', h('span', { class: 'sub' }, '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
+    // 옛 설정: 켜 둔 사람만 보임(끌 수 있게)
+    st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡마다의 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : '',
+    h('div', { class: 'row col' }, h('label', null, '솔로 켠 패드를 틀면, 울리던 다른 소리는', h('span', { class: 'sub' }, '패드 설정에서 "솔로"를 켠 곡만 해당')),
+      seg([['each', '곡마다의 페이드아웃으로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
+    h('div', { class: 'row col' }, h('label', null, '곡마다의 페이드', h('span', { class: 'sub' }, '페이드아웃은 곡 끝에 닿을 때와 다시 눌러 끌 때 둘 다 걸려요. 반복 곡은 끌 때만.')), chips),
+    h('div', { class: 'row col' }, title,
+      bulk('페이드인', 'fin', 'finSec'), bulk('페이드아웃', 'fout', 'foutSec'), list),
+    h('div', { class: 'row col' }, h('label', null, '새로 넣는 곡의 기본값'),
+      h('div', { class: 'frow' }, h('span', { class: 'fname' }, '새 곡'),
+        mini(st.newFin, st.newFinSec, v => { st.newFin = v; save(); }, v => { st.newFinSec = v; save(); }),
+        mini(st.newFout, st.newFoutSec, v => { st.newFout = v; save(); }, v => { st.newFoutSec = v; save(); }))),
+  );
 }
 
 function openBoardSheet() {
@@ -845,7 +873,7 @@ function openBoardSheet() {
       h('div', { class: 'row col' }, name),
       h('div', { class: 'row col' }, h('label', null, '보드 색', h('span', { class: 'sub' }, '탭·판 테두리·뒷 배경, 색 없는 패드의 재생 색')),
         colorChips(b.color, false, k => { b.color = k; save(); applyBoardColor(); renderTabs(); paintAll(); })),
-      row('곡별 페이드', h('button', { class: 'sbtn', onclick: openFadeSheet }, '페이드 설정 열기')),
+      row('페이드', h('button', { class: 'sbtn', onclick: () => { fadeScope = b.id; openFadeSheet(); } }, '이 보드 페이드 설정')),
       row('보드', h('button', { class: 'sbtn', onclick: () => {
         const nb = { id: uid(), name: b.name + ' 복사', color: b.color, pads: b.pads.map(id => clonePad(id)) };
         S.boards.splice(S.cur + 1, 0, nb); S.cur++; save(); applyBoardColor(); closeSheet(); toast('보드를 복제했어요');
@@ -857,20 +885,17 @@ function openBoardSheet() {
   }, () => $('tabs').querySelector('.tab.on'), { board: true });
 }
 
-function openSettings() {
+// 설정 = [일반] [페이드] 두 칸
+function openSettings(tab = 'general') {
   openSheet('설정', body => {
+    body.append(h('div', { class: 'row' }, seg([['general', '일반'], ['fade', '페이드']], tab, v => openSettings(v))));
+    if (tab === 'fade') return fadeTab(body);
     const st = S.settings;
     const logBox = h('div', { class: 'logbox', hidden: true });
     body.append(
       row('화면', seg([['dark', '다크'], ['light', '화이트']], st.theme, v => { st.theme = v; save(); applyTheme(); })),
       row('패드 크기', seg([[8, '작게'], [6, '보통'], [4, '크게']], st.cols, v => { st.cols = v; save(); renderGrid(); })),
       row('패드 글자', seg([['s', '작게'], ['m', '보통'], ['l', '크게']], st.labelSize, v => { st.labelSize = v; save(); renderGrid(); })),
-      row(h('span', null, '곡별 페이드', h('span', { class: 'sub' }, '지금 보드의 곡마다 페이드인·아웃 켬/초')), h('button', { class: 'sbtn', onclick: openFadeSheet }, '열기')),
-      row(h('span', null, '◣ 버튼 페이드 시간', h('span', { class: 'sub' }, '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
-      // 옛 설정: 켜 둔 사람만 보임(끌 수 있게). 새로는 페이드 창의 [전체 이 시간으로]
-      st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡별 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : '',
-      h('div', { class: 'row col' }, h('label', null, '솔로 켠 패드를 틀면, 울리던 다른 소리는', h('span', { class: 'sub' }, '패드 설정에서 "솔로"를 켠 곡만 해당')),
-        seg([['each', '각자 페이드값으로'], ['fade', '전체 페이드 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
       row(h('span', null, 'PLAYED 표시', h('span', { class: 'sub' }, '공연 모드를 켤 때와 6시간 안 쓰면 저절로 지워져요')), h('button', { class: 'sbtn', onclick: () => {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
