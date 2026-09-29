@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.3 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.4 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -868,8 +868,8 @@ function openSettings() {
       row(h('span', null, '곡별 페이드', h('span', { class: 'sub' }, '지금 보드의 곡마다 페이드인·아웃 켬/초')), h('button', { class: 'sbtn', onclick: openFadeSheet }, '열기')),
       row(h('span', null, '◣ 버튼 페이드 시간', h('span', { class: 'sub' }, '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
       // 옛 설정: 켜 둔 사람만 보임(끌 수 있게). 새로는 페이드 창의 [전체 이 시간으로]
-      st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡별 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : null,
-      h('div', { class: 'row col' }, h('label', null, '솔로 패드를 틀 때 다른 소리'),
+      st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡별 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : '',
+      h('div', { class: 'row col' }, h('label', null, '솔로 켠 패드를 틀면, 울리던 다른 소리는', h('span', { class: 'sub' }, '패드 설정에서 "솔로"를 켠 곡만 해당')),
         seg([['each', '각자 페이드값으로'], ['fade', '전체 페이드 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
       row(h('span', null, 'PLAYED 표시', h('span', { class: 'sub' }, '잠금을 켤 때와 6시간 안 쓰면 저절로 지워져요')), h('button', { class: 'sbtn', onclick: () => {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');

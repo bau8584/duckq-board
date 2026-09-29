@@ -207,7 +207,7 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .frow.fhead span:not(:first-child){text-align:center}
 .fname{font-weight:700;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .mini{display:flex;align-items:center;gap:5px}
-.mini button{width:36px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--bg2);font:600 15px var(--font)}
+.mini button:not(.sw){width:36px;height:34px;border-radius:9px;border:1px solid var(--line);background:var(--bg2);font:600 15px var(--font)}
 .mini output{min-width:44px;text-align:center;font:700 14px var(--font);font-variant-numeric:tabular-nums}
 .mini.off button,.mini.off output{opacity:.35}
 .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);z-index:30;background:var(--bg2);color:var(--text);border:1px solid var(--line);
