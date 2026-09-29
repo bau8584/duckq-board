@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.41 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.42 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -217,6 +217,7 @@ function makePad(id, n) {
   el._el = el.querySelector('.meta span:first-child'); el._rm = el.querySelector('.meta span:last-child');
   padEls.set(id, el);
   paintPad(id);
+  if (window.Cue) Cue.decorate(el, p);   // 큐(설정에서 켰을 때만)
   return el;
 }
 
@@ -344,6 +345,7 @@ setInterval(() => {
 // ---------- 패드 누르기 ----------
 function tapPad(id) {
   const p = S.pads[id]; if (!p || status[id] !== 'ready' || !started) return;
+  if (window.Cue && Cue.tap(id)) return paintPad(id);   // 큐(설정에서 켰을 때만)
   if (Engine.isPlaying(id)) {
     if (Engine.isFading(id)) return;   // 페이드 중 탭은 무시 (0단계와 같음)
     Engine.stop(id, foutOf(p));
@@ -594,7 +596,7 @@ hit($('btnFade'), () => { logLine(`◣ 전체 페이드 ${S.settings.fadeSec}초
   const set = e => {
     const r = sl.getBoundingClientRect();
     let v = Math.round(Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height)) * 100) / 100;
-    // 키웠을 때 실제 100% 근처(±4%)면 딱 100%에 붙는다
+    // 키웠을 때 100% 자리 근처(막대 길이 ±5%)면 딱 100%에 붙는다 — 배율과 상관없이 손 느낌 같게
     const bst = S.settings.masterBoost || 1;
     if (bst > 1 && Math.abs(v - 1 / bst) <= 0.05) v = 1 / bst;
     S.master = v;
@@ -748,7 +750,7 @@ function addBoard() {
 
 // ---------- 보드 내보내기·가져오기 (zip: 패드이름.확장자 + board.json) ----------
 // 원본 형식 그대로 담고 이름만 패드 이름으로. 가져오기는 늘 새 보드로 더한다(기존 판은 안 건드림).
-const BIG_MB = 300;
+const BIG_MB = 300, CUT_PAD = 180;   // 트림 앞뒤로 3분 남기고 자름
 const MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', mov: 'video/quicktime', flac: 'audio/flac' };
 const safeName = s => (s || '소리').replace(/[\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80) || '소리';
 async function exportBoard(b) {
@@ -760,12 +762,32 @@ async function exportBoard(b) {
     const ext = ((rec.name || '').match(/\.([^.\/]+)$/) || [])[1] || (MIME_EXT[rec.type] || 'mp3');
     let base = safeName(p.label), nm = `${base}.${ext}`;
     for (let k = 2; used.has(nm.toLowerCase()); k++) nm = `${base} (${k}).${ext}`;
-    used.add(nm.toLowerCase()); names.set(p.file, nm); entries.push({ name: nm, blob: rec.blob });
+    used.add(nm.toLowerCase()); names.set(p.file, nm); entries.push({ name: nm, blob: rec.blob, fid: p.file });
+  }
+  // 트림한 긴 곡은 안 쓰는 앞뒤를 잘라 담는다(같은 파일을 쓰는 패드들의 구간을 모두 덮게)
+  const cut0 = new Map();
+  for (const e of entries) {
+    const ps = pads.filter(p => p.file === e.fid), dur = Math.max(...ps.map(p => p.dur || 0));
+    const t0 = Math.min(...ps.map(p => p.start || 0)) - CUT_PAD, t1 = Math.max(...ps.map(p => p.end > 0 ? p.end : dur)) + CUT_PAD;
+    if (!(dur > 0) || (t0 <= 0 && t1 >= dur)) continue;
+    toast(`긴 곡 자르는 중… ${e.name}`, 600000);
+    try {
+      const r = await Cut.run(e.blob, Math.max(0, t0), Math.min(dur, t1));
+      if (!r || r.blob.size > e.blob.size * 0.9) { logLine(`자르기 건너뜀 "${e.name}"${r ? ' (별로 안 줄어듦)' : ' (모르는 형식)'}`); continue; }
+      logLine(`잘라 담음 "${e.name}" ${(e.blob.size / 1048576).toFixed(1)}MB → ${(r.blob.size / 1048576).toFixed(1)}MB · ${r.cut0.toFixed(2)}초부터`);
+      e.blob = r.blob; cut0.set(e.fid, r.cut0);
+    } catch (err) { logLine(`자르기 실패 "${e.name}" → 원본 그대로: ${err && err.message}`, 'w'); }
   }
   const mb = entries.reduce((a, e) => a + e.blob.size, 0) / 1048576;
   if (mb > BIG_MB && !confirm(`소리가 ${mb.toFixed(0)}MB예요. 아이패드에서 오래 걸리거나 실패할 수 있어요. 계속할까요?`)) return;
   const json = { app: 'duckq-board', v: 1, ver: APP_VER, board: { name: b.name, color: b.color },
-    pads: pads.filter(p => names.has(p.file)).map(p => { const { id, file, played, ...rest } = p; return { ...rest, file: names.get(p.file) }; }) };
+    pads: pads.filter(p => names.has(p.file)).map(p => {
+      const { id, file, played, ...rest } = p, c = cut0.get(file) || 0;
+      if (c) Object.assign(rest, { start: Math.max(0, (p.start || 0) - c), end: p.end > 0 ? p.end - c : 0, dur: Math.max(0, (p.dur || 0) - c) });
+      return { ...rest, file: names.get(file) };
+    }) };
+  if (window.Cue) Cue.exportFix(json.pads, pads.filter(p => names.has(p.file)));
+  entries.forEach(e => delete e.fid);
   entries.unshift({ name: 'board.json', blob: new Blob([JSON.stringify(json, null, 1)], { type: 'application/json' }) });
   const t0 = performance.now();
   logLine(`내보내기 시작 "${b.name}" · 패드 ${pads.length}개 · 파일 ${entries.length - 1}개 · ${mb.toFixed(1)}MB${miss.length ? ' · 파일 없음 ' + miss.length : ''}`);
@@ -809,7 +831,7 @@ $('zipIn').addEventListener('change', async e => {
   closeSheet();
   const src = json.board || {};
   const nb = { id: uid(), name: String(src.name || '가져온 보드').slice(0, 20), color: COLORS[src.color] ? src.color : 'sky', pads: [] };
-  const fileIds = new Map(), bad = [];
+  const fileIds = new Map(), bad = [], qIds = [];
   S.boards.push(nb); S.cur = S.boards.length - 1; save();
   applyBoardColor(); renderTop(); renderTabs(); renderGrid();
   for (let i = 0; i < json.pads.length; i++) {
@@ -836,10 +858,11 @@ $('zipIn').addEventListener('change', async e => {
     }
     const base = newPad(fid, String(jp.label || '소리'), +jp.dur || 0);
     const p = { ...base, ...jp, id: base.id, file: fid, played: false, added: base.added };
-    S.pads[p.id] = p; nb.pads.push(p.id); save();
+    S.pads[p.id] = p; nb.pads.push(p.id); qIds[i] = p.id; save();
     renderTop(); renderGrid();
     await loadPad(p.id);
   }
+  if (window.Cue) Cue.importFix(qIds);
   logLine(`가져오기 완료 "${nb.name}" · 패드 ${nb.pads.length}개${bad.length ? ' · 못 가져옴 ' + bad.length : ''} · ${((performance.now() - t0) / 1000).toFixed(1)}초`);
   toast(bad.length ? `못 가져온 패드 ${bad.length}개: ${bad.join(', ')}` : `"${nb.name}" 보드로 ${nb.pads.length}개 가져왔어요`, bad.length ? 6000 : 2500);
 });
@@ -1116,6 +1139,7 @@ function openPadSheet(id) {
       loopCtl(loopMode(p), p.loopN || 3, p.loopSec || 30, false, o => { applyLoop(p, o); refresh(); }),
       row(helpLabel('솔로', '이 트랙을 틀면 이미 울리던 다른 트랙을 끕니다.'), sw(p.solo, on => { p.solo = on; soloBox.hidden = !on; refresh(); })),
       soloBox,
+      window.Cue ? Cue.padRows(p, refresh) : null,   // 큐(설정에서 켰을 때만)
       h('div', { class: 'row col' }, h('label', null, helpLabel('페이드', '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 트랙 끝 + 다시 눌러 끌 때')),
         fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) refresh(); })),
       h('div', { class: 'row' }, h('div', { class: 'info' },
@@ -1378,6 +1402,7 @@ function openSettings(tab = 'general', keep) {
       row(helpLabel('PLAYED 표시', '공연 모드를 켤 때와 6시간 안 쓰면 저절로 지워져요'), h('button', { class: 'sbtn', onclick: () => {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
+      window.Cue ? Cue.settingRow() : null,
       offRow(),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
         h('div', { style: 'display:flex;gap:8px' },
