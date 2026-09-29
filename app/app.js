@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.4 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.5 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -119,7 +119,7 @@ function renderTop() {
   else t.textContent = `전체 ${fmtH(total)} · 패드 ${b.pads.length}개`;
   const L = S.lock;
   $('btnLock').classList.toggle('on', L);
-  $('lockTxt').textContent = L ? '잠김' : '잠금';
+  $('lockTxt').textContent = '공연 모드';   // 켜짐은 버튼 강조로 (소유자 결정: 이름 '공연 모드')
   $('lockArc').setAttribute('d', L ? 'M8 11V8a4 4 0 0 1 8 0v3' : 'M8 11V8a4 4 0 0 1 8 0');
   $('btnSet').disabled = L; $('btnEdit').disabled = L; $('btnAdd').disabled = L;
   $('btnEdit').classList.toggle('on', editMode);
@@ -289,7 +289,7 @@ window.addEventListener('pointerup', e => {
   if (t.drag) return endDrag(t);
   unpress(t.el);
   if (t.dead) return;
-  if (editMode) toggleSel(t.id); else { logLine(`짧게 누름 ${nm(t.id)}${S.lock ? ' (잠김)' : ''}`); tapPad(t.id); }
+  if (editMode) toggleSel(t.id); else { logLine(`짧게 누름 ${nm(t.id)}${S.lock ? ' (공연 모드)' : ''}`); tapPad(t.id); }
 });
 window.addEventListener('pointercancel', e => {
   const t = touches.get(e.pointerId); if (!t) return;
@@ -445,10 +445,10 @@ $('btnLock').onclick = () => {
   // 잠금 켤 때 = 공연 준비 끝 → PLAYED 지움(8초 안에 되돌리기)
   const was = S.lock ? clearPlayed() : [];
   save(); renderTop(); renderTabs(); renderGrid();
-  logLine(S.lock ? `잠금 켬 · PLAYED ${was.length}개 지움` : '잠금 풂');
-  if (!S.lock) toast('잠금을 풀었어요');
-  else if (!was.length) toast('잠갔어요 — 패드·재생 버튼만 눌려요');
-  else toast(`잠갔어요 · PLAYED ${was.length}개 지움`, 8000, { label: '되돌리기', fn: () => { logLine(`PLAYED 되돌리기 ${was.length}개`); was.forEach(id => { if (S.pads[id]) S.pads[id].played = true; }); save(); paintAll(); } });
+  logLine(S.lock ? `공연 모드 켬 · PLAYED ${was.length}개 지움` : '공연 모드 끔');
+  if (!S.lock) toast('공연 모드를 껐어요 — 편집할 수 있어요');
+  else if (!was.length) toast('공연 모드 — 패드·재생 버튼만 눌려요');
+  else toast(`공연 모드 — 패드·재생 버튼만 · PLAYED ${was.length}개 지움`, 8000, { label: '되돌리기', fn: () => { logLine(`PLAYED 되돌리기 ${was.length}개`); was.forEach(id => { if (S.pads[id]) S.pads[id].played = true; }); save(); paintAll(); } });
 };
 $('btnEdit').onclick = () => { if (S.lock) return; editMode = !editMode; sel.clear(); renderTop(); renderTabs(); paintAll(); };
 // PLAYED 지우기 → 지운 패드 id 목록(되돌리기용)
@@ -871,7 +871,7 @@ function openSettings() {
       st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡별 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : '',
       h('div', { class: 'row col' }, h('label', null, '솔로 켠 패드를 틀면, 울리던 다른 소리는', h('span', { class: 'sub' }, '패드 설정에서 "솔로"를 켠 곡만 해당')),
         seg([['each', '각자 페이드값으로'], ['fade', '전체 페이드 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
-      row(h('span', null, 'PLAYED 표시', h('span', { class: 'sub' }, '잠금을 켤 때와 6시간 안 쓰면 저절로 지워져요')), h('button', { class: 'sbtn', onclick: () => {
+      row(h('span', null, 'PLAYED 표시', h('span', { class: 'sub' }, '공연 모드를 켤 때와 6시간 안 쓰면 저절로 지워져요')), h('button', { class: 'sbtn', onclick: () => {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
