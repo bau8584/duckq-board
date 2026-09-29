@@ -11,11 +11,18 @@ const Engine = (() => {
   const EDGE = 0.005;         // 페이드 없음이어도 5ms로 올리고 내림(딸깍 방지)
   const HUSH = 0.03;          // ⏸·이어서: 출구째 멈추기 전에 30ms 줄이고, 이어서 30ms 올림(지직 방지)
   let ctx = null, master = null, masterVol = 1, boost = 1, boostG = null, limiter = null;
+  // 100%를 넘길 수 있는 설정(MASTER 키우기 또는 패드 볼륨 100% 초과)이 하나라도 있으면 리미터를 거친다 → 찢어짐 대신 살짝 눌림.
+  // 전부 100% 이하면 리미터 없이 지금 소리 그대로.
+  let viaLim = null;
   function routeBoost() {
     if (!boostG) return;
-    try { boostG.disconnect(); } catch {}
     boostG.gain.value = boost;
-    boostG.connect(boost > 1 ? limiter : ctx.destination);
+    let need = boost > 1;
+    if (!need) for (const tr of tracks.values()) if (tr.volume > 1) { need = true; break; }
+    if (need === viaLim) return;   // 바뀔 때만 다시 잇기(재생 중 뚝 소리 줄이기)
+    viaLim = need;
+    try { boostG.disconnect(); } catch {}
+    boostG.connect(need ? limiter : ctx.destination);
   }
   function setBoost(x) { boost = x > 1 ? x : 1; routeBoost(); }
   let unlocked = false, paused = false, needRebuild = false, ousted = false;
@@ -29,7 +36,8 @@ const Engine = (() => {
   function makeCtx() {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
     master = ctx.createGain(); master.gain.value = masterVol;
-    // MASTER 키우기: master → boost → (키웠을 때만 리미터) → 출구. 1배면 리미터를 안 거쳐 지금 소리 그대로
+    // MASTER 키우기: master → boost → (100% 넘길 설정이 있을 때만 리미터) → 출구
+    viaLim = null;
     boostG = ctx.createGain(); limiter = ctx.createDynamicsCompressor();
     limiter.threshold.value = -1; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.003; limiter.release.value = 0.15;
     master.connect(boostG); limiter.connect(ctx.destination); routeBoost();
@@ -106,6 +114,7 @@ const Engine = (() => {
   // 패드마다: 볼륨 → 팬(좌우) → MASTER
   function wire(tr) {
     tr.vol = ctx.createGain(); tr.vol.gain.value = tr.volume;
+    if (tr.volume > 1) routeBoost();
     tr.pn = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     if (tr.pn) { tr.pn.pan.value = tr.pan; tr.vol.connect(tr.pn); tr.pn.connect(master); } else tr.vol.connect(master);
   }
@@ -299,6 +308,7 @@ const Engine = (() => {
   function setVolume(id, x) {
     const tr = tracks.get(id); if (!tr) return;
     tr.volume = x; tr.vol.gain.setTargetAtTime(x, ctx.currentTime, 0.02);
+    routeBoost();
   }
   function setPan(id, x) {
     const tr = tracks.get(id); if (!tr) return;
