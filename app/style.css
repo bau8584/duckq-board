@@ -76,11 +76,11 @@ button:disabled{cursor:default}
 .icons .slot:nth-child(3){grid-column:4}.icons .slot:nth-child(4){grid-column:5}
 .icons svg{width:22px;height:22px;padding:4px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent);
   stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.idx{position:absolute;top:9px;left:50%;transform:translateX(-50%);font:800 15px ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.04em;opacity:.55}
-.pad .edit{position:absolute;top:8px;left:50%;margin-left:-13px;width:26px;height:26px;border-radius:8px;display:none;align-items:center;justify-content:center;
+.idx{position:absolute;top:12px;left:50%;transform:translateX(-50%);font:800 15px ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.04em;opacity:.55;line-height:22px}
+.pad .edit{position:absolute;top:10px;left:50%;margin-left:-13px;width:26px;height:26px;border-radius:8px;display:none;align-items:center;justify-content:center;
   font-size:14px;background:color-mix(in srgb,currentColor 16%,transparent)}
 .editing .pad .edit{display:flex}.editing .pad .idx,.editing .pad .eq{display:none!important}
-.eq{position:absolute;top:11px;left:50%;transform:translateX(-50%);display:none;gap:2.5px;align-items:flex-end;height:16px}
+.eq{position:absolute;top:15px;left:50%;transform:translateX(-50%);display:none;gap:2.5px;align-items:flex-end;height:16px}
 .eq i{width:4px;background:currentColor;border-radius:2px;height:5px;animation:eq .9s ease-in-out infinite}
 .eq i:nth-child(2){animation-duration:.6s;animation-delay:-.2s}.eq i:nth-child(3){animation-duration:1.1s;animation-delay:-.5s}
 @keyframes eq{0%,100%{height:4px}50%{height:16px}}
@@ -347,4 +347,6 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 /* 작은 패드(8열): 표시 칸 줄임 */
 [data-cols="8"] .icons{grid-template-columns:18px 18px 1fr 18px 18px;gap:2px;min-height:18px}
 [data-cols="8"] .icons .slot,[data-cols="8"] .icons svg{width:18px;height:18px;padding:3px}
-[data-cols="8"] .idx{font-size:13px;top:8px}
+[data-cols="8"] .idx{font-size:13px;line-height:18px}
+/* 루프·솔로는 상자 없이 기호만 (인·아웃만 상자) */
+.icons .slot:nth-child(2) svg,.icons .slot:nth-child(3) svg{background:none}
