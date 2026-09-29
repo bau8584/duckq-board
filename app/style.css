@@ -71,6 +71,7 @@ button:disabled{cursor:default}
   transition:transform .06s,background-color .06s,box-shadow .06s}
 .pad.press{transform:scale(.975)}
 .icons{position:relative;display:flex;gap:4px;min-height:22px;padding-right:34px}
+.icons .slot{flex:0 0 22px;width:22px;height:22px;display:block}
 .icons svg{width:22px;height:22px;padding:4px;border-radius:7px;background:color-mix(in srgb,currentColor 14%,transparent);
   stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .idx{position:absolute;top:11px;right:14px;font:800 11px ui-monospace,"SF Mono",Menlo,monospace;letter-spacing:.04em;opacity:.5}

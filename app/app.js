@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.33 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.34 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -209,7 +209,8 @@ function renderGrid() {
 function makePad(id, n) {
   const p = S.pads[id];
   const el = h('button', { class: 'pad', 'data-id': id, html:
-    `<div class="icons">${p.fin ? IC.fi : ''}${p.fout ? IC.fo : ''}${p.solo ? IC.so : ''}${p.loop ? IC.lp : ''}</div>` +
+    // 자리 고정: 인 · 루프 · 솔로 · 아웃 (꺼진 건 빈자리로 남김 — 패드마다 같은 자리에 보이게)
+    `<div class="icons">${[['fin', 'fi'], ['loop', 'lp'], ['solo', 'so'], ['fout', 'fo']].map(([k, ic]) => `<i class="slot">${p[k] ? IC[ic] : ''}</i>`).join('')}</div>` +
     `<div class="idx">${String(n).padStart(2, '0')}</div><div class="eq"><i></i><i></i><i></i></div><div class="edit">✓</div>` +
     `<div class="label"></div><div class="meta"><span>00:00</span><b>PLAYED</b><span></span></div>` });
   el.querySelector('.label').textContent = p.label || '(이름 없음)';
