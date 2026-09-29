@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.13 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.14 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -521,7 +521,7 @@ const SORTS = [
 ];
 function openSort() {
   openSheet('정렬', body => {
-    body.append(h('div', { class: 'row' }, h('div', { class: 'info' }, '지금 보드의 순서를 한 번만 바꿔요. 계속 정렬된 채로 있지 않아요.')));
+    body.append(h('div', { class: 'row' }, h('label', null, helpLabel('정렬', '지금 보드의 순서를 한 번만 바꿔요. 계속 정렬된 채로 있지 않아요. 누른 뒤 8초 안에 되돌릴 수 있어요.'))));
     SORTS.forEach(([, name, sub, cmp]) => body.append(h('div', { class: 'row' },
       h('label', null, name, h('span', { class: 'sub' }, sub)),
       h('button', { class: 'sbtn', onclick: () => sortBoard(name, cmp) }, '이 순서로'))));
@@ -673,8 +673,8 @@ let sheetAt = 0;   // 길게 눌러 연 직후 손 떼는 것이 바깥 누름�
 $('sheetWrap').addEventListener('click', e => { if (e.target === $('sheetWrap') && performance.now() - sheetAt > 400) closeSheet(); });
 
 // 페이드 줄: 윗줄 = 이름·설명 + 켬/끔, 아랫줄 = 시간 (인·아웃 모양을 똑같이)
-const fadeRow = (label, sub, onCtl, secCtl) => h('div', { class: 'row col frow2' },
-  h('div', { class: 'fhead2' }, h('label', null, label, sub ? h('span', { class: 'sub' }, sub) : null), onCtl), h('div', { class: 'end' }, secCtl));
+const fadeRow = (label, sub, onCtl, secCtl, help) => h('div', { class: 'row col frow2' },
+  h('div', { class: 'fhead2' }, h('label', null, help ? helpLabel(label, help) : label, sub ? h('span', { class: 'sub mix' }, sub) : null), onCtl), h('div', { class: 'end' }, secCtl));
 const row = (label, ...ctl) => h('div', { class: 'row' }, h('label', null, label), h('div', { class: 'end' }, ...ctl));
 function sw(on, onchange) {
   const b = h('button', { class: 'sw' + (on ? ' on' : ''), role: 'switch', 'aria-checked': String(!!on) });
@@ -784,7 +784,7 @@ function trimBox(id, onchange) {
   requestAnimationFrame(() => { wave(); draw(); });
   draw(); mark();
   api.el = h('div', { class: 'row col' },
-    h('label', null, '구간(트림)', h('span', { class: 'sub' }, Engine.peaks(id, 8) ? '손잡이를 끌거나 단추로 맞춰요. 파일은 잘리지 않아요' : '긴 곡은 파형 없이 시간으로 맞춰요. 파일은 잘리지 않아요')),
+    h('label', null, helpLabel('구간(트림)', Engine.peaks(id, 8) ? '손잡이를 끌거나 단추로 맞춰요. 파일은 잘리지 않아요' : '긴 곡은 파형 없이 시간으로 맞춰요. 파일은 잘리지 않아요')),
     bar,
     h('div', { class: 'trow' }, h('span', null, '시작'), nb('−1', () => setS(s - 1)), nb('−.1', () => setS(s - 0.1)), sOut, nb('+.1', () => setS(s + 0.1)), nb('+1', () => setS(s + 1))),
     h('div', { class: 'trow' }, h('span', null, '끝'), nb('−1', () => setE(e - 1)), nb('−.1', () => setE(e - 0.1)), eOut, nb('+.1', () => setE(e + 0.1)), nb('+1', () => setE(e + 1))),
@@ -817,15 +817,15 @@ function openPadSheet(id) {
     };
     body.append(
       h('div', { class: 'row col' }, name),
-      h('div', { class: 'row col' }, h('label', null, '색', h('span', { class: 'sub' }, '없음 = 평소 무채색, 재생 중엔 보드 색으로 켜짐')),
+      h('div', { class: 'row col' }, h('label', null, helpLabel('색', '없음 = 평소 무채색, 재생 중엔 보드 색으로 켜짐')),
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
       row('미리 듣기', h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, Engine.dur(id) - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
       (trim = trimBox(id, () => { refresh(); renderTop(); })).el,
       volRow(helpLabel('볼륨', HELP.vol), stepper(Math.round(p.vol * 100), 0, 300, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); }, false, VOL_MAP), 100),
       volRow(helpLabel('팬', HELP.pan), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); }), 0),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
-      row(h('span', null, '솔로', h('span', { class: 'sub' }, '이 패드를 틀면 다른 소리를 끔')), sw(p.solo, on => { p.solo = on; refresh(); })),
-      h('div', { class: 'row col' }, h('label', null, '페이드', h('span', { class: 'sub' }, '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 곡 끝 + 다시 눌러 끌 때')),
+      row(helpLabel('솔로', '이 패드를 틀면 다른 소리를 끔'), sw(p.solo, on => { p.solo = on; refresh(); })),
+      h('div', { class: 'row col' }, h('label', null, helpLabel('페이드', '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 곡 끝 + 다시 눌러 끌 때')),
         fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) refresh(); })),
       row('패드', h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
@@ -853,20 +853,20 @@ function openBulkSheet(ids) {
   const mixed = k => same(k) === undefined;
   const avg = k => ps.reduce((a, q) => a + (q[k] || 0), 0) / ps.length;
   const set = fn => { ps.forEach(q => { fn(q); touchEdit(q); }); save(); logLine(`일괄 수정 ${ps.length}개 → ` + ps.map(q => `${q.label}(vol ${Math.round(q.vol * 100)} 인 ${q.fin ? q.finSec : '끔'} 아웃 ${q.fout ? q.foutSec : '끔'} 루프 ${q.loop ? 1 : 0} 색 ${q.color})`).join(', ')); };
-  const tag = k => mixed(k) ? h('span', { class: 'sub mix' }, '지금 제각각 — 고르면 모두 같아짐') : null;
-  const lab = (name, ...k) => h('span', null, name, k.some(mixed) ? h('span', { class: 'sub mix' }, '지금 제각각 — 고르면 모두 같아짐') : null);
+  const tag = k => mixed(k) ? h('span', { class: 'sub mix' }, '지금 제각각') : null;
+  const lab = (name, ...k) => h('span', null, name, k.some(mixed) ? h('span', { class: 'sub mix' }, '지금 제각각') : null);
   const onoff = (k, extra) => seg([[true, '켬'], [false, '끔']], same(k), v => { set(q => { q[k] = v; extra && extra(q, v); }); });
   const num = (k, scale, min, max, step, show, apply, map) =>
     stepper(Math.round((mixed(k) ? avg(k) : same(k)) * scale / step) * step, min, max, step, show, v => set(q => apply(q, v)), mixed(k), map);
   openSheet(`${ps.length}개 일괄 수정`, body => body.append(
-    h('div', { class: 'row' }, h('div', { class: 'info' }, '모두 같은 항목은 그 값이, 서로 다른 항목은 "제각각"으로 보여요. 손댄 항목만 고른 패드 모두에 같은 값으로 들어가요.')),
+    h('div', { class: 'row' }, h('label', null, helpLabel('일괄 수정', '모두 같은 항목은 그 값이, 서로 다른 항목은 "제각각"으로 보여요. 손댄 항목만 고른 패드 모두에 같은 값으로 들어가요.'))),
     h('div', { class: 'row col' }, h('label', null, '색', tag('color')), colorChips(same('color'), true, k => set(q => { q.color = k; }))),
     volRow(h('span', null, helpLabel('볼륨', HELP.vol), mixed('vol') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('vol', 100, 0, 300, 5, volTxt, (q, v) => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); }, VOL_MAP), 100),
     volRow(h('span', null, helpLabel('팬', HELP.pan), mixed('pan') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('pan', 100, -100, 100, 10, panTxt, (q, v) => { q.pan = v / 100; Engine.setPan(q.id, q.pan); }), 0),
     row(lab('반복(루프)', 'loop'), onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
     row(lab('솔로', 'solo'), onoff('solo')),
-    fadeRow('페이드인', mixed('fin') || mixed('finSec') ? '지금 제각각 — 고르면 모두 같아짐' : '', onoff('fin'), num('finSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.finSec = v; })),
-    fadeRow('페이드아웃', '곡 끝 + 끌 때' + (mixed('fout') || mixed('foutSec') ? ' · 지금 제각각' : ''), onoff('fout'), num('foutSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.foutSec = v; })),
+    fadeRow('페이드인', mixed('fin') || mixed('finSec') ? '지금 제각각' : '', onoff('fin'), num('finSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.finSec = v; })),
+    fadeRow('페이드아웃', mixed('fout') || mixed('foutSec') ? '지금 제각각' : '', onoff('fout'), num('foutSec', 1, 0.1, 10, 0.1, sec1, (q, v) => { q.foutSec = v; }), '곡 끝에 닿을 때와 재생 중 다시 눌러 끌 때 둘 다 이 시간으로 줄어들어요.'),
   ));
 }
 
@@ -962,7 +962,7 @@ function fadeTab(body) {
   selB = h('button', { class: 'pri', disabled: true, onclick: () => all(true) }, '선택 변경');
   const bulkEnv = fadeEnv({ fin: true, finSec: 1, fout: true, foutSec: 2 }, (side, sec) => { want[side] = sec; allB.disabled = false; markSel(); }, { dim: { in: true, out: true } });
   const bulk = h('div', { class: 'bulk' },
-    h('div', { class: 'sub' }, '막대를 끌어 정한 쪽만 들어가요(안 건드린 쪽은 그대로)'), bulkEnv,
+    h('div', null, helpLabel('한 번에 바꾸기', '막대를 끌어 정한 쪽(인/아웃)만 들어가요. 안 건드린 쪽은 곡마다 그대로. [전체 변경] = 목록 전부, [선택 변경] = 체크한 곡만. 8초 안에 되돌리기.')), bulkEnv,
     h('div', { class: 'trow' }, allB, selB));
   // 보기: [보드별 | 모든 보드] → 보드별이면 아래에 보드 칩
   const boardChips = h('div', { class: 'seg sm' });
@@ -974,19 +974,19 @@ function fadeTab(body) {
   drawChips(); draw();
   body.append(
     h('div', { class: 'fbox' },
-      h('div', { class: 'fbox-head' }, h('b', null, '새로 넣는 곡의 기본값'), h('span', { class: 'sub' }, '파일을 새로 넣을 때 이 페이드로 들어가요')),
+      h('div', { class: 'fbox-head' }, h('b', null, helpLabel('새로 넣는 곡의 기본값', '파일을 새로 넣을 때 이 페이드로 들어가요'))),
       fadeEnv({ fin: st.newFin, finSec: st.newFinSec, fout: st.newFout, foutSec: st.newFoutSec }, (side, sec, final) => {
         if (side === 'in') { st.newFin = sec > 0; if (sec > 0) st.newFinSec = sec; } else { st.newFout = sec > 0; if (sec > 0) st.newFoutSec = sec; }
         if (final) save();
       })),
-    row(h('span', null, '◣ 버튼 페이드 시간', h('span', { class: 'sub' }, '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
+    row(helpLabel('◣ 버튼 페이드 시간', '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐'), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
     // 옛 설정: 켜 둔 사람만 보임(끌 수 있게)
-    st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡별 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : '',
-    h('div', { class: 'row col' }, h('label', null, '솔로 켠 패드를 틀면, 울리던 다른 소리는', h('span', { class: 'sub' }, '패드 설정에서 "솔로"를 켠 곡만 해당')),
+    st.fadeOverride ? row(helpLabel('모든 패드에 ◣ 시간 쓰기', '옛 설정 — 끄면 곡별 페이드를 따름'), sw(true, on => { st.fadeOverride = on; save(); })) : '',
+    h('div', { class: 'row col' }, h('label', null, helpLabel('솔로 켠 패드를 틀면, 울리던 다른 소리는', '패드 설정에서 "솔로"를 켠 곡만 해당')),
       seg([['each', '곡별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
     // 곡별 페이드: 보기 고르기·한 번에 바꾸기·목록이 한 설정임을 상자 하나로
     h('div', { class: 'fbox' },
-      h('div', { class: 'fbox-head' }, h('b', null, '곡별 페이드'), h('span', { class: 'sub' }, '비탈 손잡이를 좌우로 끌어요. 끝까지 밀면 페이드 없음. 페이드아웃은 곡 끝과 다시 눌러 끌 때 둘 다 걸려요.')),
+      h('div', { class: 'fbox-head' }, h('b', null, helpLabel('곡별 페이드', '비탈 손잡이를 좌우로 끌어요. 끝까지 밀면 페이드 없음. 페이드아웃은 곡 끝과 다시 눌러 끌 때 둘 다 걸려요.'))),
       mode, boardChips, title, bulk, list),
   );
 }
@@ -998,7 +998,7 @@ function openBoardSheet() {
     name.oninput = () => { b.name = name.value || '보드'; save(); renderTabs(); };
     body.append(
       h('div', { class: 'row col' }, name),
-      h('div', { class: 'row col' }, h('label', null, '보드 색', h('span', { class: 'sub' }, '탭·판 테두리·뒷 배경, 색 없는 패드의 재생 색')),
+      h('div', { class: 'row col' }, h('label', null, helpLabel('보드 색', '탭·판 테두리·뒷 배경, 색 없는 패드의 재생 색')),
         colorChips(b.color, false, k => { b.color = k; save(); applyBoardColor(); renderTabs(); paintAll(); })),
       row('페이드', h('button', { class: 'sbtn', onclick: () => { fadeScope = b.id; openFadeSheet(); } }, '이 보드 페이드 설정')),
       row('보드', h('button', { class: 'sbtn', onclick: () => {
@@ -1023,7 +1023,7 @@ function openSettings(tab = 'general', keep) {
       row('화면', seg([['dark', '다크'], ['light', '화이트']], st.theme, v => { st.theme = v; save(); applyTheme(); })),
       row('패드 크기', seg([[8, '작게'], [6, '보통'], [4, '크게']], st.cols, v => { st.cols = v; save(); renderGrid(); })),
       row('패드 글자', seg([['s', '작게'], ['m', '보통'], ['l', '크게']], st.labelSize, v => { st.labelSize = v; save(); renderGrid(); })),
-      row(h('span', null, 'PLAYED 표시', h('span', { class: 'sub' }, '공연 모드를 켤 때와 6시간 안 쓰면 저절로 지워져요')), h('button', { class: 'sbtn', onclick: () => {
+      row(helpLabel('PLAYED 표시', '공연 모드를 켤 때와 6시간 안 쓰면 저절로 지워져요'), h('button', { class: 'sbtn', onclick: () => {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
