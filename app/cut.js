@@ -47,21 +47,29 @@ const Cut = (() => {
     const len = ((u[p + 3] & 3) << 11) | (u[p + 4] << 3) | (u[p + 5] >> 5), sr = ASR[(u[p + 2] >> 2) & 15];
     return len >= 7 && sr ? { len, sr, spf: 1024 * ((u[p + 6] & 3) + 1) } : null;
   }
-  function adts(blob, u, p, t0, t1) {
-    let f = null;
-    for (const lim = Math.min(u.length, p + 65536); p < lim; p++) if ((f = adtsAt(u, p)) && adtsAt(u, p + f.len)) break;
-    if (!f || p >= u.length) return no('AAC 프레임 못 찾음');
-    const first = p, sr = f.sr, g0 = t0 * sr, g1 = t1 * sr;
-    let n = 0, s0 = first, c0 = 0, e = -1;
-    while ((f = adtsAt(u, p))) {
+  // 프레임을 끝까지 훑어 t0 직전·t1 직후 경계를 찾는다. 깨진 곳은 뒤 64KB 안에서 다음 프레임 둘이 이어지는 자리를 찾아 계속
+  function walk(u, p, at, sr, t0, t1, kind) {
+    const first = p, g0 = t0 * sr, g1 = t1 * sr;
+    let n = 0, s0 = first, c0 = 0, e = -1, f, skip = 0;
+    while (p < u.length) {
+      f = at(u, p);
+      if (!f || p + f.len > u.length) {
+        let q = p + 1; const lim = Math.min(u.length - 4, p + 65536);
+        while (q < lim && !((f = at(u, q)) && at(u, q + f.len))) q++;
+        if (q >= lim) break;
+        skip++; p = q; continue;
+      }
       if (n <= g0) { s0 = p; c0 = n; }
       if (n >= g1) { e = p; break; }
       n += f.spf; p += f.len;
-      if (p > u.length) { p -= f.len; break; }
     }
     if (e < 0) e = p;
-    if (e <= s0 || (s0 === first && e === p)) return no('자를 구간 없음');
-    return { blob: blob.slice(s0, e, blob.type || 'audio/aac'), cut0: c0 / sr };
+    if (e <= s0 || (s0 === first && e === p)) return no(`${kind} 자를 구간 없음 · ${(n / sr).toFixed(0)}초·${(p / 1048576).toFixed(1)}/${(u.length / 1048576).toFixed(1)}MB까지 읽음 · 구간 ${t0.toFixed(0)}~${t1.toFixed(0)}초 · 건너뛴 곳 ${skip}`);
+    return { s0, e, c0 };
+  }
+  function adts(blob, u, p, t0, t1) {
+    const f = adtsAt(u, p), w = walk(u, p, adtsAt, f.sr, t0, t1, 'AAC');
+    return w && { blob: blob.slice(w.s0, w.e, blob.type || 'audio/aac'), cut0: w.c0 / f.sr };
   }
   const id3End = u => u[0] === 0x49 && u[1] === 0x44 && u[2] === 0x33 ? 10 + ((u[6] & 127) << 21 | (u[7] & 127) << 14 | (u[8] & 127) << 7 | (u[9] & 127)) + (u[5] & 16 ? 10 : 0) : 0;
   async function mp3(blob, t0, t1) {
@@ -86,17 +94,9 @@ const Cut = (() => {
       if (String.fromCharCode(...u.subarray(x + 120, x + 124)) .match(/^(LAME|Lavc|Lavf)/)) delay = ((u[x + 141] << 4) | (u[x + 142] >> 4)) + 529;   // + 디코더 지연
       p += f.len;
     }
-    const first = p;
-    let n = 0, s0 = first, c0 = 0, e = -1;
-    const sr = f.sr, g0 = t0 * sr, g1 = t1 * sr;
-    while ((f = frameAt(u, p))) {
-      if (n <= g0) { s0 = p; c0 = n; }
-      if (n >= g1) { e = p; break; }
-      n += f.spf; p += f.len;
-      if (p > u.length) { p -= f.len; break; }
-    }
-    if (e < 0) e = p;
-    if (e <= s0 || (s0 === first && e === p)) return no('자를 구간 없음');
+    const sr = f.sr, w = walk(u, p, frameAt, sr, t0, t1, 'mp3');
+    if (!w) return null;
+    const { s0, e, c0 } = w;
     return { blob: blob.slice(s0, e, blob.type || 'audio/mpeg'), cut0: Math.max(0, (c0 - delay) / sr), delay };
   }
 
@@ -183,7 +183,7 @@ const Cut = (() => {
     const g0 = t0 * ts + prime, g1 = t1 * ts + prime;
     let a = 0; while (a + 1 < N && time[a + 1] <= g0) a++;
     let b = a; while (b < N && time[b] < g1) b++;
-    if (b <= a || (a === 0 && b === N)) return no('자를 구간 없음');
+    if (b <= a || (a === 0 && b === N)) return no(`mp4 자를 구간 없음 · 샘플 ${N} · 길이 ${(time[N] / ts).toFixed(0)}초 · 구간 ${t0.toFixed(0)}~${t1.toFixed(0)}초`);
     const n = b - a;
     // 새 표
     const sttsRuns = [];
