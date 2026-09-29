@@ -144,6 +144,7 @@ const Engine = (() => {
     const g = v.g.gain, a = Math.max(ctx.currentTime + v.rise, tEnd - fo);
     if (a >= tEnd) return;
     g.setValueAtTime(1, a); g.linearRampToValueAtTime(0, tEnd);
+    v.tail = true; v.fadeEnd = tEnd;
   }
 
   // opt.fadeIn: 페이드인 초 · opt.fadeOut: 곡 끝에 닿을 때 페이드아웃 초 · opt.from: 구간 안에서 몇 초부터 (미리 듣기용)
@@ -154,8 +155,12 @@ const Engine = (() => {
     if (ctx.state !== 'running') ctx.resume().catch(() => {});
     if (tr.v) end(tr, 'restart');
     const S = seg(tr), from = Math.min(Math.max(0, opt.from || 0), S.L - 0.05);
-    const rise = Math.max(EDGE, opt.fadeIn || 0), now = ctx.currentTime;
-    const v = { g: ctx.createGain(), fading: false, rise, seg: S, fadeOut: opt.fadeOut || 0 };
+    let fi = opt.fadeIn || 0, fo = opt.fadeOut || 0;
+    // 짧은 곡에 인+아웃이 곡 길이보다 길면 둘 다 비율대로 줄인다(안 그러면 아웃이 통째로 빠짐)
+    const len = S.L - from;
+    if (!tr.loop && fi + fo > len && len > 0) { const k = len / (fi + fo); fi *= k; fo *= k; }
+    const rise = Math.max(EDGE, fi), now = ctx.currentTime;
+    const v = { g: ctx.createGain(), fading: false, rise, seg: S, fadeOut: fo };
     v.g.gain.value = 0; v.g.connect(tr.vol); tr.v = v;
     if (tr.kind === 'sfx') {
       const src = ctx.createBufferSource(); src.buffer = tr.buffer; src.connect(v.g);
@@ -179,7 +184,7 @@ const Engine = (() => {
         if (tr.v !== v) return;
         if (S.cut && el.currentTime >= S.e - 0.03) return aEdge(tr);
         if (v.fadeOut > 0 && !tr.loop && !v.tail && !v.fading && el.currentTime >= S.e - v.fadeOut) {
-          v.tail = true; const t = ctx.currentTime, g = v.g.gain;
+          v.tail = true; const t = ctx.currentTime, g = v.g.gain; v.fadeEnd = t + Math.max(0.01, S.e - el.currentTime);
           g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + Math.max(0.01, S.e - el.currentTime));
         }
       }, 40);
@@ -193,9 +198,10 @@ const Engine = (() => {
     const tr = tracks.get(id); if (!tr || !tr.v) return;
     const v = tr.v;
     if (!(sec > 0) || paused) return end(tr, 'stop');
-    if (v.fading) return;
-    v.fading = true;
     const now = ctx.currentTime, g = v.g.gain;
+    // 이미 줄어드는 중(끄는 중·곡 끝)이면 더 빨리 끝날 때만 새로 건다 — 30초 페이드를 ◣로 앞당기기
+    if ((v.fading || v.tail) && v.fadeEnd && now + sec >= v.fadeEnd) return;
+    v.fading = true; v.fadeEnd = now + sec; clearTimeout(v.fadeTimer);
     g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(0, now + sec);
     v.fadeTimer = setTimeout(() => { if (tr.v === v) end(tr, 'faded'); }, sec * 1000 + 60);
     emit('fade', id);

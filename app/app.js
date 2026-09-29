@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.29 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.30 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -226,7 +226,9 @@ function playRow(id) {
     // 끝의 ◣ = 이 트랙만 끄기(그 트랙의 페이드아웃대로)
     const stopB = h('button', { class: 'pstop', 'aria-label': '이 트랙 끄기', onclick: () => {
       const p = S.pads[id]; if (!p || !Engine.isPlaying(id)) return;
-      logLine(`◣ 줄에서 끔 ${nm(id)} · ${foutOf(p) ? foutOf(p) + '초' : '바로'}`); Engine.stop(id, foutOf(p)); paintPad(id);
+      // ◣는 곡 자기 페이드가 아니라 ◣ 버튼 시간(설정)으로 — 긴 페이드 곡을 빨리 끝내려고 누르는 버튼
+      const sec = Math.min(foutOf(p) || S.settings.fadeSec, S.settings.fadeSec);
+      logLine(`◣ 줄에서 끔 ${nm(id)} · ${sec}초`); Engine.stop(id, sec); paintPad(id);
     } }, '◣');
     r = h('div', { class: 'prow', 'data-id': id }, h('i', { class: 'pdot' }), h('span', { class: 'pname' }), h('div', { class: 'ptrack' }, h('i')), h('span', { class: 'ptime' }), stopB);
     playRows.set(id, r);
@@ -273,7 +275,7 @@ function renderPlays() {
     if (ok && p && Engine.isPlaying(id)) {
       const d = Engine.dur(id), from = Math.min(f * d, Math.max(0, d - 0.1));
       logLine(`재생 위치 옮김 ${nm(id)} → ${fmt(from)}`);
-      Engine.play(id, { fadeIn: 0, fadeOut: foutOf(p), from }); paintPad(id);
+      Engine.play(id, { fadeIn: 0.08, fadeOut: foutOf(p), from }); paintPad(id);   // 옮긴 자리는 0.08초 올리며 시작 — "뚝" 대신 "슥"
     }
     renderPlays();
   };
