@@ -39,8 +39,12 @@ const Engine = (() => {
     // MASTER 키우기: master → boost → (100% 넘길 설정이 있을 때만 리미터) → 출구
     viaLim = null;
     boostG = ctx.createGain(); limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -1; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.003; limiter.release.value = 0.15;
-    master.connect(boostG); limiter.connect(ctx.destination); routeBoost();
+    limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.001; limiter.release.value = 0.15;
+    // 리미터가 못 잡은 순간 튐은 마지막에 둥글게 깎는다(딱딱 잘리는 '띠딕' 대신). 0.8 아래는 손대지 않음
+    const clip = ctx.createWaveShaper(), N = 2048, cv = new Float32Array(N);
+    for (let i = 0; i < N; i++) { const x = i / (N - 1) * 2 - 1, a = Math.abs(x); cv[i] = a <= 0.8 ? x : Math.sign(x) * (0.8 + 0.2 * Math.tanh((a - 0.8) / 0.2)); }
+    clip.curve = cv; clip.oversample = '4x';
+    master.connect(boostG); limiter.connect(clip); clip.connect(ctx.destination); routeBoost();
     ctx.onstatechange = () => {
       emit('ctx', ctx.state);
       // 전화·시리 등으로 끊기면 알아서 다시 켠다. 일부러 멈춘(⏸) 동안은 두기.
