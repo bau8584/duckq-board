@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DuckQ Board 시안</title>
+<style>
+/* 토큰 — docs/DESIGN.md와 같은 값 */
+:root{
+  --bg0:#0c0d0f;      /* 앱 바탕 */
+  --bg1:#15171a;      /* 보드 판 */
+  --bg2:#1f2226;      /* 껍데기 버튼 */
+  --line:#2c3036;
+  --text:#ececee;     /* 순백 아님 */
+  --text-dim:#8b9098;
+  --text-faint:#565b63;
+  --lit:#fff6e0;      /* 재생 중 테두리 빛 */
+  --board:#56B4E9;    /* 현재 보드 색 (JS가 바꿈) */
+  --font:-apple-system,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0}
+body{background:var(--bg0);color:var(--text);font-family:var(--font);overflow:hidden;user-select:none;-webkit-user-select:none}
+
+/* 뒷 배경: 보드 색이 은은하게 */
+.app{position:relative;height:100%;display:grid;grid-template-rows:auto auto 1fr auto;padding:10px 14px 12px;gap:10px;
+  background:radial-gradient(120% 90% at 50% 0%,color-mix(in srgb,var(--board) 14%,transparent),transparent 62%),var(--bg0)}
+
+/* 상단 */
+.top{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px}
+.top .grp{display:flex;gap:8px}
+.top .grp.r{justify-content:flex-end}
+.total{font-size:13px;color:var(--text-dim);font-variant-numeric:tabular-nums;letter-spacing:.01em}
+.ibtn{height:38px;min-width:44px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--text-dim);font:600 13px var(--font);display:flex;align-items:center;justify-content:center;gap:6px}
+.ibtn.on{color:var(--text);border-color:color-mix(in srgb,var(--board) 60%,var(--line))}
+.ibtn svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+
+/* 보드 탭 */
+.tabs{display:flex;gap:8px;align-items:center}
+.tab{--c:#888;height:34px;padding:0 16px;border-radius:999px;border:1px solid var(--line);background:var(--bg1);color:var(--text-dim);font:600 14px var(--font);display:flex;align-items:center;gap:8px}
+.tab::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--c)}
+.tab.on{color:var(--text);background:color-mix(in srgb,var(--c) 22%,var(--bg1));border-color:var(--c)}
+
+/* 보드 판 + 격자 */
+.stage{position:relative;display:grid;grid-template-columns:1fr 64px;gap:12px;min-height:0}
+.tray{position:relative;min-height:0;padding:12px;border-radius:18px;background:var(--bg1);
+  border:2px solid color-mix(in srgb,var(--board) 70%,var(--bg1));
+  box-shadow:inset 0 0 40px color-mix(in srgb,var(--board) 8%,transparent)}
+.grid{height:100%;display:grid;grid-template-columns:repeat(6,1fr);grid-template-rows:repeat(4,1fr);gap:10px}
+
+/* 패드 — 색 8종은 --h(밝은 값)에서 파생 */
+.pad{--h:#56B4E9;--ink:#0b0c0e;
+  position:relative;border-radius:14px;padding:8px 9px 7px;display:flex;flex-direction:column;justify-content:space-between;
+  color:var(--text);font-family:var(--font);text-align:center;border:0;cursor:pointer;
+  /* 대기: 색을 어둡게 눌러 둔 면 (색은 항상 보임) */
+  background:linear-gradient(180deg,color-mix(in srgb,var(--h) 56%,#15171a) 0%,color-mix(in srgb,var(--h) 42%,#101214) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.16),
+    inset 0 -3px 0 rgba(0,0,0,.35),
+    0 3px 6px rgba(0,0,0,.45);
+  transition:background .06s,box-shadow .06s,transform .06s}
+.pad:active{transform:translateY(1px);box-shadow:inset 0 2px 6px rgba(0,0,0,.55),inset 0 -1px 0 rgba(255,255,255,.06),0 1px 2px rgba(0,0,0,.4)}
+.icons{display:flex;justify-content:space-between;padding:0 2px;font-size:11px;line-height:1;color:rgba(255,255,255,.22)}
+.icons i{font-style:normal}
+.icons i.on{color:rgba(255,255,255,.92)}
+.label{font-weight:700;font-size:clamp(15px,2vw,21px);line-height:1.2;letter-spacing:-.01em;padding:0 2px;word-break:keep-all;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+  text-shadow:0 1px 2px rgba(0,0,0,.45)}
+.meta{display:grid;grid-template-columns:1fr auto 1fr;font-size:11px;font-variant-numeric:tabular-nums;color:rgba(255,255,255,.62);align-items:end}
+.meta span:first-child{text-align:left}.meta span:last-child{text-align:right}
+.meta b{font-weight:700;letter-spacing:.06em;font-size:10px;opacity:0}
+.pad.played .meta b{opacity:1}
+.bar{position:absolute;left:9px;right:9px;bottom:22px;height:4px;border-radius:2px;background:rgba(0,0,0,.35);opacity:0;overflow:hidden}
+.bar i{display:block;height:100%;width:0;background:var(--ink);border-radius:2px}
+
+/* 재생 중: 색이 켜지고 테두리에 빛 — 그림자만으로 표시하지 않음 */
+.pad.playing{
+  background:linear-gradient(180deg,color-mix(in srgb,var(--h) 100%,#fff 10%) 0%,var(--h) 100%);
+  color:var(--ink);
+  box-shadow:
+    0 0 0 3px var(--lit),
+    0 0 22px 2px color-mix(in srgb,var(--h) 70%,transparent),
+    inset 0 1px 0 rgba(255,255,255,.45),
+    inset 0 -3px 0 rgba(0,0,0,.18)}
+.pad.playing .label{text-shadow:none}
+.pad.playing .meta{color:color-mix(in srgb,var(--ink) 75%,transparent)}
+.pad.playing .icons{color:color-mix(in srgb,var(--ink) 30%,transparent)}
+.pad.playing .icons i.on{color:var(--ink)}
+.pad.playing .bar{opacity:1}
+.pad.playing .bar{background:color-mix(in srgb,var(--ink) 20%,transparent)}
+
+/* 마스터 */
+.master{display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;border-radius:16px;background:var(--bg1);border:1px solid var(--line);font-size:11px;color:var(--text-dim);letter-spacing:.06em}
+.slider{position:relative;flex:1;width:14px;border-radius:7px;background:var(--bg0);box-shadow:inset 0 2px 4px rgba(0,0,0,.6)}
+.slider i{position:absolute;left:0;right:0;bottom:0;height:100%;border-radius:7px;background:#d4d6da;opacity:.85}
+.slider u{position:absolute;left:50%;bottom:calc(100% - 13px);width:38px;height:26px;margin-left:-19px;border-radius:8px;background:linear-gradient(#f2f3f5,#c9ccd1);box-shadow:0 2px 5px rgba(0,0,0,.6),inset 0 1px 0 #fff;text-decoration:none}
+
+/* 하단 */
+.bottom{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:14px}
+.scrub{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;font-size:13px;color:var(--text-dim);font-variant-numeric:tabular-nums}
+.scrub .name{color:var(--text);font-weight:600}
+.track{height:6px;border-radius:3px;background:var(--bg2);position:relative;overflow:hidden}
+.track i{position:absolute;inset:0 auto 0 0;width:0;background:var(--lit);border-radius:3px}
+.ctl{display:flex;gap:10px}
+.cbtn{width:84px;height:54px;border-radius:14px;border:1px solid var(--line);background:linear-gradient(180deg,#2a2d32,#1c1f23);color:var(--text);display:flex;align-items:center;justify-content:center;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.1),inset 0 -3px 0 rgba(0,0,0,.35),0 3px 6px rgba(0,0,0,.4)}
+.cbtn:active{transform:translateY(1px);box-shadow:inset 0 2px 6px rgba(0,0,0,.55)}
+.cbtn svg{width:24px;height:24px;fill:currentColor}
+.cbtn.stop{color:#ff8f86}
+.lock svg{width:20px;height:20px}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <div class="top">
+    <div class="grp">
+      <button class="ibtn" aria-label="설정"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.5-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14.2 3h-4.4l-.4 2.6a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.5A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.5 2 3.4 2.3-.9c.6.5 1.3.9 2 1.2l.4 2.6h4.4l.4-2.6c.7-.3 1.4-.7 2-1.2l2.3.9 2-3.4-2-1.5c.1-.4.1-.8.1-1.2z"/></svg></button>
+      <button class="ibtn lock" id="lock" aria-label="편집 잠금"><svg viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span>잠금</span></button>
+    </div>
+    <div class="total" id="total">전체 0:41:20 · 패드 24개</div>
+    <div class="grp r">
+      <button class="ibtn">일괄</button>
+      <button class="ibtn">복제</button>
+      <button class="ibtn">이동</button>
+      <button class="ibtn">삭제</button>
+      <button class="ibtn on">＋ 추가</button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="stage">
+    <div class="tray"><div class="grid" id="grid"></div></div>
+    <div class="master"><span>MASTER</span><div class="slider"><i></i><u></u></div><span>100%</span></div>
+  </div>
+
+  <div class="bottom">
+    <button class="ibtn" aria-label="전체화면"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
+    <div class="scrub"><span class="name" id="sname">—</span><div class="track"><i id="sfill"></i></div><span id="stime">00:00 / 00:00</span></div>
+    <div class="ctl">
+      <button class="cbtn" aria-label="전체 일시정지"><svg viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
+      <button class="cbtn stop" id="stopall" aria-label="전체 정지"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
+      <button class="cbtn" aria-label="전체 페이드아웃"><svg viewBox="0 0 24 24"><path d="M3 18L21 6v12z"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<script>
+// 8색 고정 (SPEC 순서: 회·자주·주황·초록·빨강·파랑·노랑·하늘) — Okabe-Ito 기반
+const COLORS = {
+  gray:   {n:'회색',  h:'#9AA0A8'},
+  purple: {n:'자주',  h:'#CC79A7'},
+  orange: {n:'주황',  h:'#E69F00'},
+  green:  {n:'초록',  h:'#00A67C'},
+  red:    {n:'빨강',  h:'#E5622A'},
+  blue:   {n:'파랑',  h:'#3E8FE0'},
+  yellow: {n:'노랑',  h:'#F0E442'},
+  sky:    {n:'하늘',  h:'#56B4E9'},
+};
+const BOARDS = [
+  {name:'1막', c:'sky'},
+  {name:'2막', c:'purple'},
+  {name:'커튼콜', c:'orange'},
+];
+// 데모 데이터(가명·일반명)
+const PADS = [
+ ['오프닝 음악','sky',834,1,0,0,0],['환호성','yellow',6,0,0,0,0],['박수','yellow',9,0,0,0,0],['문 열림','gray',2,0,0,0,0],['문 닫힘','gray',2,0,0,0,0],['전화벨','orange',8,0,1,0,0],
+ ['빗소리','blue',180,1,1,1,0],['천둥','blue',7,0,0,0,0],['새소리','green',95,0,1,1,0],['발자국','gray',4,0,0,0,0],['경고음','red',1,0,0,1,0],['사이렌','red',38,0,1,0,1],
+ ['총소리','red',1,0,0,0,0],['유리 깨짐','red',3,0,0,0,0],['심장 소리','purple',39,0,1,1,0],['종소리','orange',5,0,0,0,0],['웃음소리','yellow',5,0,0,0,0],['엔딩 음악','sky',574,1,0,0,1],
+ ['이명','purple',4,0,0,0,0],['자동차','gray',22,0,0,0,0],['마이크 잡음','gray',3,0,0,0,0],['놀람','green',2,0,0,0,0],['정적','blue',60,0,0,0,0],['미정','gray',2,0,0,0,0]
+];
+const ink = h=>{ // 색 위 글자색: 흰/검 중 대비 큰 쪽 (JS 계산 — 구형 iPad 대응)
+  const [r,g,b]=[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)/255).map(v=>v<=.03928?v/12.92:((v+.055)/1.055)**2.4);
+  const L=.2126*r+.7152*g+.0722*b; return (1.05/(L+.05))>((L+.05)/.05)?'#ffffff':'#0b0c0e';
+};
+const fmt=s=>{s=Math.max(0,Math.round(s));return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
+const app=document.getElementById('app'),grid=document.getElementById('grid'),tabs=document.getElementById('tabs');
+let cur=0; const st=[]; // 재생 상태
+
+function setBoard(i){
+  cur=i; const c=COLORS[BOARDS[i].c].h; app.style.setProperty('--board',c);
+  [...tabs.children].forEach((t,k)=>t.classList.toggle('on',k===i));
+}
+BOARDS.forEach((b,i)=>{const t=document.createElement('button');t.className='tab';t.textContent=b.name;t.style.setProperty('--c',COLORS[b.c].h);t.onclick=()=>setBoard(i);tabs.appendChild(t)});
+
+PADS.forEach((p,i)=>{
+  const [name,col,len,fi,lp,so,nx]=p, h=COLORS[col].h;
+  const el=document.createElement('button');el.className='pad';el.style.setProperty('--h',h);el.style.setProperty('--ink',ink(h)==='#ffffff'?'#fff':'#0b0c0e');
+  el.innerHTML=`<div class="icons"><i class="${fi?'on':''}">◢</i><i class="${so?'on':''}">◎</i><i class="${lp?'on':''}">↻</i><i class="${nx?'on':''}">→</i><i class="on">◣</i></div>
+    <div class="label">${name}</div>
+    <div class="bar"><i></i></div>
+    <div class="meta"><span>00:00</span><b>PLAYED</b><span>-${fmt(len)}</span></div>`;
+  st[i]={el,len,t:0,on:false,played:false};
+  el.onclick=()=>{const s=st[i];s.on=!s.on;if(s.on){s.t=0}else{s.played=true}render(i,name)};
+  grid.appendChild(el);
+});
+// 재생 중 데모 2개
+st[0].on=true;st[0].t=140;st[13].on=true;st[13].t=0.3;st[3].played=true;st[10].played=true;st[16].played=true;
+
+let last=null;
+function render(i,name){
+  const s=st[i];s.el.classList.toggle('playing',s.on);s.el.classList.toggle('played',s.played&&!s.on);
+  if(s.on){last=i}
+}
+PADS.forEach((p,i)=>render(i,p[0]));
+setInterval(()=>{
+  st.forEach((s,i)=>{if(!s.on)return;s.t+=.25;if(s.t>=s.len){s.on=false;s.played=true;s.t=0;render(i)}
+    s.el.querySelector('.bar i').style.width=(s.t/s.len*100)+'%';
+    s.el.querySelector('.meta span:first-child').textContent=fmt(s.t);
+    s.el.querySelector('.meta span:last-child').textContent='-'+fmt(s.len-s.t)});
+  if(last!==null&&st[last]){const s=st[last];document.getElementById('sname').textContent=PADS[last][0];
+    document.getElementById('sfill').style.width=(s.t/s.len*100)+'%';
+    document.getElementById('stime').textContent=fmt(s.t)+' / '+fmt(s.len)}
+},250);
+document.getElementById('stopall').onclick=()=>st.forEach((s,i)=>{if(s.on){s.on=false;s.played=true;s.t=0;render(i)}});
+document.getElementById('lock').onclick=e=>e.currentTarget.classList.toggle('on');
+setBoard(0);
+</script>
+</body>
+</html>
