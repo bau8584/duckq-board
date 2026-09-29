@@ -109,8 +109,8 @@ button:disabled{cursor:default}
 .pad.playing .idx{display:none}
 .pad.playing .eq{display:flex}
 /* 평소(재생 안 함) = 어둡고 탁한 색, 재생 중에만 원래 밝은 색 (소유자 결정 2026-09-29). PLAYED는 색은 그대로, 칩만 */
-.pad:not(.playing):not(.none){background:color-mix(in srgb,var(--h) 26%,#23262c);color:color-mix(in srgb,var(--text) 80%,transparent)}
-[data-theme="light"] .pad:not(.playing):not(.none){background:color-mix(in srgb,var(--h) 30%,#b4b9c2);color:var(--text)}
+.pad[data-id]:not(.playing):not(.none){background:color-mix(in srgb,var(--h) 26%,#23262c);color:color-mix(in srgb,var(--text) 80%,transparent)}
+[data-theme="light"] .pad[data-id]:not(.playing):not(.none){background:color-mix(in srgb,var(--h) 30%,#b4b9c2);color:var(--text)}
 .pad.none:not(.playing){background:color-mix(in srgb,var(--text) 15%,var(--bg1));color:var(--text)}
 [data-theme="light"] .pad.none:not(.playing){background:#fff;box-shadow:inset 0 0 0 1px var(--line)}
 .pad.played .meta b{visibility:visible;background:color-mix(in srgb,currentColor 16%,transparent);padding:2px 6px;border-radius:5px}
