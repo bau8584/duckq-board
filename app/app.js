@@ -591,7 +591,11 @@ hit($('btnFade'), () => { logLine(`◣ 전체 페이드 ${S.settings.fadeSec}초
   const sl = $('mSlider'); let on = false;
   const set = e => {
     const r = sl.getBoundingClientRect();
-    S.master = Math.round(Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height)) * 100) / 100;
+    let v = Math.round(Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height)) * 100) / 100;
+    // 키웠을 때 실제 100% 근처(±4%)면 딱 100%에 붙는다
+    const bst = S.settings.masterBoost || 1;
+    if (bst > 1 && Math.abs(v * bst - 1) <= 0.04) v = 1 / bst;
+    S.master = v;
     Engine.setMaster(S.master); renderMaster();
   };
   $('master').addEventListener('pointerdown', e => { on = true; $('master').setPointerCapture(e.pointerId); set(e); });
@@ -1297,6 +1301,8 @@ function openSettings(tab = 'general', keep) {
       row('패드 글자', seg([['s', '작게'], ['m', '보통'], ['l', '크게']], st.labelSize, v => { st.labelSize = v; save(); renderGrid(); })),
       row(helpLabel('MASTER 키우기', '공연장에서 소리가 작게 나올 때. MASTER 막대 전체가 이만큼 커져요(막대 숫자도 실제 크기로). 넘치는 소리는 저절로 눌러 찌그러짐을 막아요. 켜 두면 MASTER 숫자가 주황색'),
         seg([[1, '끔'], [1.5, '1.5배'], [2, '2배'], [3, '3배']], st.masterBoost || 1, v => {
+          // 배율을 바꿔도 지금 들리는 크기는 그대로: 막대 위치를 반대로 옮긴다(넘치면 맨 위)
+          S.master = Math.min(1, S.master * (st.masterBoost || 1) / v); Engine.setMaster(S.master);
           st.masterBoost = v; save(); Engine.setBoost(v); renderMaster(); logLine(`MASTER 키우기 ${v}배`);
         })),
       row(helpLabel('PLAYED 표시', '공연 모드를 켤 때와 6시간 안 쓰면 저절로 지워져요'), h('button', { class: 'sbtn', onclick: () => {
