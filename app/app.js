@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.17 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.18 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -439,7 +439,7 @@ function renderSelBar() {
 
 const nm = id => `"${(S.pads[id] || {}).label || id}"`;   // 기록용 패드 이름
 // 시험 기록(PLAN-app-fix1 시험표): 무엇을 눌러 무슨 일이 났는지 로그로 남겨 PC에서 분석
-const WHY = { ended: '곡 끝', faded: '페이드 끝', stop: '바로 정지', restart: '다시 시작', hidden: '홈 복귀', ousted: '다른 창', error: '오류', unload: '지움' };
+const WHY = { ended: '트랙 끝', faded: '페이드 끝', stop: '바로 정지', restart: '다시 시작', hidden: '홈 복귀', ousted: '다른 창', error: '오류', unload: '지움' };
 const playT = {};
 Engine.on('play', id => {
   const p = S.pads[id]; playT[id] = performance.now();
@@ -463,11 +463,11 @@ function hit(btn, fn) {
 }
 hit($('btnPause'), () => {
   if (Engine.paused) { Engine.resumeAll(); logLine('⏵ 이어서 (30ms 올림)'); }
-  else if (Engine.pauseAll()) logLine(`⏸ 일시정지 (30ms 줄임) · 재생 중 ${Engine.playingIds().length}곡`);
+  else if (Engine.pauseAll()) logLine(`⏸ 일시정지 (30ms 줄임) · 재생 중 ${Engine.playingIds().length}개 트랙`);
   else toast('재생 중인 소리가 없어요');
 });
-hit($('btnStop'), () => { logLine(`■ 전체정지${Engine.paused ? ' (⏸ 중 — 소리 막은 채 정리)' : ''} · ${Engine.playingIds().length}곡`); Engine.stopAll(0); paintAll(); });
-hit($('btnFade'), () => { logLine(`◣ 전체 페이드 ${S.settings.fadeSec}초 · ${Engine.playingIds().length}곡`); Engine.stopAll(S.settings.fadeSec); paintAll(); });
+hit($('btnStop'), () => { logLine(`■ 전체정지${Engine.paused ? ' (⏸ 중 — 소리 막은 채 정리)' : ''} · ${Engine.playingIds().length}개 트랙`); Engine.stopAll(0); paintAll(); });
+hit($('btnFade'), () => { logLine(`◣ 전체 페이드 ${S.settings.fadeSec}초 · ${Engine.playingIds().length}개 트랙`); Engine.stopAll(S.settings.fadeSec); paintAll(); });
 
 // MASTER 세로 슬라이더
 (() => {
@@ -747,7 +747,7 @@ function helpLabel(name, text) {
 }
 document.addEventListener('click', () => document.querySelectorAll('.tip').forEach(t => { t.hidden = true; }));   // 다른 곳 누르면 말풍선 닫힘
 const HELP = {
-  vol: '이 곡만의 크기예요. 100% = 파일 원래 소리. 100%보다 키우면 원래보다 커지고(최대 300%), 너무 키우면 소리가 찌그러질 수 있어요. 전체 크기는 오른쪽 MASTER로.',
+  vol: '이 트랙만의 크기예요. 100% = 파일 원래 소리. 100%보다 키우면 원래보다 커지고(최대 300%), 너무 키우면 소리가 찌그러질 수 있어요. 전체 크기는 오른쪽 MASTER로.',
   pan: '소리를 왼쪽·오른쪽 스피커 중 어디로 보낼지예요. 가운데 = 양쪽 똑같이. 왼쪽 100 = 왼쪽 스피커에서만. 스피커가 하나면 차이가 없어요.',
 };
 // 볼륨·팬 한 줄: [?] 설명 + 조절 + [원래대로]
@@ -814,7 +814,7 @@ function trimBox(id, onchange, preview) {
   requestAnimationFrame(() => { wave(); draw(); });
   draw(); mark();
   api.el = h('div', { class: 'row col' },
-    h('label', null, helpLabel('구간(트림)', (Engine.peaks(id, 8) ? '막대의 손잡이를 끌거나' : '긴 곡은 파형 없이 막대로. 손잡이를 끌거나') + ' 아래 ◀▶로 시작·끝을 맞춰요(누르고 있으면 빨라짐). ↺ = 곡 전체로. 파일은 잘리지 않아요. 미리 듣기는 맞춘 구간으로 들려요.')),
+    h('label', null, helpLabel('구간(트림)', (Engine.peaks(id, 8) ? '막대의 손잡이를 끌거나' : '긴 트랙은 파형 없이 막대로. 손잡이를 끌거나') + ' 아래 ◀▶로 시작·끝을 맞춰요(누르고 있으면 빨라짐). ↺ = 트랙 전체로. 파일은 잘리지 않아요. 미리 듣기는 맞춘 구간으로 들려요.')),
     bar,
     h('div', { class: 'tends' },
       h('div', { class: 'tend' }, nb('◀', d => setS(s - d)), h('span', null, h('small', null, '시작'), sOut), nb('▶', d => setS(s + d))),
@@ -863,11 +863,11 @@ function openPadSheet(id) {
       volRow(helpLabel('팬', HELP.pan), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); }), 0),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
       row(helpLabel('솔로', '이 패드를 틀면 다른 소리를 끔'), sw(p.solo, on => { p.solo = on; refresh(); })),
-      h('div', { class: 'row col' }, h('label', null, helpLabel('페이드', '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 곡 끝 + 다시 눌러 끌 때')),
+      h('div', { class: 'row col' }, h('label', null, helpLabel('페이드', '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 트랙 끝 + 다시 눌러 끌 때')),
         fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) refresh(); })),
       h('div', { class: 'row' }, h('div', { class: 'info' },
         h('button', { class: 'sbtn', style: 'margin-right:8px', onclick: openFadeSheet }, '페이드 설정 (보드 전체)'),
-        rec ? `파일: ${rec.name} · ${fmt(p.dur)} · ${(rec.size / 1048576).toFixed(1)}MB · ${p.dur <= Engine.SFX_MAX_SEC ? '메모리에 올려 둠' : '긴 곡(조금씩 풀기)'}` : '파일이 없어요 — 지우고 다시 넣어 주세요')),
+        rec ? `파일: ${rec.name} · ${fmt(p.dur)} · ${(rec.size / 1048576).toFixed(1)}MB · ${p.dur <= Engine.SFX_MAX_SEC ? '메모리에 올려 둠' : '긴 트랙(조금씩 풀기)'}` : '파일이 없어요 — 지우고 다시 넣어 주세요')),
     );
   }, () => padEls.get(id), { pad: id });
   // 저장 안 한 트림은 닫을 때 묻는다. 미리 듣기로 튼 소리는 끔
@@ -898,7 +898,7 @@ function openBulkSheet(ids) {
     row(lab('반복(루프)', 'loop'), onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
     row(lab('솔로', 'solo'), onoff('solo')),
     fadeRow('페이드인', mixed('fin') || mixed('finSec') ? '지금 제각각' : '', onoff('fin'), num('finSec', 1, 0.1, fadeMax(), 0.1, sec1, (q, v) => { q.finSec = v; })),
-    fadeRow('페이드아웃', mixed('fout') || mixed('foutSec') ? '지금 제각각' : '', onoff('fout'), num('foutSec', 1, 0.1, fadeMax(), 0.1, sec1, (q, v) => { q.foutSec = v; }), '곡 끝에 닿을 때와 재생 중 다시 눌러 끌 때 둘 다 이 시간으로 줄어들어요.'),
+    fadeRow('페이드아웃', mixed('fout') || mixed('foutSec') ? '지금 제각각' : '', onoff('fout'), num('foutSec', 1, 0.1, fadeMax(), 0.1, sec1, (q, v) => { q.foutSec = v; }), '트랙 끝에 닿을 때와 재생 중 다시 눌러 끌 때 둘 다 이 시간으로 줄어들어요.'),
   ));
 }
 
@@ -970,14 +970,14 @@ function fadeTab(body) {
   const draw = () => {
     const L = ids(); list.textContent = '';
     for (const id of picked) if (!L.includes(id)) picked.delete(id);
-    title.textContent = `${scopeName()}의 곡 ${L.length}개`;
+    title.textContent = `${scopeName()}의 트랙 ${L.length}개`;
     list.append(h('div', { class: 'frow fhead ck' }, chk(L.length && L.every(id => picked.has(id)), on => { L.forEach(id => on ? picked.add(id) : picked.delete(id)); draw(); }),
-      h('span', null, '곡'), h('span', { class: 'ehead' }, h('span', null, '◢ 페이드인'), h('span', null, '페이드아웃 ◣'))));
+      h('span', null, '트랙'), h('span', { class: 'ehead' }, h('span', null, '◢ 페이드인'), h('span', null, '페이드아웃 ◣'))));
     L.forEach(id => { const p = S.pads[id]; list.append(h('div', { class: 'frow ck' },
       chk(picked.has(id), on => { on ? picked.add(id) : picked.delete(id); markSel(); }),
       h('span', { class: 'fname' }, p.label || '(이름 없음)'),
-      fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) { touchEdit(p); save(); logLine(`곡별 페이드 ${nm(id)} ${side === 'in' ? '인' : '아웃'} ${sec ? sec + '초' : '끔'}`); } }, { small: true }))); });
-    if (!L.length) list.append(h('div', { class: 'info' }, '곡이 없어요'));
+      fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) { touchEdit(p); save(); logLine(`트랙별 페이드 ${nm(id)} ${side === 'in' ? '인' : '아웃'} ${sec ? sec + '초' : '끔'}`); } }, { small: true }))); });
+    if (!L.length) list.append(h('div', { class: 'info' }, '트랙이 없어요'));
     markSel();
   };
   // 한 번에 바꾸기: 위 막대에서 끌어 정한 쪽(인/아웃)만 넣는다. 곡마다 맞춘 값이 사라지므로 8초 안에 되돌리기
@@ -988,16 +988,16 @@ function fadeTab(body) {
     const what = [want.in !== null ? `인 ${want.in ? want.in + '초' : '끔'}` : '', want.out !== null ? `아웃 ${want.out ? want.out + '초' : '끔'}` : ''].filter(Boolean).join(' · ');
     L.forEach(id => { const p = S.pads[id]; if (want.in !== null) envApply(p, 'in', want.in); if (want.out !== null) envApply(p, 'out', want.out); touchEdit(p); }); save(); draw();
     logLine(`페이드 한 번에(${scopeName()}${only ? ' 선택' : ''}) ${what} → ${L.map(id => S.pads[id].label).join(', ')}`);
-    toast(`${L.length}곡 ${what}`, 8000, { label: '되돌리기', fn: () => {
+    toast(`${L.length}개 트랙 ${what}`, 8000, { label: '되돌리기', fn: () => {
       before.forEach(([id, a, b, c, d]) => { const p = S.pads[id]; if (p) Object.assign(p, { fin: a, finSec: b, fout: c, foutSec: d }); });
-      save(); draw(); logLine(`페이드 한 번에 되돌리기 ${before.length}곡`);
+      save(); draw(); logLine(`페이드 한 번에 되돌리기 ${before.length}개 트랙`);
     } });
   };
   const allB = h('button', { disabled: true, onclick: () => all(false) }, '전체 변경');
   selB = h('button', { class: 'pri', disabled: true, onclick: () => all(true) }, '선택 변경');
   const bulkEnv = fadeEnv({ fin: true, finSec: 1, fout: true, foutSec: 2 }, (side, sec) => { want[side] = sec; allB.disabled = false; markSel(); }, { dim: { in: true, out: true } });
   const bulk = h('div', { class: 'bulk' },
-    h('div', null, helpLabel('한 번에 바꾸기', '막대를 끌어 정한 쪽(인/아웃)만 들어가요. 안 건드린 쪽은 곡마다 그대로. [전체 변경] = 목록 전부, [선택 변경] = 체크한 곡만. 8초 안에 되돌리기.')), bulkEnv,
+    h('div', null, helpLabel('한 번에 바꾸기', '막대를 끌어 정한 쪽(인/아웃)만 들어가요. 안 건드린 쪽은 트랙마다 그대로. [전체 변경] = 목록 전부, [선택 변경] = 체크한 트랙만. 8초 안에 되돌리기.')), bulkEnv,
     h('div', { class: 'trow' }, allB, selB));
   // 보기: [보드별 | 모든 보드] → 보드별이면 아래에 보드 칩
   const boardChips = h('div', { class: 'seg sm' });
@@ -1009,22 +1009,22 @@ function fadeTab(body) {
   drawChips(); draw();
   body.append(
     h('div', { class: 'fbox' },
-      h('div', { class: 'fbox-head' }, h('b', null, helpLabel('새로 넣는 곡의 기본값', '파일을 새로 넣을 때 이 페이드로 들어가요'))),
+      h('div', { class: 'fbox-head' }, h('b', null, helpLabel('새로 넣는 트랙의 기본값', '파일을 새로 넣을 때 이 페이드로 들어가요'))),
       fadeEnv({ fin: st.newFin, finSec: st.newFinSec, fout: st.newFout, foutSec: st.newFoutSec }, (side, sec, final) => {
         if (side === 'in') { st.newFin = sec > 0; if (sec > 0) st.newFinSec = sec; } else { st.newFout = sec > 0; if (sec > 0) st.newFoutSec = sec; }
         if (final) save();
       })),
-    row(helpLabel('최대 페이드 시간', '페이드 막대 한쪽 끝까지 밀었을 때의 길이예요. 길게 늘이는 곡이 있으면 20·30초로. 짧을수록 막대를 세밀하게 맞추기 쉬워요.'),
+    row(helpLabel('최대 페이드 시간', '페이드 막대 한쪽 끝까지 밀었을 때의 길이예요. 길게 늘이는 트랙이 있으면 20·30초로. 짧을수록 막대를 세밀하게 맞추기 쉬워요.'),
       seg([[10, '10초'], [20, '20초'], [30, '30초']], fadeMax(), v => { st.fadeMax = v; save(); openSettings('fade', true); })),
     h('div', { class: 'row col' }, h('label', null, helpLabel('◣ 버튼 페이드', '아래 ◣를 누르면 울리는 모든 소리가 이 시간에 걸쳐 꺼져요. 막대 오른쪽 손잡이를 끌어요.')),
       fadeEnv({ fout: st.fadeSec > 0, foutSec: st.fadeSec }, (side, sec, final) => { st.fadeSec = Math.max(0.1, sec); if (final) save(); }, { outOnly: true })),
     // 옛 설정: 켜 둔 사람만 보임(끌 수 있게)
-    st.fadeOverride ? row(helpLabel('모든 패드에 ◣ 시간 쓰기', '옛 설정 — 끄면 곡별 페이드를 따름'), sw(true, on => { st.fadeOverride = on; save(); })) : '',
-    h('div', { class: 'row col' }, h('label', null, helpLabel('솔로가 다른 곡 끄는 법', '패드 설정에서 "솔로"를 켠 곡을 틀면, 이미 울리던 다른 곡들을 끕니다. 그때 어떻게 끌지 고르세요 — 곡마다 정한 페이드아웃으로 / ◣ 버튼 시간으로 / 바로 뚝.')),
-      seg([['each', '곡별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
+    st.fadeOverride ? row(helpLabel('모든 패드에 ◣ 시간 쓰기', '옛 설정 — 끄면 트랙별 페이드를 따름'), sw(true, on => { st.fadeOverride = on; save(); })) : '',
+    h('div', { class: 'row col' }, h('label', null, helpLabel('솔로 트랙이 다른 트랙 끄는 법', '패드 설정에서 "솔로"를 켠 트랙을 틀면, 이미 울리던 다른 트랙들을 끕니다. 그때 어떻게 끌지 고르세요 — 트랙마다 정한 페이드아웃으로 / ◣ 버튼 시간으로 / 바로 뚝.')),
+      seg([['each', '트랙별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
     // 곡별 페이드: 보기 고르기·한 번에 바꾸기·목록이 한 설정임을 상자 하나로
     h('div', { class: 'fbox' },
-      h('div', { class: 'fbox-head' }, h('b', null, helpLabel('곡별 페이드', '비탈 손잡이를 좌우로 끌어요. 끝까지 밀면 페이드 없음. 페이드아웃은 곡 끝과 다시 눌러 끌 때 둘 다 걸려요.'))),
+      h('div', { class: 'fbox-head' }, h('b', null, helpLabel('트랙별 페이드', '비탈 손잡이를 좌우로 끌어요. 끝까지 밀면 페이드 없음. 페이드아웃은 트랙 끝과 다시 눌러 끌 때 둘 다 걸려요.'))),
       mode, boardChips, title, bulk, list),
   );
 }
