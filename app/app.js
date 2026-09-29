@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.23 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.24 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -141,7 +141,7 @@ function renderTabs() {
     t.style.setProperty('--c', COLORS[b.color]);
     box.append(t);
   });
-  if (editMode) box.append(h('button', { class: 'tab new', onclick: addBoard }, '＋ 보드'));
+  if (!S.lock) box.append(h('button', { class: 'tab new', onclick: addBoard, 'aria-label': '보드 추가', title: '보드 추가' }, '＋'));   // 마지막 보드 옆 작은 ＋ (공연 모드엔 숨김)
   const on = box.querySelector('.tab.on');
   if (on) box.scrollLeft = Math.max(0, on.offsetLeft - 40);
 }

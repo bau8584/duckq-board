@@ -33,7 +33,7 @@ button:disabled{cursor:default}
 .grp.r{flex:none}
 /* 오른쪽 칸: 위 = 전체 시간·패드 수(또는 상태), 아래 = MASTER */
 .side{display:flex;flex-direction:column;gap:10px;min-height:0}
-.total{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:16px;background:var(--bg1);border:1px solid var(--line);
+.total{flex:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:16px;background:var(--bg1);border:1px solid var(--line);
   font-size:11px;color:var(--text-dim);font-variant-numeric:tabular-nums;text-align:center;line-height:1.25;padding:8px 2px;min-height:0;overflow:hidden}
 .total b{color:var(--text);font-weight:700;font-size:12px}
 .total i{width:24px;height:1px;background:var(--line);margin:6px 0}
@@ -52,7 +52,7 @@ button:disabled{cursor:default}
   font:600 14px var(--font);display:flex;align-items:center;gap:8px;white-space:nowrap}
 .tab::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--c)}
 .tab.on{color:var(--text);background:color-mix(in srgb,var(--c) 22%,var(--bg1));border-color:var(--c)}
-.tab.new{border-style:dashed}.tab.new::before{display:none}
+.tab.new{border-style:dashed;padding:0;width:34px;justify-content:center;font-size:18px}.tab.new::before{display:none}
 .editing .tab.on::after{content:"✎";font-size:12px;opacity:.7}
 
 /* 본판 */
@@ -127,7 +127,7 @@ button:disabled{cursor:default}
 .pad.lift{animation:none!important;transition:none;z-index:9;pointer-events:none;opacity:.92;overflow:visible;box-shadow:0 14px 30px rgba(0,0,0,.35)}
 
 /* MASTER */
-.master{flex:none;height:250px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;border-radius:16px;background:var(--bg1);border:1px solid var(--line);
+.master{flex:1;min-height:200px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:10px 0;border-radius:16px;background:var(--bg1);border:1px solid var(--line);
   font-size:11px;color:var(--text-dim);letter-spacing:.06em;font-variant-numeric:tabular-nums;touch-action:none}
 .slider{position:relative;flex:1;width:12px;border-radius:6px;background:var(--bg0);margin:12px 0}
 .slider::before{content:"";position:absolute;inset:-12px -26px}
