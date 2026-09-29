@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#0d1017">
 <title>DuckQ Board</title>
 <script>try{var s=JSON.parse(localStorage.getItem('duckq-board-v1'));if(s&&s.settings&&s.settings.theme==='light')document.documentElement.dataset.theme='light'}catch(e){}</script>
-<link rel="stylesheet" href="style.css?v=0.3.2">
+<link rel="stylesheet" href="style.css?v=0.3.3">
 </head>
 <body>
 <div class="app" id="app">
@@ -48,14 +48,14 @@
 </div>
 
 <div class="selbar" id="selBar" hidden></div>
-<div class="sheet-wrap" id="sheetWrap" hidden><div class="sheet" id="sheet"></div></div>
+<div class="sheet-wrap" id="sheetWrap" hidden><div class="arw" id="sheetArw" hidden></div><div class="sheet" id="sheet"></div></div>
 <div class="ov" id="startOv"><button class="go" id="btnStart">▶ 시작</button><p>소리를 켜려면 한 번 눌러 주세요</p></div>
 <div class="ov" id="oustOv" hidden><p>다른 창에서 DuckQ가 열려서<br>이 창은 소리를 껐어요.</p><button class="go" id="btnReload">여기서 다시 쓰기</button></div>
 <div class="toast" id="toast" hidden></div>
 <input type="file" id="files" class="vh" multiple accept="audio/*,video/*,.m4a,.mp3,.wav,.aac,.ogg" tabindex="-1" aria-hidden="true">
 
-<script src="engine.js?v=0.3.2"></script>
-<script src="store.js?v=0.3.2"></script>
-<script src="app.js?v=0.3.2"></script>
+<script src="engine.js?v=0.3.3"></script>
+<script src="store.js?v=0.3.3"></script>
+<script src="app.js?v=0.3.3"></script>
 </body>
 </html>

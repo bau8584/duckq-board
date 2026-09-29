@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.2 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.3 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -131,7 +131,7 @@ function renderTop() {
 function renderTabs() {
   const box = $('tabs'); box.textContent = '';
   S.boards.forEach((b, i) => {
-    const t = h('button', { class: 'tab' + (i === S.cur ? ' on' : ''), onclick: () => { if (!t._long) onTab(i); t._long = false; } }, b.name);
+    const t = h('button', { class: 'tab' + (i === S.cur ? ' on' : '') + (i === S.cur && focus && focus.board ? ' focus' : ''), onclick: () => { if (!t._long) onTab(i); t._long = false; } }, b.name);
     longPress(t, () => { if (S.lock) return; t._long = true; if (i !== S.cur) onTab(i); logLine(`길게 누름 → 보드 설정 "${b.name}"`); openBoardSheet(); });
     t.style.setProperty('--c', COLORS[b.color]);
     box.append(t);
@@ -183,6 +183,7 @@ function paintPad(id) {
   el.classList.toggle('wait', st === 'wait' || st == null);
   el.classList.toggle('bad', st === 'bad');
   el.classList.toggle('sel', editMode && sel.has(id));
+  el.classList.toggle('focus', !!(focus && focus.pad === id));
   if (!playing) {
     el.style.setProperty('--p', '0%');
     el._el.textContent = '00:00';
@@ -568,19 +569,51 @@ function addBoard() {
 
 // ---------- 설정 판(시트) ----------
 let onSheetClose = null;
-function openSheet(title, build) {
+// anchor(선택) = 설정 대상(패드·보드 탭)을 돌려주는 함수 → 그 옆에 말풍선처럼 띄우고, 대상만 떨리고 나머지는 흐리게
+let focus = null, sheetAnchor = null;   // focus = {pad:id} | {board:true}
+function openSheet(title, build, anchor, fc) {
   const sh = $('sheet'); sh.textContent = '';
   onSheetClose = null;
   const body = h('div', { class: 'sh-body' });
   sh.append(h('div', { class: 'sh-head' }, h('b', null, title), h('button', { class: 'ibtn', onclick: closeSheet }, '닫기')), body);
   build(body);
+  focus = fc || null; sheetAnchor = anchor || null;
+  document.body.classList.toggle('focusing', !!focus);
+  paintAll(); renderTabs();
   $('sheetWrap').hidden = false; sh.scrollTop = 0; sheetAt = performance.now();
+  placeSheet();
 }
+function placeSheet() {
+  const wrap = $('sheetWrap'), sh = $('sheet'), arw = $('sheetArw');
+  const a = sheetAnchor && sheetAnchor(), r = a && a.isConnected && a.getBoundingClientRect();
+  const vw = innerWidth, vh = innerHeight, M = 16, GAP = 14;
+  const reset = () => { wrap.classList.remove('anc'); sh.style.cssText = ''; arw.hidden = true; };
+  if (!r || !r.width) return reset();
+  let w, left, top, ax, ay, dir;
+  if (focus && focus.board) {   // 보드 탭: 아래로
+    w = Math.min(560, vw - 2 * M); left = Math.min(Math.max(M, r.left + r.width / 2 - w / 2), vw - w - M);
+    top = r.bottom + GAP; ax = r.left + r.width / 2; ay = r.bottom + GAP; dir = 'up';
+  } else {                      // 패드: 빈 자리가 넓은 옆으로
+    const L = r.left - GAP - M, Rt = vw - r.right - GAP - M, right = Rt >= L;
+    w = Math.min(480, right ? Rt : L);
+    if (w < 340) return reset();   // 좁은 화면이면 가운데(떨림·흐림은 그대로)
+    left = right ? r.right + GAP : r.left - GAP - w; top = M;
+    ax = right ? r.right + GAP : r.left - GAP; ay = Math.min(Math.max(r.top + r.height / 2, 40), vh - 40); dir = right ? 'left' : 'right';
+  }
+  wrap.classList.add('anc');
+  sh.style.cssText = `left:${left}px;top:${top}px;width:${w}px;max-height:${vh - top - M}px`;
+  if (!(focus && focus.board)) {   // 패드 높이 근처로 내리되 화면 안에
+    const hgt = sh.offsetHeight; sh.style.top = Math.min(Math.max(M, ay - 60), vh - M - hgt) + 'px';
+  }
+  arw.hidden = false; arw.className = 'arw ' + dir; arw.style.left = ax + 'px'; arw.style.top = ay + 'px';
+}
+addEventListener('resize', () => { if (!$('sheetWrap').hidden) placeSheet(); });
 function closeSheet() {
   if ($('sheetWrap').hidden) return;
   if (onSheetClose) { try { onSheetClose(); } catch {} onSheetClose = null; }
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   $('sheetWrap').hidden = true; $('sheet').textContent = '';
+  focus = sheetAnchor = null; document.body.classList.remove('focusing');
   renderTop(); renderTabs(); renderGrid();
 }
 let sheetAt = 0;   // 길게 눌러 연 직후 손 떼는 것이 바깥 누름으로 잡혀 바로 닫히지 않게
@@ -730,7 +763,7 @@ function openPadSheet(id) {
         h('button', { class: 'sbtn', style: 'margin-right:8px', onclick: openFadeSheet }, '보드 전체 페이드 보기'),
         rec ? `파일: ${rec.name} · ${fmt(p.dur)} · ${(rec.size / 1048576).toFixed(1)}MB · ${p.dur <= Engine.SFX_MAX_SEC ? '메모리에 올려 둠' : '긴 곡(조금씩 풀기)'}` : '파일이 없어요 — 지우고 다시 넣어 주세요')),
     );
-  });
+  }, () => padEls.get(id), { pad: id });
   // 저장 안 한 트림은 닫을 때 묻는다. 미리 듣기로 튼 소리는 끔
   onSheetClose = () => {
     if (trim && S.pads[id] && trim.dirty()) { logLine('트림 저장 안 하고 닫음 → 물어봄'); if (confirm('구간(트림)을 바꾼 게 저장되지 않았어요.\n저장할까요? (취소 = 바꾸기 전으로)')) trim.save(); else trim.cancel(); }
@@ -821,7 +854,7 @@ function openBoardSheet() {
         [...b.pads].forEach(id => removePad(id)); S.boards.splice(S.cur, 1); S.cur = Math.max(0, S.cur - 1); save(); applyBoardColor(); closeSheet();
       } }, '삭제')),
     );
-  });
+  }, () => $('tabs').querySelector('.tab.on'), { board: true });
 }
 
 function openSettings() {
