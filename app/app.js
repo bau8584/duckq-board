@@ -1,11 +1,13 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.2.1 (2026-09-29)';
+const VER = 'DuckQ Board 0.3 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
 const ROWS = { 4: 3, 6: 4, 8: 5 };           // 패드 크기 = 열 수 → 한 화면에 보이는 줄 수 (넘치면 세로 스크롤)
-const DEF_SETTINGS = { theme: 'dark', cols: 6, fadeSec: 2, fadeOverride: false, soloMode: 'each' };
+// 새 곡 페이드 기본값은 모두 끔(PLAN-app-fix1 3번). 패드 글자 크기 s/m/l
+const DEF_SETTINGS = { theme: 'dark', cols: 6, fadeSec: 2, fadeOverride: false, soloMode: 'each', labelSize: 'm', newFin: false, newFinSec: 1, newFout: false, newFoutSec: 2 };
+const PLAYED_IDLE_MS = 6 * 3600 * 1000;   // 마지막 사용 6시간 뒤 PLAYED 저절로 지움
 const IC = {
   fi: '<svg viewBox="0 0 24 24"><path d="M3 19L21 5v14z"/></svg>',
   so: '<svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg>',
@@ -50,7 +52,10 @@ Engine.on('log', (m, lv) => logLine(m, lv));
 // S = { boards:[{id,name,color,pads:[padId]}], cur, pads:{id:{...}}, master, lock, settings }
 // 패드: label color vol pan loop solo fin finSec fout foutSec start end(0=끝까지) played added edited
 const freshState = () => ({ v: 1, boards: [{ id: uid(), name: '보드 1', color: 'sky', pads: [] }], cur: 0, pads: {}, master: 1, lock: false, settings: { ...DEF_SETTINGS } });
-const newPad = (file, label, dur) => { const t = Date.now(); return { id: uid(), file, label, dur, color: 'none', vol: 1, pan: 0, loop: false, solo: false, fin: false, finSec: 1, fout: true, foutSec: 2, start: 0, end: 0, played: false, added: t, edited: t }; };
+const newPad = (file, label, dur) => {
+  const t = Date.now(), st = S.settings;
+  return { id: uid(), file, label, dur, color: 'none', vol: 1, pan: 0, loop: false, solo: false, fin: !!st.newFin, finSec: st.newFinSec, fout: !!st.newFout, foutSec: st.newFoutSec, start: 0, end: 0, played: false, added: t, edited: t };
+};
 let S = Store.loadState();
 if (!S || !Array.isArray(S.boards) || !S.boards.length) S = freshState();
 S.settings = { ...DEF_SETTINGS, ...(S.settings || {}) };
@@ -78,6 +83,7 @@ const status = {};          // padId → 'wait' | 'ready' | 'bad'
 const badWhy = {};
 let files = new Map();      // fileId → {id,name,size,type,blob}
 let editMode = false, lastId = null, started = false;
+const sel = new Set();      // 편집 모드에서 고른 패드
 const padEls = new Map();   // padId → 화면의 패드 버튼
 const grid = $('grid'), tray = $('tray');
 
@@ -92,7 +98,7 @@ function renderTop() {
   const b = board(), total = b.pads.reduce((a, id) => a + segLen(S.pads[id]), 0);
   const t = $('total');
   if (Engine.paused) t.innerHTML = '<b>⏸ 일시정지 중</b> · ⏸를 다시 누르면 이어서';
-  else if (editMode) t.innerHTML = '<b>편집 중</b> · 누르면 설정 · 꾹 눌러 끌면 순서 바꾸기';
+  else if (editMode) t.innerHTML = '<b>편집 중</b> · 눌러서 여러 개 고르기 · 꾹 눌러 끌면 순서 바꾸기';
   else t.textContent = `전체 ${fmtH(total)} · 패드 ${b.pads.length}개`;
   const L = S.lock;
   $('btnLock').classList.toggle('on', L);
@@ -102,12 +108,14 @@ function renderTop() {
   $('btnEdit').classList.toggle('on', editMode);
   $('btnSort').hidden = !editMode;
   document.body.classList.toggle('editing', editMode);
+  renderSelBar();
 }
 
 function renderTabs() {
   const box = $('tabs'); box.textContent = '';
   S.boards.forEach((b, i) => {
-    const t = h('button', { class: 'tab' + (i === S.cur ? ' on' : ''), onclick: () => onTab(i) }, b.name);
+    const t = h('button', { class: 'tab' + (i === S.cur ? ' on' : ''), onclick: () => { if (!t._long) onTab(i); t._long = false; } }, b.name);
+    longPress(t, () => { if (S.lock) return; t._long = true; if (i !== S.cur) onTab(i); openBoardSheet(); });
     t.style.setProperty('--c', COLORS[b.color]);
     box.append(t);
   });
@@ -126,7 +134,8 @@ new ResizeObserver(sizeRows).observe(tray);
 
 function renderGrid() {
   const cols = S.settings.cols, ids = board().pads;
-  grid.style.setProperty('--cols', cols); grid.dataset.cols = cols; sizeRows();
+  grid.style.setProperty('--cols', cols); grid.dataset.cols = cols; grid.dataset.ls = S.settings.labelSize; sizeRows();
+  for (const id of sel) if (!ids.includes(id)) sel.delete(id);
   grid.textContent = ''; padEls.clear();
   ids.forEach((id, k) => grid.append(makePad(id, k + 1)));
   if (!S.lock) grid.append(h('button', { class: 'pad add', onclick: pickFiles }, h('big', null, '＋'), ids.length ? '파일 넣기' : '소리 파일 넣기'));
@@ -137,7 +146,7 @@ function makePad(id, n) {
   const p = S.pads[id];
   const el = h('button', { class: 'pad', 'data-id': id, html:
     `<div class="icons">${p.fin ? IC.fi : ''}${p.solo ? IC.so : ''}${p.loop ? IC.lp : ''}</div>` +
-    `<div class="idx">${String(n).padStart(2, '0')}</div><div class="eq"><i></i><i></i><i></i></div><div class="edit">✎</div>` +
+    `<div class="idx">${String(n).padStart(2, '0')}</div><div class="eq"><i></i><i></i><i></i></div><div class="edit">✓</div>` +
     `<div class="label"></div><div class="meta"><span>00:00</span><b>PLAYED</b><span></span></div>` });
   el.querySelector('.label').textContent = p.label || '(이름 없음)';
   el._el = el.querySelector('.meta span:first-child'); el._rm = el.querySelector('.meta span:last-child');
@@ -156,6 +165,7 @@ function paintPad(id) {
   el.classList.toggle('played', !!p.played && !playing);
   el.classList.toggle('wait', st === 'wait' || st == null);
   el.classList.toggle('bad', st === 'bad');
+  el.classList.toggle('sel', editMode && sel.has(id));
   if (!playing) {
     el.style.setProperty('--p', '0%');
     el._el.textContent = '00:00';
@@ -209,16 +219,18 @@ function tapPad(id) {
   const p = S.pads[id]; if (!p || status[id] !== 'ready' || !started) return;
   if (Engine.isPlaying(id)) {
     if (Engine.isFading(id)) return;   // 페이드 중 탭은 무시 (0단계와 같음)
-    Engine.stop(id, S.settings.fadeOverride ? S.settings.fadeSec : p.fout ? p.foutSec : 0);
+    Engine.stop(id, foutOf(p));
   } else {
     if (p.solo) soloOthers(id);
-    if (Engine.play(id, { fadeIn: p.fin ? p.finSec : 0 })) {
-      lastId = id;
-      if (!p.played) { p.played = true; save(); }
+    if (Engine.play(id, playOpt(p))) {
+      lastId = id; p.played = true; S.lastUse = Date.now(); save();
     }
   }
   paintPad(id);
 }
+// 페이드아웃은 값 하나: 곡 끝에 닿을 때 + 다시 눌러 끌 때 (소유자 결정 2026-09-29)
+const foutOf = p => S.settings.fadeOverride ? S.settings.fadeSec : p.fout ? p.foutSec : 0;
+const playOpt = (p, from) => ({ fadeIn: p.fin ? p.finSec : 0, fadeOut: foutOf(p), from });
 function soloOthers(id) {
   const m = S.settings.soloMode;
   for (const o of Engine.playingIds()) {
@@ -230,10 +242,11 @@ function soloOthers(id) {
 }
 
 // 손가락 한 개 = 한 기록. 소리는 '손 뗄 때'(소유자 결정 2026-09-29) — 움직이면 스크롤로 보고 안 울림.
-// 편집 모드: 짧게 누르고 떼면 설정, 꾹(0.25초) 누른 채 끌면 순서 바꾸기.
+// 평소: 0.5초 누르고 안 움직이면 소리 대신 패드 설정(잠금 중엔 안 열림).
+// 편집 모드: 짧게 누르면 고르기(여러 개), 꾹(0.25초) 누른 채 끌면 순서 바꾸기.
 const touches = new Map();
 let lastScroll = 0, drag = null;
-const MOVE_PX = 10, HOLD_MS = 250;
+const MOVE_PX = 10, HOLD_MS = 250, LONG_MS = 500;
 const unpress = el => setTimeout(() => el.classList.remove('press'), 60);
 function cancelTouch(t) { if (t.drag || t.dead) return; t.dead = true; clearTimeout(t.timer); t.el.classList.remove('press'); }
 tray.addEventListener('scroll', () => { lastScroll = performance.now(); touches.forEach(cancelTouch); }, { passive: true });
@@ -245,6 +258,7 @@ grid.addEventListener('pointerdown', e => {
   touches.set(e.pointerId, t);
   if (!t.dead) el.classList.add('press');
   if (editMode && !t.dead) t.timer = setTimeout(() => startDrag(t), HOLD_MS);
+  else if (!t.dead && !S.lock) t.timer = setTimeout(() => { t.dead = true; t.el.classList.remove('press'); openPadSheet(t.id); }, LONG_MS);
 });
 window.addEventListener('pointermove', e => {
   const t = touches.get(e.pointerId); if (!t) return;
@@ -257,13 +271,22 @@ window.addEventListener('pointerup', e => {
   if (t.drag) return endDrag(t);
   unpress(t.el);
   if (t.dead) return;
-  if (editMode) openPadSheet(t.id); else tapPad(t.id);
+  if (editMode) toggleSel(t.id); else tapPad(t.id);
 });
 window.addEventListener('pointercancel', e => {
   const t = touches.get(e.pointerId); if (!t) return;
   touches.delete(e.pointerId); clearTimeout(t.timer);
   if (t.drag) endDrag(t); else t.el.classList.remove('press');
 });
+// 보드 탭 길게 누르기(0.5초) → 보드 설정
+function longPress(el, fn) {
+  let tm = 0, x = 0, y = 0;
+  const off = () => clearTimeout(tm);
+  el.addEventListener('pointerdown', e => { x = e.clientX; y = e.clientY; off(); tm = setTimeout(fn, LONG_MS); });
+  el.addEventListener('pointermove', e => { if (Math.hypot(e.clientX - x, e.clientY - y) > MOVE_PX) off(); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => el.addEventListener(ev, off));
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
 // 끄는 중엔 화면이 같이 스크롤되지 않게
 document.addEventListener('touchmove', e => { if (drag) e.preventDefault(); }, { passive: false });
 ['gesturestart', 'dblclick'].forEach(ev => document.addEventListener(ev, e => e.preventDefault(), { passive: false }));
@@ -305,6 +328,38 @@ function endDrag(t) {
   const b = board();
   if (order.join() !== b.pads.join()) { b.pads = order; save(); }
   renderGrid();
+}
+
+// ---------- 여러 개 고르기 (편집 모드) ----------
+function toggleSel(id) { if (sel.has(id)) sel.delete(id); else sel.add(id); paintPad(id); renderSelBar(); }
+function clearSel() { sel.clear(); paintAll(); renderSelBar(); }
+const selIds = () => board().pads.filter(id => sel.has(id));   // 보드 순서대로
+function renderSelBar() {
+  const bar = $('selBar'), ids = selIds();
+  bar.hidden = !editMode; bar.textContent = ''; if (!editMode) return;
+  const b = board(), n = ids.length, dis = !n;
+  const moveSel = h('select', { class: 'sel', disabled: dis }, h('option', { value: '' }, '다른 보드로…'),
+    S.boards.filter(x => x !== b).map(x => h('option', { value: x.id }, x.name)));
+  moveSel.onchange = () => {
+    const to = S.boards.find(x => x.id === moveSel.value); if (!to) return;
+    ids.forEach(id => { b.pads.splice(b.pads.indexOf(id), 1); to.pads.push(id); });
+    save(); toast(`${n}개 → ${to.name}`); sel.clear(); renderTop(); renderGrid();
+  };
+  bar.append(...[
+    h('span', { class: 'cnt' }, n ? `${n}개 고름` : '패드를 눌러 고르세요'),
+    h('button', { class: 'sbtn', onclick: () => { if (n === b.pads.length) clearSel(); else { b.pads.forEach(id => sel.add(id)); paintAll(); renderSelBar(); } } }, n && n === b.pads.length ? '고르기 해제' : '전체 고르기'),
+    n === 1 ? h('button', { class: 'sbtn', onclick: () => openPadSheet(ids[0]) }, '설정') : null,
+    h('button', { class: 'sbtn', disabled: dis, onclick: () => openBulkSheet(ids) }, '일괄 수정'),
+    h('button', { class: 'sbtn', disabled: dis, onclick: () => {
+      for (const id of [...ids].reverse()) { const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); }
+      save(); sel.clear(); renderTop(); renderGrid(); toast(`${n}개 복제했어요`);
+    } }, '복제'),
+    S.boards.length > 1 ? moveSel : null,
+    h('button', { class: 'sbtn danger', disabled: dis, onclick: () => {
+      if (!confirm(`패드 ${n}개를 지울까요?`)) return;
+      ids.forEach(removePad); sel.clear(); save(); renderTop(); renderGrid();
+    } }, '삭제'),
+  ].filter(Boolean));
 }
 
 Engine.on('play', id => paintPad(id));
@@ -351,11 +406,29 @@ hit($('btnFade'), () => { Engine.stopAll(S.settings.fadeSec); paintAll(); });
 // ---------- 위 버튼 ----------
 $('btnLock').onclick = () => {
   S.lock = !S.lock;
-  if (S.lock) { editMode = false; closeSheet(); }
+  if (S.lock) { editMode = false; sel.clear(); closeSheet(); }
+  // 잠금 켤 때 = 공연 준비 끝 → PLAYED 지움(8초 안에 되돌리기)
+  const was = S.lock ? clearPlayed() : [];
   save(); renderTop(); renderTabs(); renderGrid();
-  toast(S.lock ? '잠갔어요 — 패드·재생 버튼만 눌려요' : '잠금을 풀었어요');
+  if (!S.lock) toast('잠금을 풀었어요');
+  else if (!was.length) toast('잠갔어요 — 패드·재생 버튼만 눌려요');
+  else toast(`잠갔어요 · PLAYED ${was.length}개 지움`, 8000, { label: '되돌리기', fn: () => { was.forEach(id => { if (S.pads[id]) S.pads[id].played = true; }); save(); paintAll(); } });
 };
-$('btnEdit').onclick = () => { if (S.lock) return; editMode = !editMode; renderTop(); renderTabs(); };
+$('btnEdit').onclick = () => { if (S.lock) return; editMode = !editMode; sel.clear(); renderTop(); renderTabs(); paintAll(); };
+// PLAYED 지우기 → 지운 패드 id 목록(되돌리기용)
+function clearPlayed() {
+  const was = Object.keys(S.pads).filter(id => S.pads[id].played);
+  was.forEach(id => { S.pads[id].played = false; });
+  return was;
+}
+// 마지막 사용 6시간 뒤 저절로 지움 (다음 날 공연에 어제 표시가 남지 않게)
+function idleClear() {
+  if (!S.lastUse || Date.now() - S.lastUse < PLAYED_IDLE_MS) return;
+  S.lastUse = 0;
+  const was = clearPlayed(); save();
+  if (was.length) { paintAll(); logLine(`6시간 안 써서 PLAYED ${was.length}개 지움`); }
+}
+setInterval(idleClear, 60000);
 $('btnAdd').onclick = () => pickFiles();
 $('btnSet').onclick = () => { if (!S.lock) openSettings(); };
 $('btnSort').onclick = () => { if (editMode) openSort(); };
@@ -466,7 +539,7 @@ function openSheet(title, build) {
   const body = h('div', { class: 'sh-body' });
   sh.append(h('div', { class: 'sh-head' }, h('b', null, title), h('button', { class: 'ibtn', onclick: closeSheet }, '닫기')), body);
   build(body);
-  $('sheetWrap').hidden = false; sh.scrollTop = 0;
+  $('sheetWrap').hidden = false; sh.scrollTop = 0; sheetAt = performance.now();
 }
 function closeSheet() {
   if ($('sheetWrap').hidden) return;
@@ -475,7 +548,8 @@ function closeSheet() {
   $('sheetWrap').hidden = true; $('sheet').textContent = '';
   renderTop(); renderTabs(); renderGrid();
 }
-$('sheetWrap').addEventListener('click', e => { if (e.target === $('sheetWrap')) closeSheet(); });
+let sheetAt = 0;   // 길게 눌러 연 직후 손 떼는 것이 바깥 누름으로 잡혀 바로 닫히지 않게
+$('sheetWrap').addEventListener('click', e => { if (e.target === $('sheetWrap') && performance.now() - sheetAt > 400) closeSheet(); });
 
 const row = (label, ...ctl) => h('div', { class: 'row' }, h('label', null, label), h('div', { class: 'end' }, ...ctl));
 function sw(on, onchange) {
@@ -514,6 +588,7 @@ const sec1 = v => v.toFixed(1) + '초';
 const panTxt = v => v === 0 ? '가운데' : (v < 0 ? '왼쪽 ' : '오른쪽 ') + Math.abs(v);
 
 // 트림: 파일은 그대로, 시작·끝 지점만 기억. 파형(효과음) 위 두 손잡이 + 0.1초/1초 단추
+// [저장]을 눌러야 패드에 남는다. 저장 전에도 미리 듣기는 바꾼 구간으로 들린다.
 function trimBox(id, onchange) {
   const p = S.pads[id], D = Engine.fileDur(id) || p.dur || 0;
   let s = p.start || 0, e = p.end > s ? Math.min(p.end, D) : D;
@@ -528,7 +603,17 @@ function trimBox(id, onchange) {
     sOut.textContent = fmtT(s); eOut.textContent = fmtT(e);
     lenOut.textContent = `틀 길이 ${fmtT(e - s)} / 전체 ${fmtT(D)}`;
   };
-  const commit = () => { p.start = +s.toFixed(2); p.end = e >= D - 0.05 ? 0 : +e.toFixed(2); Engine.setTrim(id, p.start, p.end); touchEdit(p); save(); onchange(); };
+  const ns = () => +s.toFixed(2), ne = () => e >= D - 0.05 ? 0 : +e.toFixed(2);
+  const dirty = () => ns() !== +(p.start || 0) || ne() !== +(p.end || 0);
+  const stateEl = h('span', { class: 'sub' });
+  const saveB = h('button', { class: 'sbtn pri', onclick: () => api.save() }, '저장'), cancelB = h('button', { class: 'sbtn', onclick: () => api.cancel() }, '취소');
+  const mark = () => { const d = dirty(); saveB.disabled = cancelB.disabled = !d; stateEl.textContent = d ? '저장 안 됨' : ''; };
+  const commit = () => { Engine.setTrim(id, ns(), ne()); mark(); };   // 미리 듣기용으로만 적용
+  const api = {
+    dirty,
+    save() { p.start = ns(); p.end = ne(); Engine.setTrim(id, p.start, p.end); touchEdit(p); save(); mark(); onchange(); },
+    cancel() { s = p.start || 0; e = p.end > s ? Math.min(p.end, D) : D; Engine.setTrim(id, p.start || 0, p.end || 0); draw(); mark(); },
+  };
   const setS = v => { s = Math.min(Math.max(0, v), e - 0.1); draw(); };
   const setE = v => { e = Math.max(Math.min(D, v), s + 0.1); draw(); };
   const wave = () => {
@@ -551,14 +636,16 @@ function trimBox(id, onchange) {
   bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
   const nb = (label, fn) => h('button', { onclick: () => { fn(); commit(); } }, label);
   requestAnimationFrame(() => { wave(); draw(); });
-  draw();
-  return h('div', { class: 'row col' },
+  draw(); mark();
+  api.el = h('div', { class: 'row col' },
     h('label', null, '구간(트림)', h('span', { class: 'sub' }, Engine.peaks(id, 8) ? '손잡이를 끌거나 단추로 맞춰요. 파일은 잘리지 않아요' : '긴 곡은 파형 없이 시간으로 맞춰요. 파일은 잘리지 않아요')),
     bar,
     h('div', { class: 'trow' }, h('span', null, '시작'), nb('−1', () => setS(s - 1)), nb('−.1', () => setS(s - 0.1)), sOut, nb('+.1', () => setS(s + 0.1)), nb('+1', () => setS(s + 1))),
     h('div', { class: 'trow' }, h('span', null, '끝'), nb('−1', () => setE(e - 1)), nb('−.1', () => setE(e - 0.1)), eOut, nb('+.1', () => setE(e + 0.1)), nb('+1', () => setE(e + 1))),
     h('div', { class: 'trow' }, lenOut, h('button', { class: 'sbtn', onclick: () => { s = 0; e = D; draw(); commit(); } }, '전체로')),
+    h('div', { class: 'trow' }, stateEl, cancelB, saveB),
   );
+  return api;
 }
 
 function openPadSheet(id) {
@@ -566,12 +653,13 @@ function openPadSheet(id) {
   const b = board(), rec = files.get(p.file);
   const refresh = () => { touchEdit(p); save(); const el = padEls.get(id); if (el) { const n = b.pads.indexOf(id) + 1; el.replaceWith(makePad(id, n)); } };
   // 미리 듣기: 편집 모드에선 패드를 눌러도 설정이 열리므로 여기서 듣는다
-  const preview = (from, btn) => {
+  let heard = false;
+  const preview = from => {
     if (status[id] !== 'ready' || !started) return;
     if (Engine.isPlaying(id)) { Engine.stop(id, 0); return; }
-    Engine.play(id, { fadeIn: p.fin ? p.finSec : 0, from }); lastId = id; paintPad(id);
+    Engine.play(id, playOpt(p, from)); lastId = id; heard = true; paintPad(id);
   };
-  onSheetClose = () => { if (Engine.isPlaying(id) && editMode) Engine.stop(id, 0); };
+  let trim = null;
   openSheet('패드 설정', body => {
     const name = h('input', { class: 'txt', value: p.label, maxlength: 40, placeholder: '패드 이름' });
     name.oninput = () => { p.label = name.value; refresh(); };
@@ -585,19 +673,18 @@ function openPadSheet(id) {
       b.pads.splice(b.pads.indexOf(id), 1); to.pads.push(id); save();
       toast(`"${p.label}" → ${to.name}`); closeSheet();
     };
-    const L = () => segLen(p);
     body.append(
       h('div', { class: 'row col' }, name),
       h('div', { class: 'row col' }, h('label', null, '색', h('span', { class: 'sub' }, '없음 = 평소 무채색, 재생 중엔 보드 색으로 켜짐')),
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
-      row('미리 듣기', h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, L() - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
-      trimBox(id, () => { refresh(); renderTop(); }),
+      row('미리 듣기', h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, Engine.dur(id) - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
+      (trim = trimBox(id, () => { refresh(); renderTop(); })).el,
       row('볼륨', stepper(Math.round(p.vol * 100), 0, 100, 5, v => v + '%', v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); })),
       row(h('span', null, '팬', h('span', { class: 'sub' }, '왼쪽·오른쪽 스피커로 치우치게')), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); })),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
       row(h('span', null, '솔로', h('span', { class: 'sub' }, '이 패드를 틀면 다른 소리를 끔')), sw(p.solo, on => { p.solo = on; refresh(); })),
       row('페이드인', sw(p.fin, on => { p.fin = on; fin.classList.toggle('off', !on); refresh(); }), fin),
-      row(h('span', null, '페이드아웃', h('span', { class: 'sub' }, '재생 중 다시 누를 때')), sw(p.fout, on => { p.fout = on; fout.classList.toggle('off', !on); touchEdit(p); save(); }), fout),
+      row(h('span', null, '페이드아웃', h('span', { class: 'sub' }, '곡 끝에 닿을 때 + 다시 눌러 끌 때')), sw(p.fout, on => { p.fout = on; fout.classList.toggle('off', !on); touchEdit(p); save(); }), fout),
       row('패드', h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
       } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: () => {
@@ -605,7 +692,78 @@ function openPadSheet(id) {
         removePad(id); save(); closeSheet(); renderTop();
       } }, '삭제')),
       h('div', { class: 'row' }, h('div', { class: 'info' },
+        h('button', { class: 'sbtn', style: 'margin-right:8px', onclick: openFadeSheet }, '보드 전체 페이드 보기'),
         rec ? `파일: ${rec.name} · ${fmt(p.dur)} · ${(rec.size / 1048576).toFixed(1)}MB · ${p.dur <= Engine.SFX_MAX_SEC ? '메모리에 올려 둠' : '긴 곡(조금씩 풀기)'}` : '파일이 없어요 — 지우고 다시 넣어 주세요')),
+    );
+  });
+  // 저장 안 한 트림은 닫을 때 묻는다. 미리 듣기로 튼 소리는 끔
+  onSheetClose = () => {
+    if (trim && S.pads[id] && trim.dirty()) { if (confirm('구간(트림)을 바꾼 게 저장되지 않았어요.\n저장할까요? (취소 = 바꾸기 전으로)')) trim.save(); else trim.cancel(); }
+    if (heard && Engine.isPlaying(id)) Engine.stop(id, 0);
+  };
+}
+
+// 여러 패드를 같은 값으로 — 바꾸는 항목만 모두에게 바로 적용
+function openBulkSheet(ids) {
+  const ps = ids.map(id => S.pads[id]).filter(Boolean); if (!ps.length) return;
+  const same = k => ps.every(q => q[k] === ps[0][k]) ? ps[0][k] : undefined;
+  const set = fn => { ps.forEach(q => { fn(q); touchEdit(q); }); save(); };
+  const onoff = (k, extra) => seg([[true, '켬'], [false, '끔']], same(k), v => { set(q => { q[k] = v; extra && extra(q, v); }); });
+  openSheet(`${ps.length}개 일괄 수정`, body => body.append(
+    h('div', { class: 'row' }, h('div', { class: 'info' }, '바꾼 항목만 고른 패드 모두에 같은 값으로 들어가요. 안 건드린 항목은 그대로예요.')),
+    h('div', { class: 'row col' }, h('label', null, '색'), colorChips(same('color'), true, k => set(q => { q.color = k; }))),
+    row('볼륨', stepper(Math.round((same('vol') ?? ps[0].vol) * 100), 0, 100, 5, v => v + '%', v => set(q => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); }))),
+    row('팬', stepper(Math.round((same('pan') ?? 0) * 100), -100, 100, 10, panTxt, v => set(q => { q.pan = v / 100; Engine.setPan(q.id, q.pan); }))),
+    row('반복(루프)', onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
+    row('솔로', onoff('solo')),
+    row('페이드인', onoff('fin'), stepper(same('finSec') ?? 1, 0.1, 10, 0.1, sec1, v => set(q => { q.finSec = v; }))),
+    row(h('span', null, '페이드아웃', h('span', { class: 'sub' }, '곡 끝 + 끌 때')), onoff('fout'), stepper(same('foutSec') ?? 2, 0.1, 10, 0.1, sec1, v => set(q => { q.foutSec = v; }))),
+  ));
+}
+
+// 페이드 설정 창: 지금 보드의 곡 전체를 한눈에 — 줄마다 페이드인/아웃 켬·초
+function openFadeSheet() {
+  const b = board(), st = S.settings;
+  const mini = (on, sec, setOn, setSec) => {
+    const o = h('output', null, sec1(sec));
+    const box = h('div', { class: 'mini' + (on ? '' : ' off') });
+    const s = sw(on, v => { box.classList.toggle('off', !v); setOn(v); });
+    const bump = d => { sec = Math.min(10, Math.max(0.1, +(sec + d).toFixed(1))); o.textContent = sec1(sec); setSec(sec); };
+    box.append(s, h('button', { onclick: () => bump(-0.5), 'aria-label': '줄이기' }, '−'), o, h('button', { onclick: () => bump(0.5), 'aria-label': '늘리기' }, '＋'));
+    return box;
+  };
+  const list = h('div', { class: 'flist' });
+  const draw = () => {
+    list.textContent = '';
+    list.append(h('div', { class: 'frow fhead' }, h('span', null, '곡'), h('span', null, '페이드인'), h('span', null, '페이드아웃')));
+    b.pads.forEach(id => { const p = S.pads[id]; list.append(h('div', { class: 'frow' },
+      h('span', { class: 'fname' }, p.label || '(이름 없음)'),
+      mini(p.fin, p.finSec, v => { p.fin = v; touchEdit(p); save(); }, v => { p.finSec = v; touchEdit(p); save(); }),
+      mini(p.fout, p.foutSec, v => { p.fout = v; touchEdit(p); save(); }, v => { p.foutSec = v; touchEdit(p); save(); }))); });
+    if (!b.pads.length) list.append(h('div', { class: 'info' }, '이 보드엔 패드가 없어요'));
+  };
+  const all = fn => { b.pads.forEach(id => { const p = S.pads[id]; fn(p); touchEdit(p); }); save(); draw(); };
+  const bulk = (label, onK, secK) => {
+    let n = 2; const o = h('output', null, sec1(n));
+    return h('div', { class: 'row col' }, h('label', null, label),
+      h('div', { class: 'trow' },
+        h('button', { onclick: () => all(p => { p[onK] = true; }) }, '전체 켜기'),
+        h('button', { onclick: () => all(p => { p[onK] = false; }) }, '전체 끄기'),
+        h('button', { onclick: () => { n = Math.max(0.5, n - 0.5); o.textContent = sec1(n); } }, '−'), o,
+        h('button', { onclick: () => { n = Math.min(10, n + 0.5); o.textContent = sec1(n); } }, '＋'),
+        h('button', { onclick: () => all(p => { p[onK] = true; p[secK] = n; }) }, '전체 이 시간으로')));
+  };
+  openSheet(`페이드 — ${b.name}`, body => {
+    draw();
+    body.append(
+      h('div', { class: 'row' }, h('div', { class: 'info' }, '페이드아웃은 곡 끝에 닿을 때와 다시 눌러 끌 때 둘 다 걸려요. 반복 곡은 끌 때만.')),
+      bulk('페이드인 — 이 보드 전체', 'fin', 'finSec'),
+      bulk('페이드아웃 — 이 보드 전체', 'fout', 'foutSec'),
+      list,
+      h('div', { class: 'row col' }, h('label', null, '새로 넣는 곡의 기본값'),
+        h('div', { class: 'frow' }, h('span', { class: 'fname' }, '새 곡'),
+          mini(st.newFin, st.newFinSec, v => { st.newFin = v; save(); }, v => { st.newFinSec = v; save(); }),
+          mini(st.newFout, st.newFoutSec, v => { st.newFout = v; save(); }, v => { st.newFoutSec = v; save(); }))),
     );
   });
 }
@@ -619,6 +777,7 @@ function openBoardSheet() {
       h('div', { class: 'row col' }, name),
       h('div', { class: 'row col' }, h('label', null, '보드 색', h('span', { class: 'sub' }, '탭·판 테두리·뒷 배경, 색 없는 패드의 재생 색')),
         colorChips(b.color, false, k => { b.color = k; save(); applyBoardColor(); renderTabs(); paintAll(); })),
+      row('곡별 페이드', h('button', { class: 'sbtn', onclick: openFadeSheet }, '페이드 설정 열기')),
       row('보드', h('button', { class: 'sbtn', onclick: () => {
         const nb = { id: uid(), name: b.name + ' 복사', color: b.color, pads: b.pads.map(id => clonePad(id)) };
         S.boards.splice(S.cur + 1, 0, nb); S.cur++; save(); applyBoardColor(); closeSheet(); toast('보드를 복제했어요');
@@ -637,12 +796,15 @@ function openSettings() {
     body.append(
       row('화면', seg([['dark', '다크'], ['light', '화이트']], st.theme, v => { st.theme = v; save(); applyTheme(); })),
       row('패드 크기', seg([[8, '작게'], [6, '보통'], [4, '크게']], st.cols, v => { st.cols = v; save(); renderGrid(); })),
-      row(h('span', null, '전체 페이드 시간', h('span', { class: 'sub' }, '◣ 버튼')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
-      row(h('span', null, '모든 패드에 이 시간 쓰기', h('span', { class: 'sub' }, '켜면 패드를 끌 때도 위 시간으로 페이드')), sw(st.fadeOverride, on => { st.fadeOverride = on; save(); })),
+      row('패드 글자', seg([['s', '작게'], ['m', '보통'], ['l', '크게']], st.labelSize, v => { st.labelSize = v; save(); renderGrid(); })),
+      row(h('span', null, '곡별 페이드', h('span', { class: 'sub' }, '지금 보드의 곡마다 페이드인·아웃 켬/초')), h('button', { class: 'sbtn', onclick: openFadeSheet }, '열기')),
+      row(h('span', null, '◣ 버튼 페이드 시간', h('span', { class: 'sub' }, '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
+      // 옛 설정: 켜 둔 사람만 보임(끌 수 있게). 새로는 페이드 창의 [전체 이 시간으로]
+      st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡별 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : null,
       h('div', { class: 'row col' }, h('label', null, '솔로 패드를 틀 때 다른 소리'),
         seg([['each', '각자 페이드값으로'], ['fade', '전체 페이드 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
-      row(h('span', null, 'PLAYED 표시', h('span', { class: 'sub' }, '모든 보드의 "틀었음" 표시를 지움')), h('button', { class: 'sbtn', onclick: () => {
-        Object.values(S.pads).forEach(p => { p.played = false; }); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
+      row(h('span', null, 'PLAYED 표시', h('span', { class: 'sub' }, '잠금을 켤 때와 6시간 안 쓰면 저절로 지워져요')), h('button', { class: 'sbtn', onclick: () => {
+        clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
         h('div', { style: 'display:flex;gap:8px' },
@@ -683,6 +845,7 @@ async function boot() {
   const t0 = performance.now();
   renderAll();
   logLine(VER);
+  idleClear();
   try { await Store.open(); } catch (e) { toast('저장소를 열 수 없어요'); logLine('저장소 열기 실패: ' + (e && e.message), 'e'); return; }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(ok => logLine('영구 저장 ' + (ok ? '허용' : '거부'), ok ? 'i' : 'w'));
   const recs = await Store.allFiles();

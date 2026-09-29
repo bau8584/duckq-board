@@ -9,6 +9,7 @@
 const Engine = (() => {
   const SFX_MAX_SEC = 30;     // 이 이하 → 메모리 적재, 초과 → D (PLAN-stage1 §3 후보 A: 2~3분으로 올릴지 미정)
   const EDGE = 0.005;         // 페이드 없음이어도 5ms로 올리고 내림(딸깍 방지)
+  const HUSH = 0.03;          // ⏸·이어서: 출구째 멈추기 전에 30ms 줄이고, 이어서 30ms 올림(지직 방지)
   let ctx = null, master = null, masterVol = 1;
   let unlocked = false, paused = false, needRebuild = false, ousted = false;
   let loadedBytes = 0;
@@ -137,7 +138,15 @@ const Engine = (() => {
     if (tr.loop) { v.el.currentTime = seg(tr).s; v.el.play().catch(() => {}); } else end(tr, 'ended');
   }
 
-  // opt.fadeIn: 페이드인 초 · opt.from: 구간 안에서 몇 초부터 (미리 듣기용)
+  // 곡(구간) 끝 페이드아웃: 끝나는 시각 tEnd(출구 시계)에 0이 되게 미리 걸어 둔다. 반복 곡은 끝이 없으니 안 건다.
+  function tailFade(tr, v, tEnd) {
+    const fo = v.fadeOut; if (!(fo > 0) || tr.loop) return;
+    const g = v.g.gain, a = Math.max(ctx.currentTime + v.rise, tEnd - fo);
+    if (a >= tEnd) return;
+    g.setValueAtTime(1, a); g.linearRampToValueAtTime(0, tEnd);
+  }
+
+  // opt.fadeIn: 페이드인 초 · opt.fadeOut: 곡 끝에 닿을 때 페이드아웃 초 · opt.from: 구간 안에서 몇 초부터 (미리 듣기용)
   function play(id, opt = {}) {
     const tr = tracks.get(id); if (!tr || !tr.kind || ousted) return false;
     if (needRebuild) rebuild();
@@ -146,7 +155,7 @@ const Engine = (() => {
     if (tr.v) end(tr, 'restart');
     const S = seg(tr), from = Math.min(Math.max(0, opt.from || 0), S.L - 0.05);
     const rise = Math.max(EDGE, opt.fadeIn || 0), now = ctx.currentTime;
-    const v = { g: ctx.createGain(), fading: false, rise, seg: S };
+    const v = { g: ctx.createGain(), fading: false, rise, seg: S, fadeOut: opt.fadeOut || 0 };
     v.g.gain.value = 0; v.g.connect(tr.vol); tr.v = v;
     if (tr.kind === 'sfx') {
       const src = ctx.createBufferSource(); src.buffer = tr.buffer; src.connect(v.g);
@@ -155,6 +164,7 @@ const Engine = (() => {
       if (tr.loop) { src.loop = true; src.loopStart = S.s; src.loopEnd = S.e; src.start(now, S.s + from); }
       else src.start(now, S.s + from, S.L - from);
       v.src = src; v.t0 = now - from;
+      tailFade(tr, v, now + S.L - from);
     } else if (tr.d) {
       v.ds = new DStream(tr, v, from);
     } else {
@@ -164,7 +174,15 @@ const Engine = (() => {
       el.currentTime = S.s + from;
       v.g.gain.setValueAtTime(0, now); v.g.gain.linearRampToValueAtTime(1, now + rise);
       el.play().catch(e => { log(`play() 거부: ${e.message}`, 'e'); if (tr.v === v) end(tr, 'error'); });
-      if (S.cut) v.watch = setInterval(() => { if (tr.v === v && el.currentTime >= S.e - 0.03) aEdge(tr); }, 40);
+      // A는 출구 시계와 따로 가서 미리 못 건다 → 곡 위치를 보다가 끝 페이드 시작
+      if (S.cut || v.fadeOut > 0) v.watch = setInterval(() => {
+        if (tr.v !== v) return;
+        if (S.cut && el.currentTime >= S.e - 0.03) return aEdge(tr);
+        if (v.fadeOut > 0 && !tr.loop && !v.tail && !v.fading && el.currentTime >= S.e - v.fadeOut) {
+          v.tail = true; const t = ctx.currentTime, g = v.g.gain;
+          g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + Math.max(0.01, S.e - el.currentTime));
+        }
+      }, 40);
     }
     emit('play', id);
     return true;
@@ -196,7 +214,7 @@ const Engine = (() => {
   }
 
   function stopAll(sec = 0) {
-    if (paused && !(sec > 0)) { tracks.forEach(tr => tr.v && end(tr, 'stop')); resumeAll(); return; }
+    if (paused && !(sec > 0)) { tracks.forEach(tr => tr.v && end(tr, 'stop')); resumeAll(true); return; }
     if (paused) resumeAll();
     tracks.forEach(tr => { if (tr.v) stop(tr.id, sec); });
   }
@@ -205,15 +223,30 @@ const Engine = (() => {
   function pauseAll() {
     if (!ctx || paused || !playingIds().length) return false;
     paused = true;
-    tracks.forEach(tr => { if (tr.v && tr.v.fading) end(tr, 'stop'); else if (tr.v && tr.v.el) tr.v.el.pause(); });
-    ctx.suspend(); emit('pause', true);
+    tracks.forEach(tr => { if (tr.v && tr.v.fading) end(tr, 'stop'); });
+    ramp(0);   // 30ms 줄인 뒤 출구째 멈춤
+    const c = ctx;
+    setTimeout(() => {
+      if (!paused || ctx !== c) return;
+      tracks.forEach(tr => { if (tr.v && tr.v.el) tr.v.el.pause(); });
+      c.suspend();
+    }, HUSH * 1000 + 15);
+    emit('pause', true);
     return true;
   }
-  function resumeAll() {
+  function ramp(to, delay = 0) {
+    const g = master.gain, t = ctx.currentTime;
+    g.cancelScheduledValues(t); g.setValueAtTime(g.value, t);
+    if (delay) g.setValueAtTime(g.value, t + delay);
+    g.linearRampToValueAtTime(to, t + delay + HUSH);
+  }
+  // quiet: ⏸ 중 ■ — 소리를 막은 채 곡을 정리하고, 정리가 끝난 뒤에 출구를 올린다(새어 나가지 않게)
+  function resumeAll(quiet) {
     if (!paused) return;
     paused = false;
-    ctx.resume().catch(() => {});
-    tracks.forEach(tr => { if (tr.v && tr.v.el) tr.v.el.play().catch(() => {}); });
+    const c = ctx;
+    c.resume().catch(() => {}).then(() => { if (ctx === c && !paused) ramp(masterVol, quiet ? 0.06 : 0); });
+    if (!quiet) tracks.forEach(tr => { if (tr.v && tr.v.el) tr.v.el.play().catch(() => {}); });
     emit('pause', false);
   }
 
@@ -259,7 +292,7 @@ const Engine = (() => {
   }
   function setMaster(x) {
     masterVol = x;
-    if (master) master.gain.setTargetAtTime(x, ctx.currentTime, 0.02);
+    if (master && !paused) master.gain.setTargetAtTime(x, ctx.currentTime, 0.02);   // ⏸ 중엔 이어서 때 올림
   }
   const playingIds = () => [...tracks.values()].filter(tr => tr.v).map(tr => tr.id);
 
@@ -565,6 +598,7 @@ const Engine = (() => {
         if (!this.v.fading) {
           const g = this.v.g.gain; g.cancelScheduledValues(now); g.setValueAtTime(0, now); g.setValueAtTime(0, this.nextTime);
           g.linearRampToValueAtTime(1, this.nextTime + Math.max(0.01, this.v.rise));
+          tailFade(this.tr, this.v, this.t0 + this.seg.L);
         }
       } else if (this.nextTime < now) {
         this.gaps++; log(`D 끊김: 조각이 ${((now - this.nextTime) * 1000).toFixed(0)}ms 늦음`, 'w');
