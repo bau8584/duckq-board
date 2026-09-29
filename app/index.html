@@ -10,7 +10,7 @@
 <meta name="theme-color" content="#0d1017">
 <title>DuckQ Board</title>
 <script>try{var s=JSON.parse(localStorage.getItem('duckq-board-v1'));if(s&&s.settings&&s.settings.theme==='light')document.documentElement.dataset.theme='light'}catch(e){}</script>
-<link rel="stylesheet" href="style.css?v=0.3.11">
+<link rel="stylesheet" href="style.css?v=0.3.12">
 </head>
 <body>
 <div class="app" id="app">
@@ -38,7 +38,7 @@
 
   <div class="bottom">
     <button class="ibtn" id="btnFull" aria-label="전체화면"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
-    <div class="scrub"><span class="name" id="sName">—</span><div class="track"><i id="sFill"></i></div><span id="sTime">00:00 / 00:00</span></div>
+    <div class="scrub"><span class="name" id="sName">—</span><div class="track" id="sTrack"><i id="sFill"></i></div><span id="sTime">00:00 / 00:00</span></div>
     <div class="ctl">
       <button class="cbtn" id="btnPause" aria-label="전체 일시정지"><svg viewBox="0 0 24 24" id="pauseIc"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></button>
       <button class="cbtn stop" id="btnStop" aria-label="전체 정지"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>
@@ -54,8 +54,8 @@
 <div class="toast" id="toast" hidden></div>
 <input type="file" id="files" class="vh" multiple accept="audio/*,video/*,.m4a,.mp3,.wav,.aac,.ogg" tabindex="-1" aria-hidden="true">
 
-<script src="engine.js?v=0.3.11"></script>
-<script src="store.js?v=0.3.11"></script>
-<script src="app.js?v=0.3.11"></script>
+<script src="engine.js?v=0.3.12"></script>
+<script src="store.js?v=0.3.12"></script>
+<script src="app.js?v=0.3.12"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.11 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.12 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -206,14 +206,16 @@ function renderMaster() {
   sl.setAttribute('aria-valuenow', Math.round(v * 100));
 }
 
+let seekTo = null;   // 재생 바를 끄는 중이면 손가락 위치(0~1)
 function renderScrub() {
   const box = document.querySelector('.scrub');
   const p = lastId && S.pads[lastId];
   if (!p) { $('sName').textContent = '—'; $('sFill').style.width = '0'; $('sTime').textContent = '00:00 / 00:00'; box.classList.add('idle'); return; }
   const playing = Engine.isPlaying(lastId), d = Engine.dur(lastId) || segLen(p), pos = playing ? Engine.pos(lastId) : 0;
   $('sName').textContent = p.label;
-  $('sFill').style.width = playing ? Math.min(100, pos / d * 100) + '%' : '0';
-  $('sTime').textContent = fmt(pos) + ' / ' + fmt(d);
+  const shown = seekTo !== null && playing ? seekTo * d : pos;
+  $('sFill').style.width = playing ? Math.min(100, shown / d * 100) + '%' : '0';
+  $('sTime').textContent = fmt(shown) + ' / ' + fmt(d);
   box.classList.toggle('idle', !playing);
 }
 
@@ -226,6 +228,29 @@ function renderPause() {
 }
 
 function renderAll() { applyTheme(); applyBoardColor(); renderTop(); renderTabs(); renderGrid(); renderMaster(); renderScrub(); renderPause(); }
+
+// 아래 재생 바: 누르거나 끌어서 마지막 재생 곡의 위치 옮기기. 끄는 동안은 위치만 보여 주고, 손 뗄 때 그 자리부터 다시 튼다.
+// (곡이 재생 중일 때만. 옮긴 자리에선 페이드인 없이 바로)
+(() => {
+  const tr = $('sTrack'); let on = false;
+  const frac = e => { const r = tr.getBoundingClientRect(); return Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)); };
+  tr.addEventListener('pointerdown', e => {
+    if (!started || !lastId || !Engine.isPlaying(lastId)) return;
+    on = true; tr.setPointerCapture(e.pointerId); tr.classList.add('drag'); seekTo = frac(e); renderScrub();
+  });
+  tr.addEventListener('pointermove', e => { if (on) { seekTo = frac(e); renderScrub(); } });
+  const up = e => {
+    if (!on) return; on = false; tr.classList.remove('drag');
+    const f = frac(e), id = lastId, p = S.pads[id]; seekTo = null;
+    if (!p || !Engine.isPlaying(id)) return renderScrub();
+    const d = Engine.dur(id), from = Math.min(f * d, Math.max(0, d - 0.1));
+    logLine(`재생 위치 옮김 ${nm(id)} → ${fmt(from)}`);
+    Engine.play(id, { fadeIn: 0, fadeOut: foutOf(p), from });
+    paintPad(id); renderScrub();
+  };
+  tr.addEventListener('pointerup', up);
+  tr.addEventListener('pointercancel', () => { on = false; seekTo = null; tr.classList.remove('drag'); renderScrub(); });
+})();
 
 // 재생 중인 패드만 1초에 4번 갱신 (DESIGN §6)
 setInterval(() => {

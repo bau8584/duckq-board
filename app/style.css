@@ -132,8 +132,13 @@ button:disabled{cursor:default}
 .scrub{display:grid;grid-template-columns:minmax(0,auto) 1fr auto;gap:12px;align-items:center;font-size:13px;color:var(--text-dim);font-variant-numeric:tabular-nums;min-width:0}
 .scrub .name{color:var(--text);font-weight:700;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .scrub.idle .name{color:var(--text-dim)}
-.track{height:6px;border-radius:3px;background:var(--bg2);position:relative;overflow:hidden}
-.track i{position:absolute;inset:0 auto 0 0;width:0;background:var(--lit);border-radius:3px}
+/* 재생 바: 손가락으로 잡기 쉽게 누르는 곳은 44px, 보이는 막대는 가늘게 */
+.track{height:44px;position:relative;touch-action:none;cursor:pointer}
+.track::before{content:"";position:absolute;left:0;right:0;top:19px;height:6px;border-radius:3px;background:var(--bg2)}
+.track i{position:absolute;left:0;top:19px;height:6px;width:0;background:var(--lit);border-radius:3px}
+.track i::after{content:"";position:absolute;right:-8px;top:-5px;width:16px;height:16px;border-radius:50%;background:var(--lit);opacity:0}
+.scrub:not(.idle) .track i::after{opacity:1}
+.track.drag::before,.track.drag i{top:17px;height:10px}
 .ctl{display:flex;gap:10px}
 .cbtn{width:88px;height:54px;border-radius:14px;border:1px solid var(--line);background:var(--bg2);color:var(--text);display:flex;align-items:center;justify-content:center}
 .cbtn:active,.cbtn.hit{transform:scale(.96);background:var(--btn-press)}
