@@ -10,7 +10,14 @@ const Engine = (() => {
   const SFX_MAX_SEC = 30;     // 이 이하 → 메모리 적재, 초과 → D (PLAN-stage1 §3 후보 A: 2~3분으로 올릴지 미정)
   const EDGE = 0.005;         // 페이드 없음이어도 5ms로 올리고 내림(딸깍 방지)
   const HUSH = 0.03;          // ⏸·이어서: 출구째 멈추기 전에 30ms 줄이고, 이어서 30ms 올림(지직 방지)
-  let ctx = null, master = null, masterVol = 1;
+  let ctx = null, master = null, masterVol = 1, boost = 1, boostG = null, limiter = null;
+  function routeBoost() {
+    if (!boostG) return;
+    try { boostG.disconnect(); } catch {}
+    boostG.gain.value = boost;
+    boostG.connect(boost > 1 ? limiter : ctx.destination);
+  }
+  function setBoost(x) { boost = x > 1 ? x : 1; routeBoost(); }
   let unlocked = false, paused = false, needRebuild = false, ousted = false;
   let loadedBytes = 0;
   const tracks = new Map();   // id → {id, blob, size, dur, kind, volume, loop, vol(GainNode), buffer?, d?, head?, el?, node?, v(재생 중)?}
@@ -21,7 +28,11 @@ const Engine = (() => {
   // ---------- 소리 출구 ----------
   function makeCtx() {
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    master = ctx.createGain(); master.gain.value = masterVol; master.connect(ctx.destination);
+    master = ctx.createGain(); master.gain.value = masterVol;
+    // MASTER 키우기: master → boost → (키웠을 때만 리미터) → 출구. 1배면 리미터를 안 거쳐 지금 소리 그대로
+    boostG = ctx.createGain(); limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -1; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.003; limiter.release.value = 0.15;
+    master.connect(boostG); limiter.connect(ctx.destination); routeBoost();
     ctx.onstatechange = () => {
       emit('ctx', ctx.state);
       // 전화·시리 등으로 끊기면 알아서 다시 켠다. 일부러 멈춘(⏸) 동안은 두기.
@@ -672,7 +683,7 @@ const Engine = (() => {
     SFX_MAX_SEC,
     on(ev, f) { (ls[ev] || (ls[ev] = [])).push(f); },
     unlock, probeDuration, load, unload, play, stop, stopAll, pauseAll, resumeAll,
-    pos, setVolume, setPan, setTrim, setLoop, setMaster, playingIds, peaks,
+    pos, setVolume, setPan, setTrim, setLoop, setMaster, setBoost, playingIds, peaks,
     isPlaying: id => !!(tracks.get(id) && tracks.get(id).v),
     isFading: id => !!(tracks.get(id) && tracks.get(id).v && tracks.get(id).v.fading),
     dur: id => { const tr = tracks.get(id); return tr ? (tr.v ? tr.v.seg.L : seg(tr).L) : 0; },   // 구간 길이

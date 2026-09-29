@@ -339,3 +339,6 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
   .cbtn{width:64px}.prow{grid-template-columns:10px minmax(0,90px) 1fr auto 34px}.ptime{min-width:0}
   .stage{grid-template-columns:1fr 52px}
 }
+/* MASTER 키우기 켜짐 */
+#mVal.boost{color:#f59a3c;font-weight:900}
+[data-theme="light"] #mVal.boost{color:#c25e00}

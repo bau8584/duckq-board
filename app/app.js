@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.34 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.35 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -249,7 +249,9 @@ function renderMaster() {
   const v = S.master, sl = $('mSlider');
   $('mFill').style.height = (v * 100) + '%';
   $('mKnob').style.top = ((1 - v) * 100) + '%';
-  $('mVal').textContent = Math.round(v * 100) + '%';
+  const bst = S.settings.masterBoost || 1;
+  $('mVal').textContent = Math.round(v * bst * 100) + '%';
+  $('mVal').classList.toggle('boost', bst > 1);
   sl.setAttribute('aria-valuenow', Math.round(v * 100));
 }
 
@@ -765,6 +767,7 @@ function cancelSheet() {
   for (const id in o.pads) o.pads[id].played = keepPlayed(id) ?? o.pads[id].played;
   Object.assign(S, { boards: o.boards, pads: o.pads, settings: o.settings, cur: Math.min(o.cur, o.boards.length - 1) });
   for (const id in S.pads) { const p = S.pads[id]; Engine.setVolume(id, p.vol); Engine.setPan(id, p.pan || 0); Engine.setLoop(id, p.loop); Engine.setTrim(id, p.start || 0, p.end || 0); }
+  Engine.setBoost(S.settings.masterBoost || 1); renderMaster();
   save(); logLine('설정 창 취소 → 열기 전으로');
   closeSheet(); applyTheme(); applyBoardColor(); renderAll();
 }
@@ -1153,6 +1156,10 @@ function openSettings(tab = 'general', keep) {
       row('화면', seg([['dark', '다크'], ['light', '화이트']], st.theme, v => { st.theme = v; save(); applyTheme(); })),
       row('패드 크기', seg([[8, '작게'], [6, '보통'], [4, '크게']], st.cols, v => { st.cols = v; save(); renderGrid(); })),
       row('패드 글자', seg([['s', '작게'], ['m', '보통'], ['l', '크게']], st.labelSize, v => { st.labelSize = v; save(); renderGrid(); })),
+      row(helpLabel('MASTER 키우기', '공연장에서 소리가 작게 나올 때. MASTER 막대 전체가 이만큼 커져요(막대 숫자도 실제 크기로). 넘치는 소리는 저절로 눌러 찌그러짐을 막아요. 켜 두면 MASTER 숫자가 주황색'),
+        seg([[1, '끔'], [1.5, '1.5배'], [2, '2배'], [3, '3배']], st.masterBoost || 1, v => {
+          st.masterBoost = v; save(); Engine.setBoost(v); renderMaster(); logLine(`MASTER 키우기 ${v}배`);
+        })),
       row(helpLabel('PLAYED 표시', '공연 모드를 켤 때와 6시간 안 쓰면 저절로 지워져요'), h('button', { class: 'sbtn', onclick: () => {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
@@ -1214,7 +1221,7 @@ async function reqWake() {
 // 판은 바로 그리고(3초 안 복원), 파일은 뒤에서 불러온다. 소리는 [▶ 시작] 탭(손 제스처)에서 연다.
 $('btnStart').onclick = () => {
   Engine.unlock().catch(e => logLine('소리 출구 열기 실패: ' + e.message, 'e'));
-  Engine.setMaster(S.master);
+  Engine.setMaster(S.master); Engine.setBoost(S.settings.masterBoost || 1);
   started = true; $('startOv').hidden = true;
   reqWake();
 };
