@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.10 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.11 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -10,6 +10,7 @@ const DEF_SETTINGS = { theme: 'dark', cols: 6, fadeSec: 2, fadeOverride: false, 
 const PLAYED_IDLE_MS = 6 * 3600 * 1000;   // 마지막 사용 6시간 뒤 PLAYED 저절로 지움
 const IC = {
   fi: '<svg viewBox="0 0 24 24"><path d="M3 19L21 5v14z"/></svg>',
+  fo: '<svg viewBox="0 0 24 24"><path d="M3 5v14h18z"/></svg>',
   so: '<svg viewBox="0 0 24 24"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="4" height="6" rx="1.5"/><rect x="17" y="14" width="4" height="6" rx="1.5"/></svg>',
   lp: '<svg viewBox="0 0 24 24"><path d="M17 3l3 3-3 3"/><path d="M4 11V9a3 3 0 0 1 3-3h13"/><path d="M7 21l-3-3 3-3"/><path d="M20 13v2a3 3 0 0 1-3 3H4"/></svg>',
 };
@@ -162,7 +163,7 @@ function renderGrid() {
 function makePad(id, n) {
   const p = S.pads[id];
   const el = h('button', { class: 'pad', 'data-id': id, html:
-    `<div class="icons">${p.fin ? IC.fi : ''}${p.solo ? IC.so : ''}${p.loop ? IC.lp : ''}</div>` +
+    `<div class="icons">${p.fin ? IC.fi : ''}${p.fout ? IC.fo : ''}${p.solo ? IC.so : ''}${p.loop ? IC.lp : ''}</div>` +
     `<div class="idx">${String(n).padStart(2, '0')}</div><div class="eq"><i></i><i></i><i></i></div><div class="edit">✓</div>` +
     `<div class="label"></div><div class="meta"><span>00:00</span><b>PLAYED</b><span></span></div>` });
   el.querySelector('.label').textContent = p.label || '(이름 없음)';
@@ -582,11 +583,16 @@ function addBoard() {
 let onSheetClose = null;
 // anchor(선택) = 설정 대상(패드·보드 탭)을 돌려주는 함수 → 그 옆에 말풍선처럼 띄우고, 대상만 떨리고 나머지는 흐리게
 let focus = null, sheetAnchor = null;   // focus = {pad:id} | {board:true}
-function openSheet(title, build, anchor, fc) {
+// 편집 창은 바꾸는 즉시 적용되고(소리·화면에 바로), 아래 [취소]는 이 창을 열기 전 상태로, [완료]는 그대로 닫기.
+// (소유자 결정 2026-09-29 A안) keep = 같은 창 안에서 칸만 바꿀 때 처음 상태를 그대로 둠
+let snap = null;
+function openSheet(title, build, anchor, fc, keep) {
   const sh = $('sheet'); sh.textContent = '';
   onSheetClose = null;
+  if (!keep || !snap) snap = JSON.stringify({ boards: S.boards, pads: S.pads, settings: S.settings, cur: S.cur });
   const body = h('div', { class: 'sh-body' });
-  sh.append(h('div', { class: 'sh-head' }, h('b', null, title), h('button', { class: 'ibtn', onclick: closeSheet }, '닫기')), body);
+  sh.append(h('div', { class: 'sh-head' }, h('b', null, title), h('button', { class: 'ibtn', onclick: closeSheet }, '닫기')), body,
+    h('div', { class: 'sh-foot' }, h('button', { class: 'sbtn', onclick: cancelSheet }, '취소'), h('button', { class: 'sbtn pri', onclick: closeSheet }, '완료')));
   build(body);
   focus = fc || null; sheetAnchor = anchor || null;
   document.body.classList.toggle('focusing', !!focus);
@@ -619,8 +625,19 @@ function placeSheet() {
   arw.hidden = false; arw.className = 'arw ' + dir; arw.style.left = ax + 'px'; arw.style.top = ay + 'px';
 }
 addEventListener('resize', () => { if (!$('sheetWrap').hidden) placeSheet(); });
+function cancelSheet() {
+  const o = snap && JSON.parse(snap); if (!o) return closeSheet();
+  onSheetClose = null;   // 되돌릴 거라 트림 확인 등은 건너뜀
+  const keepPlayed = id => S.pads[id] && S.pads[id].played;
+  for (const id in o.pads) o.pads[id].played = keepPlayed(id) ?? o.pads[id].played;
+  Object.assign(S, { boards: o.boards, pads: o.pads, settings: o.settings, cur: Math.min(o.cur, o.boards.length - 1) });
+  for (const id in S.pads) { const p = S.pads[id]; Engine.setVolume(id, p.vol); Engine.setPan(id, p.pan || 0); Engine.setLoop(id, p.loop); Engine.setTrim(id, p.start || 0, p.end || 0); }
+  save(); logLine('설정 창 취소 → 열기 전으로');
+  closeSheet(); applyTheme(); applyBoardColor(); renderAll();
+}
 function closeSheet() {
   if ($('sheetWrap').hidden) return;
+  snap = null;
   if (onSheetClose) { try { onSheetClose(); } catch {} onSheetClose = null; }
   if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   $('sheetWrap').hidden = true; $('sheet').textContent = '';
@@ -673,7 +690,6 @@ const volTxt = v => v + '%' + (v > 100 ? ' ↑' : '');   // 볼륨 0~200%, 가�
 const panTxt = v => v === 0 ? '가운데' : (v < 0 ? '왼쪽 ' : '오른쪽 ') + Math.abs(v);
 
 // 트림: 파일은 그대로, 시작·끝 지점만 기억. 파형(효과음) 위 두 손잡이 + 0.1초/1초 단추
-// [저장]을 눌러야 패드에 남는다. 저장 전에도 미리 듣기는 바꾼 구간으로 들린다.
 function trimBox(id, onchange) {
   const p = S.pads[id], D = Engine.fileDur(id) || p.dur || 0;
   let s = p.start || 0, e = p.end > s ? Math.min(p.end, D) : D;
@@ -693,10 +709,10 @@ function trimBox(id, onchange) {
   const stateEl = h('span', { class: 'sub' });
   const saveB = h('button', { class: 'sbtn pri', onclick: () => api.save() }, '저장'), cancelB = h('button', { class: 'sbtn', onclick: () => api.cancel() }, '취소');
   const mark = () => { const d = dirty(); saveB.disabled = cancelB.disabled = !d; stateEl.textContent = d ? '저장 안 됨' : ''; };
-  const commit = () => { Engine.setTrim(id, ns(), ne()); mark(); };   // 미리 듣기용으로만 적용
+  const commit = () => { if (dirty()) api.save(); };   // 바로 적용(창의 [취소]로 되돌림)
   const api = {
     dirty,
-    save() { logLine(`트림 저장 ${nm(id)} ${ns()}~${ne() || '끝'}`); p.start = ns(); p.end = ne(); Engine.setTrim(id, p.start, p.end); touchEdit(p); save(); mark(); onchange(); },
+    save() { logLine(`트림  ${nm(id)} ${ns()}~${ne() || '끝'}`); p.start = ns(); p.end = ne(); Engine.setTrim(id, p.start, p.end); touchEdit(p); save(); mark(); onchange(); },
     cancel() { logLine(`트림 취소 ${nm(id)}`); s = p.start || 0; e = p.end > s ? Math.min(p.end, D) : D; Engine.setTrim(id, p.start || 0, p.end || 0); draw(); mark(); },
   };
   const setS = v => { s = Math.min(Math.max(0, v), e - 0.1); draw(); };
@@ -728,7 +744,6 @@ function trimBox(id, onchange) {
     h('div', { class: 'trow' }, h('span', null, '시작'), nb('−1', () => setS(s - 1)), nb('−.1', () => setS(s - 0.1)), sOut, nb('+.1', () => setS(s + 0.1)), nb('+1', () => setS(s + 1))),
     h('div', { class: 'trow' }, h('span', null, '끝'), nb('−1', () => setE(e - 1)), nb('−.1', () => setE(e - 0.1)), eOut, nb('+.1', () => setE(e + 0.1)), nb('+1', () => setE(e + 1))),
     h('div', { class: 'trow' }, lenOut, h('button', { class: 'sbtn', onclick: () => { s = 0; e = D; draw(); commit(); } }, '전체로')),
-    h('div', { class: 'trow' }, stateEl, cancelB, saveB),
   );
   return api;
 }
@@ -780,7 +795,6 @@ function openPadSheet(id) {
   }, () => padEls.get(id), { pad: id });
   // 저장 안 한 트림은 닫을 때 묻는다. 미리 듣기로 튼 소리는 끔
   onSheetClose = () => {
-    if (trim && S.pads[id] && trim.dirty()) { logLine('트림 저장 안 하고 닫음 → 물어봄'); if (confirm('구간(트림)을 바꾼 게 저장되지 않았어요.\n저장할까요? (취소 = 바꾸기 전으로)')) trim.save(); else trim.cancel(); }
     if (heard && Engine.isPlaying(id)) Engine.stop(id, 0);
   };
 }
@@ -954,9 +968,9 @@ function openBoardSheet() {
 }
 
 // 설정 = [일반] [페이드] 두 칸
-function openSettings(tab = 'general') {
+function openSettings(tab = 'general', keep) {
   openSheet('설정', body => {
-    body.append(h('div', { class: 'row' }, seg([['general', '일반'], ['fade', '페이드']], tab, v => openSettings(v))));
+    body.append(h('div', { class: 'row' }, seg([['general', '일반'], ['fade', '페이드']], tab, v => openSettings(v, true))));
     if (tab === 'fade') return fadeTab(body);
     const st = S.settings;
     const logBox = h('div', { class: 'logbox', hidden: true });
@@ -977,7 +991,7 @@ function openSettings(tab = 'general') {
     if (navigator.storage && navigator.storage.estimate) navigator.storage.estimate().then(e => {
       const m = $('memInfo'); if (m) m.textContent += ` · 저장 ${(e.usage / 1048576).toFixed(0)}MB / ${(e.quota / 1073741824).toFixed(1)}GB`;
     });
-  });
+  }, null, null, keep);
 }
 
 // ---------- 알림 (act = {label, fn} 이면 단추 하나) ----------
