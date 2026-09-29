@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.9 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.10 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -669,6 +669,7 @@ function colorChips(cur, withNone, onchange) {
   return box;
 }
 const sec1 = v => v.toFixed(1) + '초';
+const volTxt = v => v + '%' + (v > 100 ? ' ↑' : '');   // 볼륨 0~200%, 가운데 100% = 원래 소리
 const panTxt = v => v === 0 ? '가운데' : (v < 0 ? '왼쪽 ' : '오른쪽 ') + Math.abs(v);
 
 // 트림: 파일은 그대로, 시작·끝 지점만 기억. 파형(효과음) 위 두 손잡이 + 0.1초/1초 단추
@@ -747,9 +748,6 @@ function openPadSheet(id) {
   openSheet('패드 설정', body => {
     const name = h('input', { class: 'txt', value: p.label, maxlength: 40, placeholder: '패드 이름' });
     name.oninput = () => { p.label = name.value; refresh(); };
-    const fin = stepper(p.finSec, 0.1, 10, 0.1, sec1, v => { p.finSec = v; touchEdit(p); save(); });
-    const fout = stepper(p.foutSec, 0.1, 10, 0.1, sec1, v => { p.foutSec = v; touchEdit(p); save(); });
-    fin.classList.toggle('off', !p.fin); fout.classList.toggle('off', !p.fout);
     const moveSel = h('select', { class: 'sel' }, h('option', { value: '' }, '다른 보드로…'),
       S.boards.filter(x => x !== b).map(x => h('option', { value: x.id }, x.name)));
     moveSel.onchange = () => {
@@ -763,12 +761,12 @@ function openPadSheet(id) {
         colorChips(p.color, true, k => { p.color = k; refresh(); })),
       row('미리 듣기', h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, Engine.dur(id) - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
       (trim = trimBox(id, () => { refresh(); renderTop(); })).el,
-      row('볼륨', stepper(Math.round(p.vol * 100), 0, 100, 5, v => v + '%', v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); })),
+      row(h('span', null, '볼륨', h('span', { class: 'sub' }, '100% = 원래 소리 · 넘기면 키움(너무 크면 찌그러질 수 있음)')), stepper(Math.round(p.vol * 100), 0, 200, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); })),
       row(h('span', null, '팬', h('span', { class: 'sub' }, '왼쪽·오른쪽 스피커로 치우치게')), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); })),
       row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
       row(h('span', null, '솔로', h('span', { class: 'sub' }, '이 패드를 틀면 다른 소리를 끔')), sw(p.solo, on => { p.solo = on; refresh(); })),
-      fadeRow('페이드인', '누르면 이 시간 동안 서서히 커짐', sw(p.fin, on => { p.fin = on; fin.classList.toggle('off', !on); refresh(); }), fin),
-      fadeRow('페이드아웃', '곡 끝에 닿을 때 + 다시 눌러 끌 때', sw(p.fout, on => { p.fout = on; fout.classList.toggle('off', !on); touchEdit(p); save(); }), fout),
+      h('div', { class: 'row col' }, h('label', null, '페이드', h('span', { class: 'sub' }, '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 곡 끝 + 다시 눌러 끌 때')),
+        fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) refresh(); })),
       row('패드', h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
       } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: () => {
@@ -804,7 +802,7 @@ function openBulkSheet(ids) {
   openSheet(`${ps.length}개 일괄 수정`, body => body.append(
     h('div', { class: 'row' }, h('div', { class: 'info' }, '모두 같은 항목은 그 값이, 서로 다른 항목은 "제각각"으로 보여요. 손댄 항목만 고른 패드 모두에 같은 값으로 들어가요.')),
     h('div', { class: 'row col' }, h('label', null, '색', tag('color')), colorChips(same('color'), true, k => set(q => { q.color = k; }))),
-    row(lab('볼륨', 'vol'), num('vol', 100, 0, 100, 5, v => v + '%', (q, v) => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); })),
+    row(lab('볼륨', 'vol'), num('vol', 100, 0, 200, 5, volTxt, (q, v) => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); })),
     row(lab('팬', 'pan'), num('pan', 100, -100, 100, 10, panTxt, (q, v) => { q.pan = v / 100; Engine.setPan(q.id, q.pan); })),
     row(lab('반복(루프)', 'loop'), onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
     row(lab('솔로', 'solo'), onoff('solo')),
@@ -813,87 +811,124 @@ function openBulkSheet(ids) {
   ));
 }
 
-// 페이드 설정(설정의 [페이드] 칸): 보드를 골라 그 곡들의 페이드인/아웃을 한눈에. 줄마다 켬·초, 위에 목록 전체에 한 번에.
+// ---------- 페이드 모양 막대 ----------
+// 편집 프로그램의 페이드 손잡이처럼: 왼쪽 비탈 = 페이드인, 오른쪽 비탈 = 페이드아웃. 끌어서 길이를 정하고, 끝까지 밀면 0초 = 끔.
+// v = {fin, finSec, fout, foutSec} · onchange(side 'in'|'out', sec(0=끔), final) · opt.dim = {in:true} 이면 그쪽을 흐리게(아직 안 정함)
+const ENV_MAX = 10, ENV_HALF = 46;   // 한쪽 비탈 최대 10초, 막대 폭의 46%까지
+const envX = sec => Math.sqrt(Math.min(ENV_MAX, sec) / ENV_MAX) * ENV_HALF;   // 짧은 시간을 세밀하게(제곱근 눈금)
+const envSec = pct => Math.round(ENV_MAX * (Math.max(0, Math.min(ENV_HALF, pct)) / ENV_HALF) ** 2 * 10) / 10;
+function fadeEnv(v, onchange, opt = {}) {
+  let si = v.fin ? v.finSec : 0, so = v.fout ? v.foutSec : 0;
+  const dim = { in: !!(opt.dim && opt.dim.in), out: !!(opt.dim && opt.dim.out) };
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', '0 0 100 40'); svg.setAttribute('preserveAspectRatio', 'none');
+  const poly = document.createElementNS(NS, 'polygon'); svg.append(poly);
+  const hi = h('i', { class: 'eh' }), ho = h('i', { class: 'eh' });
+  const li = h('span', { class: 'el in' }), lo = h('span', { class: 'el out' });
+  const box = h('div', { class: 'env' + (opt.small ? ' small' : '') }, svg, hi, ho, li, lo);
+  const draw = () => {
+    const xi = envX(si), xo = 100 - envX(so);
+    poly.setAttribute('points', `0,40 ${xi},3 ${xo},3 100,40`);
+    hi.style.left = xi + '%'; ho.style.left = xo + '%';
+    li.textContent = dim.in ? '인 —' : si ? `인 ${si.toFixed(1)}초` : '인 없음';
+    lo.textContent = dim.out ? '아웃 —' : so ? `아웃 ${so.toFixed(1)}초` : '아웃 없음';
+    box.classList.toggle('dim-in', dim.in); box.classList.toggle('dim-out', dim.out);
+  };
+  let side = null;
+  const at = e => { const r = box.getBoundingClientRect(); return (e.clientX - r.left) / r.width * 100; };
+  const set = (e, final) => {
+    const x = at(e);
+    if (side === 'in') { si = envSec(x); dim.in = false; } else { so = envSec(100 - x); dim.out = false; }
+    draw(); onchange(side, side === 'in' ? si : so, final);
+  };
+  box.addEventListener('pointerdown', e => {
+    const x = at(e);   // 가까운 손잡이 쪽
+    side = Math.abs(x - envX(si)) <= Math.abs(x - (100 - envX(so))) ? 'in' : 'out';
+    box.setPointerCapture(e.pointerId); box.classList.add('drag'); set(e, false);
+  });
+  box.addEventListener('pointermove', e => { if (side) set(e, false); });
+  const up = e => { if (!side) return; set(e, true); side = null; box.classList.remove('drag'); };
+  box.addEventListener('pointerup', up); box.addEventListener('pointercancel', () => { side = null; box.classList.remove('drag'); });
+  box.update = nv => { si = nv.fin ? nv.finSec : 0; so = nv.fout ? nv.foutSec : 0; draw(); };
+  draw();
+  return box;
+}
+// 패드에 넣기: 0초 = 끔(시간 값은 남겨 둠)
+const envApply = (p, side, sec) => {
+  if (side === 'in') { p.fin = sec > 0; if (sec > 0) p.finSec = sec; }
+  else { p.fout = sec > 0; if (sec > 0) p.foutSec = sec; }
+};
+
+// 페이드 설정(설정의 [페이드] 칸)
 let fadeScope = null;   // 보드 id | 'all'
 const openFadeSheet = () => openSettings('fade');
 function fadeTab(body) {
   const st = S.settings;
   if (fadeScope !== 'all' && !S.boards.some(b => b.id === fadeScope)) fadeScope = board().id;
-  const STEP = 0.2;
-  const clamp = v => Math.min(10, Math.max(STEP, +(+v).toFixed(1)));
-  const mini = (on, sec, setOn, setSec) => {
-    const o = h('output', null, sec1(sec));
-    const box = h('div', { class: 'mini' + (on ? '' : ' off') });
-    const s = sw(on, v => { box.classList.toggle('off', !v); setOn(v); });
-    const bump = d => { sec = clamp(sec + d); o.textContent = sec1(sec); setSec(sec); };
-    box.append(s, h('button', { onclick: () => bump(-STEP), 'aria-label': '줄이기' }, '−'), o, h('button', { onclick: () => bump(STEP), 'aria-label': '늘리기' }, '＋'));
-    return box;
-  };
+  let lastBoard = fadeScope === 'all' ? board().id : fadeScope;
   const ids = () => fadeScope === 'all' ? S.boards.flatMap(b => b.pads) : (S.boards.find(b => b.id === fadeScope) || board()).pads;
   const scopeName = () => fadeScope === 'all' ? '모든 보드' : (S.boards.find(b => b.id === fadeScope) || board()).name;
   const list = h('div', { class: 'flist' }), title = h('label');
   const picked = new Set();   // [선택 변경]에 쓸 곡(줄 앞 체크)
-  const selBtns = [];
-  const markSel = () => selBtns.forEach(b => { b.disabled = !picked.size; b.textContent = picked.size ? `선택 변경 (${picked.size})` : '선택 변경'; });
   const chk = (on, fn) => { const c = h('button', { class: 'chk' + (on ? ' on' : ''), 'aria-label': '고르기' }, '✓'); c.onclick = () => { on = !on; c.classList.toggle('on', on); fn(on); }; return c; };
+  let selB = null;
+  const markSel = () => { if (selB) { selB.disabled = !picked.size || !touched(); selB.textContent = picked.size ? `선택 변경 (${picked.size})` : '선택 변경'; } };
   const draw = () => {
     const L = ids(); list.textContent = '';
     for (const id of picked) if (!L.includes(id)) picked.delete(id);
     title.textContent = `${scopeName()}의 곡 ${L.length}개`;
     list.append(h('div', { class: 'frow fhead ck' }, chk(L.length && L.every(id => picked.has(id)), on => { L.forEach(id => on ? picked.add(id) : picked.delete(id)); draw(); }),
-      h('span', null, '곡'), h('span', null, '페이드인'), h('span', null, '페이드아웃')));
+      h('span', null, '곡'), h('span', { class: 'ehead' }, h('span', null, '◢ 페이드인'), h('span', null, '페이드아웃 ◣'))));
     L.forEach(id => { const p = S.pads[id]; list.append(h('div', { class: 'frow ck' },
       chk(picked.has(id), on => { on ? picked.add(id) : picked.delete(id); markSel(); }),
       h('span', { class: 'fname' }, p.label || '(이름 없음)'),
-      mini(p.fin, p.finSec, v => { p.fin = v; touchEdit(p); save(); }, v => { p.finSec = v; touchEdit(p); save(); }),
-      mini(p.fout, p.foutSec, v => { p.fout = v; touchEdit(p); save(); }, v => { p.foutSec = v; touchEdit(p); save(); }))); });
+      fadeEnv(p, (side, sec, final) => { envApply(p, side, sec); if (final) { touchEdit(p); save(); logLine(`곡별 페이드 ${nm(id)} ${side === 'in' ? '인' : '아웃'} ${sec ? sec + '초' : '끔'}`); } }, { small: true }))); });
     if (!L.length) list.append(h('div', { class: 'info' }, '곡이 없어요'));
     markSel();
   };
-  // 목록 전체에 한 번에 — 곡마다 따로 맞춘 값이 사라지므로 8초 안에 되돌리기
-  const all = (what, fn, only) => {
+  // 한 번에 바꾸기: 위 막대에서 끌어 정한 쪽(인/아웃)만 넣는다. 곡마다 맞춘 값이 사라지므로 8초 안에 되돌리기
+  const want = { in: null, out: null };   // null = 안 건드림
+  const touched = () => want.in !== null || want.out !== null;
+  const all = only => {
     const L = only ? ids().filter(id => picked.has(id)) : ids(), before = L.map(id => { const p = S.pads[id]; return [id, p.fin, p.finSec, p.fout, p.foutSec]; });
-    L.forEach(id => { fn(S.pads[id]); touchEdit(S.pads[id]); }); save(); draw();
-    logLine(`페이드 한 번에(${scopeName()}) ${what} → ` + L.map(id => { const p = S.pads[id]; return `${p.label}(인 ${p.fin ? p.finSec : '끔'} 아웃 ${p.fout ? p.foutSec : '끔'})`; }).join(', '));
+    const what = [want.in !== null ? `인 ${want.in ? want.in + '초' : '끔'}` : '', want.out !== null ? `아웃 ${want.out ? want.out + '초' : '끔'}` : ''].filter(Boolean).join(' · ');
+    L.forEach(id => { const p = S.pads[id]; if (want.in !== null) envApply(p, 'in', want.in); if (want.out !== null) envApply(p, 'out', want.out); touchEdit(p); }); save(); draw();
+    logLine(`페이드 한 번에(${scopeName()}${only ? ' 선택' : ''}) ${what} → ${L.map(id => S.pads[id].label).join(', ')}`);
     toast(`${L.length}곡 ${what}`, 8000, { label: '되돌리기', fn: () => {
       before.forEach(([id, a, b, c, d]) => { const p = S.pads[id]; if (p) Object.assign(p, { fin: a, finSec: b, fout: c, foutSec: d }); });
       save(); draw(); logLine(`페이드 한 번에 되돌리기 ${before.length}곡`);
     } });
   };
-  // 인·아웃 한 칸씩(좌우): 켬/끔 + 시간을 정하고 [전체 변경] 또는 [선택 변경]
-  const bulk = (label, onK, secK) => {
-    let n = onK === 'fin' ? 1 : 2, on = true; const o = h('output', null, sec1(n));
-    const apply = only => all(`${label} ${on ? sec1(n) : '끔'}${only ? ' (선택)' : ''}`, p => { p[onK] = on; if (on) p[secK] = n; }, only);
-    const selB = h('button', { class: 'pri', onclick: () => apply(true) }, '선택 변경'); selBtns.push(selB);
-    const time = h('div', { class: 'trow' },
-      h('button', { onclick: () => { n = clamp(n - STEP); o.textContent = sec1(n); } }, '−'), o,
-      h('button', { onclick: () => { n = clamp(n + STEP); o.textContent = sec1(n); } }, '＋'));
-    return h('div', { class: 'bulk' },
-      h('div', { class: 'bhead' }, h('b', null, label), seg([[true, '켬'], [false, '끔']], true, v => { on = v; time.classList.toggle('off', !v); })),
-      time,
-      h('div', { class: 'trow' }, h('button', { onclick: () => apply(false) }, '전체 변경'), selB));
+  const allB = h('button', { disabled: true, onclick: () => all(false) }, '전체 변경');
+  selB = h('button', { class: 'pri', disabled: true, onclick: () => all(true) }, '선택 변경');
+  const bulkEnv = fadeEnv({ fin: true, finSec: 1, fout: true, foutSec: 2 }, (side, sec) => { want[side] = sec; allB.disabled = false; markSel(); }, { dim: { in: true, out: true } });
+  const bulk = h('div', { class: 'bulk' },
+    h('div', { class: 'sub' }, '막대를 끌어 정한 쪽만 들어가요(안 건드린 쪽은 그대로)'), bulkEnv,
+    h('div', { class: 'trow' }, allB, selB));
+  // 보기: [보드별 | 모든 보드] → 보드별이면 아래에 보드 칩
+  const boardChips = h('div', { class: 'seg sm' });
+  const drawChips = () => {
+    boardChips.textContent = ''; boardChips.hidden = fadeScope === 'all';
+    boardChips.append(...S.boards.map(b => h('button', { class: b.id === fadeScope ? 'on' : '', onclick: () => { fadeScope = lastBoard = b.id; drawChips(); draw(); } }, b.name)));
   };
-  const chips = h('div', { class: 'seg' });
-  const scopes = [...S.boards.map(b => [b.id, b.name]), ['all', '모든 보드']];
-  chips.append(...scopes.map(([v, name]) => h('button', { class: v === fadeScope ? 'on' : '', onclick: e => {
-    fadeScope = v; [...chips.children].forEach(x => x.classList.toggle('on', x === e.currentTarget)); draw();
-  } }, name)));
-  draw();
+  const mode = seg([['board', '보드별'], ['all', '모든 보드']], fadeScope === 'all' ? 'all' : 'board', v => { fadeScope = v === 'all' ? 'all' : lastBoard; drawChips(); draw(); });
+  drawChips(); draw();
   body.append(
-    h('div', { class: 'row col' }, h('label', null, '새로 넣는 곡의 기본값'),
-      h('div', { class: 'frow fhead' }, h('span'), h('span', null, '페이드인'), h('span', null, '페이드아웃')),
-      h('div', { class: 'frow' }, h('span', { class: 'fname' }, '새 곡'),
-        mini(st.newFin, st.newFinSec, v => { st.newFin = v; save(); }, v => { st.newFinSec = v; save(); }),
-        mini(st.newFout, st.newFoutSec, v => { st.newFout = v; save(); }, v => { st.newFoutSec = v; save(); }))),
+    h('div', { class: 'fbox' },
+      h('div', { class: 'fbox-head' }, h('b', null, '새로 넣는 곡의 기본값'), h('span', { class: 'sub' }, '파일을 새로 넣을 때 이 페이드로 들어가요')),
+      fadeEnv({ fin: st.newFin, finSec: st.newFinSec, fout: st.newFout, foutSec: st.newFoutSec }, (side, sec, final) => {
+        if (side === 'in') { st.newFin = sec > 0; if (sec > 0) st.newFinSec = sec; } else { st.newFout = sec > 0; if (sec > 0) st.newFoutSec = sec; }
+        if (final) save();
+      })),
     row(h('span', null, '◣ 버튼 페이드 시간', h('span', { class: 'sub' }, '◣를 누르면 모든 소리가 이 시간에 걸쳐 꺼짐')), stepper(st.fadeSec, 0.1, 10, 0.1, sec1, v => { st.fadeSec = v; save(); })),
     // 옛 설정: 켜 둔 사람만 보임(끌 수 있게)
     st.fadeOverride ? row(h('span', null, '모든 패드에 ◣ 시간 쓰기', h('span', { class: 'sub' }, '옛 설정 — 끄면 곡별 페이드를 따름')), sw(true, on => { st.fadeOverride = on; save(); })) : '',
     h('div', { class: 'row col' }, h('label', null, '솔로 켠 패드를 틀면, 울리던 다른 소리는', h('span', { class: 'sub' }, '패드 설정에서 "솔로"를 켠 곡만 해당')),
       seg([['each', '곡별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], st.soloMode, v => { st.soloMode = v; save(); })),
-    // 곡별 페이드: 보드 고르기·한 번에 바꾸기·목록이 한 설정임을 상자 하나로 묶어 보여 줌
+    // 곡별 페이드: 보기 고르기·한 번에 바꾸기·목록이 한 설정임을 상자 하나로
     h('div', { class: 'fbox' },
-      h('div', { class: 'fbox-head' }, h('b', null, '곡별 페이드'), h('span', { class: 'sub' }, '페이드아웃은 곡 끝에 닿을 때와 다시 눌러 끌 때 둘 다 걸려요. 반복 곡은 끌 때만.')),
-      chips, title, h('div', { class: 'bulk2' }, bulk('페이드인', 'fin', 'finSec'), bulk('페이드아웃', 'fout', 'foutSec')), list),
+      h('div', { class: 'fbox-head' }, h('b', null, '곡별 페이드'), h('span', { class: 'sub' }, '비탈 손잡이를 좌우로 끌어요. 끝까지 밀면 페이드 없음. 페이드아웃은 곡 끝과 다시 눌러 끌 때 둘 다 걸려요.')),
+      mode, boardChips, title, bulk, list),
   );
 }
 
