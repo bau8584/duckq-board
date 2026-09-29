@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.43 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.44 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1374,9 +1374,6 @@ function openBoardSheet() {
         if (!confirm(`"${b.name}" 보드와 패드 ${b.pads.length}개를 지울까요?`)) return;
         [...b.pads].forEach(id => removePad(id)); S.boards.splice(S.cur, 1); S.cur = Math.max(0, S.cur - 1); save(); applyBoardColor(); closeSheet();
       } }, '삭제')),
-      row(helpLabel('파일', '이 보드를 zip 파일 하나로 저장해요. 안의 소리 이름은 패드 이름이에요. 다른 아이패드에서 [가져오기]하면 새 보드로 들어가요'),
-        h('button', { class: 'sbtn', disabled: !b.pads.length, onclick: () => exportBoard(b) }, '내보내기'),
-        h('button', { class: 'sbtn', disabled: S.lock, onclick: pickImport }, '가져오기')),
     );
   }, () => $('tabs').querySelector('.tab.on'), { board: true });
 }
@@ -1403,6 +1400,7 @@ function openSettings(tab = 'general', keep) {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
       window.Cue ? Cue.settingRow() : null,
+      fileRow(),
       offRow(),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
         h('div', { style: 'display:flex;gap:8px' },
@@ -1415,6 +1413,14 @@ function openSettings(tab = 'general', keep) {
       const m = $('memInfo'); if (m) m.textContent += ` · 저장 ${(e.usage / 1048576).toFixed(0)}MB / ${(e.quota / 1073741824).toFixed(1)}GB`;
     });
   }, null, null, keep);
+}
+
+// 설정: 보드 하나를 zip으로 내보내기 · zip을 새 보드로 가져오기
+function fileRow() {
+  const pick = h('select', { class: 'sel' }, S.boards.map(x => h('option', { value: x.id, selected: x === board() }, `${x.name} (${x.pads.length})`)));
+  const exp = h('button', { class: 'sbtn', onclick: () => { const b = S.boards.find(x => x.id === pick.value); if (b && b.pads.length) exportBoard(b); else toast('패드가 없는 보드예요'); } }, '내보내기');
+  return row(helpLabel('보드 파일', '고른 보드를 zip 파일 하나로 저장해요. 안의 소리 이름은 패드 이름, 형식은 원본 그대로(긴 곡은 트림 앞뒤 3분만). [가져오기]하면 늘 새 보드로 더해져요 — 있던 보드는 그대로'),
+    h('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, pick, exp, h('button', { class: 'sbtn', disabled: S.lock, onclick: pickImport }, '가져오기')));
 }
 
 // 설정: 오프라인 저장 상태 + [업데이트]
