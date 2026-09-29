@@ -353,3 +353,5 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 /* 루프 N번·N초 표시: 루프 기호 오른쪽 아래 작게 */
 .icons .slot{position:relative}
 .lpn{position:absolute;left:18px;bottom:-3px;font:800 10px/1 var(--font);white-space:nowrap;opacity:.85}
+/* 볼륨 칸: 줄마다 막대가 남는 폭을 다 씀 */
+.frow.ck.vrow .step{justify-content:flex-end}.frow.ck.vrow .step input[type=range]{flex:1;width:auto;min-width:60px}

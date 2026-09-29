@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.40 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.41 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1264,6 +1264,58 @@ function fadeTab(body) {
   );
 }
 
+// 볼륨 설정(설정의 [볼륨] 칸) — 페이드 칸과 같은 모양: 보기 고르기 + 체크 + 트랙 목록. 보기(보드)는 페이드 칸과 같이 씀
+function volTab(body) {
+  if (fadeScope !== 'all' && !S.boards.some(b => b.id === fadeScope)) fadeScope = board().id;
+  let lastBoard = fadeScope === 'all' ? board().id : fadeScope;
+  const ids = () => fadeScope === 'all' ? S.boards.flatMap(b => b.pads) : (S.boards.find(b => b.id === fadeScope) || board()).pads;
+  const scopeName = () => fadeScope === 'all' ? '모든 보드' : (S.boards.find(b => b.id === fadeScope) || board()).name;
+  const list = h('div', { class: 'flist' }), title = h('label');
+  const picked = new Set();
+  const chk = (on, fn) => { const c = h('button', { class: 'chk' + (on ? ' on' : ''), 'aria-label': '고르기' }, '✓'); c.onclick = () => { on = !on; c.classList.toggle('on', on); fn(on); }; return c; };
+  const setVol = (p, v) => { p.vol = v / 100; Engine.setVolume(p.id, p.vol); touchEdit(p); };
+  let decB, incB;
+  const markSel = () => { const n = picked.size; decB.disabled = incB.disabled = !n; decB.textContent = `선택 −10%${n ? ` (${n})` : ''}`; incB.textContent = `선택 ＋10%${n ? ` (${n})` : ''}`; };
+  const draw = () => {
+    const L = ids(); list.textContent = '';
+    for (const id of picked) if (!L.includes(id)) picked.delete(id);
+    title.textContent = `${scopeName()}의 트랙 ${L.length}개`;
+    list.append(h('div', { class: 'frow fhead ck' }, chk(L.length && L.every(id => picked.has(id)), on => { L.forEach(id => on ? picked.add(id) : picked.delete(id)); draw(); }),
+      h('span', null, '트랙'), h('span', null, '볼륨')));
+    L.forEach(id => { const p = S.pads[id]; list.append(h('div', { class: 'frow ck vrow' },
+      chk(picked.has(id), on => { on ? picked.add(id) : picked.delete(id); markSel(); }),
+      h('span', { class: 'fname' }, p.label || '(이름 없음)'),
+      stepper(Math.round(p.vol * 100), 0, 300, 5, volTxt, v => { setVol(p, v); save(); }, false, VOL_MAP))); });
+    if (!L.length) list.append(h('div', { class: 'info' }, '트랙이 없어요'));
+    markSel();
+  };
+  // 고른 트랙을 같이 올리고 내리기(각자 비율은 그대로, 0~300% 안에서). 8초 안에 되돌리기
+  const nudge = d => {
+    const L = ids().filter(id => picked.has(id)), before = L.map(id => [id, S.pads[id].vol]);
+    L.forEach(id => { const p = S.pads[id]; setVol(p, Math.min(300, Math.max(0, Math.round(p.vol * 100) + d))); }); save(); draw();
+    logLine(`볼륨 한 번에(${scopeName()} 선택) ${d > 0 ? '+' : ''}${d}% → ${L.map(id => `${S.pads[id].label} ${Math.round(S.pads[id].vol * 100)}`).join(', ')}`);
+    toast(`${L.length}개 트랙 ${d > 0 ? '+' : ''}${d}%`, 8000, { label: '되돌리기', fn: () => {
+      before.forEach(([id, v]) => { const p = S.pads[id]; if (p) { p.vol = v; Engine.setVolume(id, v); } });
+      save(); draw(); logLine(`볼륨 한 번에 되돌리기 ${before.length}개 트랙`);
+    } });
+  };
+  decB = h('button', { disabled: true, onclick: () => nudge(-10) });
+  incB = h('button', { class: 'pri', disabled: true, onclick: () => nudge(10) });
+  const bulk = h('div', { class: 'bulk' },
+    h('div', null, helpLabel('한 번에 바꾸기', '체크한 트랙을 모두 10%씩 올리거나 내려요. 트랙끼리 크기 차이는 그대로. 0~300% 안에서 멈춰요. 8초 안에 되돌리기.')),
+    h('div', { class: 'trow' }, decB, incB));
+  const boardChips = h('div', { class: 'seg sm' });
+  const drawChips = () => {
+    boardChips.textContent = ''; boardChips.hidden = fadeScope === 'all';
+    boardChips.append(...S.boards.map(b => h('button', { class: b.id === fadeScope ? 'on' : '', onclick: () => { fadeScope = lastBoard = b.id; drawChips(); draw(); } }, b.name)));
+  };
+  const mode = seg([['board', '보드별'], ['all', '모든 보드']], fadeScope === 'all' ? 'all' : 'board', v => { fadeScope = v === 'all' ? 'all' : lastBoard; drawChips(); draw(); });
+  drawChips(); draw();
+  body.append(h('div', { class: 'fbox' },
+    h('div', { class: 'fbox-head' }, h('b', null, helpLabel('트랙별 볼륨', HELP.vol))),
+    mode, boardChips, title, bulk, list));
+}
+
 function openBoardSheet() {
   const b = board();
   openSheet('보드 설정', body => {
@@ -1291,8 +1343,9 @@ function openBoardSheet() {
 // 설정 = [일반] [페이드] 두 칸
 function openSettings(tab = 'general', keep) {
   openSheet('설정', body => {
-    body.append(h('div', { class: 'row' }, seg([['general', '일반'], ['fade', '페이드']], tab, v => openSettings(v, true))));
+    body.append(h('div', { class: 'row' }, seg([['general', '일반'], ['fade', '페이드'], ['vol', '볼륨']], tab, v => openSettings(v, true))));
     if (tab === 'fade') return fadeTab(body);
+    if (tab === 'vol') return volTab(body);
     const st = S.settings;
     const logBox = h('div', { class: 'logbox', hidden: true });
     body.append(
