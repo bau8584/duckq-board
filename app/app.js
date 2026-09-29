@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.8 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.9 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -832,19 +832,27 @@ function fadeTab(body) {
   const ids = () => fadeScope === 'all' ? S.boards.flatMap(b => b.pads) : (S.boards.find(b => b.id === fadeScope) || board()).pads;
   const scopeName = () => fadeScope === 'all' ? '모든 보드' : (S.boards.find(b => b.id === fadeScope) || board()).name;
   const list = h('div', { class: 'flist' }), title = h('label');
+  const picked = new Set();   // [선택 변경]에 쓸 곡(줄 앞 체크)
+  const selBtns = [];
+  const markSel = () => selBtns.forEach(b => { b.disabled = !picked.size; b.textContent = picked.size ? `선택 변경 (${picked.size})` : '선택 변경'; });
+  const chk = (on, fn) => { const c = h('button', { class: 'chk' + (on ? ' on' : ''), 'aria-label': '고르기' }, '✓'); c.onclick = () => { on = !on; c.classList.toggle('on', on); fn(on); }; return c; };
   const draw = () => {
     const L = ids(); list.textContent = '';
+    for (const id of picked) if (!L.includes(id)) picked.delete(id);
     title.textContent = `${scopeName()}의 곡 ${L.length}개`;
-    list.append(h('div', { class: 'frow fhead' }, h('span', null, '곡'), h('span', null, '페이드인'), h('span', null, '페이드아웃')));
-    L.forEach(id => { const p = S.pads[id]; list.append(h('div', { class: 'frow' },
+    list.append(h('div', { class: 'frow fhead ck' }, chk(L.length && L.every(id => picked.has(id)), on => { L.forEach(id => on ? picked.add(id) : picked.delete(id)); draw(); }),
+      h('span', null, '곡'), h('span', null, '페이드인'), h('span', null, '페이드아웃')));
+    L.forEach(id => { const p = S.pads[id]; list.append(h('div', { class: 'frow ck' },
+      chk(picked.has(id), on => { on ? picked.add(id) : picked.delete(id); markSel(); }),
       h('span', { class: 'fname' }, p.label || '(이름 없음)'),
       mini(p.fin, p.finSec, v => { p.fin = v; touchEdit(p); save(); }, v => { p.finSec = v; touchEdit(p); save(); }),
       mini(p.fout, p.foutSec, v => { p.fout = v; touchEdit(p); save(); }, v => { p.foutSec = v; touchEdit(p); save(); }))); });
     if (!L.length) list.append(h('div', { class: 'info' }, '곡이 없어요'));
+    markSel();
   };
   // 목록 전체에 한 번에 — 곡마다 따로 맞춘 값이 사라지므로 8초 안에 되돌리기
-  const all = (what, fn) => {
-    const L = ids(), before = L.map(id => { const p = S.pads[id]; return [id, p.fin, p.finSec, p.fout, p.foutSec]; });
+  const all = (what, fn, only) => {
+    const L = only ? ids().filter(id => picked.has(id)) : ids(), before = L.map(id => { const p = S.pads[id]; return [id, p.fin, p.finSec, p.fout, p.foutSec]; });
     L.forEach(id => { fn(S.pads[id]); touchEdit(S.pads[id]); }); save(); draw();
     logLine(`페이드 한 번에(${scopeName()}) ${what} → ` + L.map(id => { const p = S.pads[id]; return `${p.label}(인 ${p.fin ? p.finSec : '끔'} 아웃 ${p.fout ? p.foutSec : '끔'})`; }).join(', '));
     toast(`${L.length}곡 ${what}`, 8000, { label: '되돌리기', fn: () => {
@@ -852,16 +860,18 @@ function fadeTab(body) {
       save(); draw(); logLine(`페이드 한 번에 되돌리기 ${before.length}곡`);
     } });
   };
+  // 인·아웃 한 칸씩(좌우): 켬/끔 + 시간을 정하고 [전체 변경] 또는 [선택 변경]
   const bulk = (label, onK, secK) => {
-    let n = onK === 'fin' ? 1 : 2; const o = h('output', null, sec1(n));
-    return h('div', { class: 'bulk' }, h('b', null, label),
-      h('div', { class: 'trow' },
-        h('button', { onclick: () => all(`${label} 모두 켬`, p => { p[onK] = true; }) }, '모두 켬'),
-        h('button', { onclick: () => all(`${label} 모두 끔`, p => { p[onK] = false; }) }, '모두 끔'),
-        h('span', { class: 'gap' }),
-        h('button', { onclick: () => { n = clamp(n - STEP); o.textContent = sec1(n); } }, '−'), o,
-        h('button', { onclick: () => { n = clamp(n + STEP); o.textContent = sec1(n); } }, '＋'),
-        h('button', { class: 'pri', onclick: () => all(`${label} 모두 ${sec1(n)}`, p => { p[onK] = true; p[secK] = n; }) }, '모두 이 시간으로')));
+    let n = onK === 'fin' ? 1 : 2, on = true; const o = h('output', null, sec1(n));
+    const apply = only => all(`${label} ${on ? sec1(n) : '끔'}${only ? ' (선택)' : ''}`, p => { p[onK] = on; if (on) p[secK] = n; }, only);
+    const selB = h('button', { class: 'pri', onclick: () => apply(true) }, '선택 변경'); selBtns.push(selB);
+    const time = h('div', { class: 'trow' },
+      h('button', { onclick: () => { n = clamp(n - STEP); o.textContent = sec1(n); } }, '−'), o,
+      h('button', { onclick: () => { n = clamp(n + STEP); o.textContent = sec1(n); } }, '＋'));
+    return h('div', { class: 'bulk' },
+      h('div', { class: 'bhead' }, h('b', null, label), seg([[true, '켬'], [false, '끔']], true, v => { on = v; time.classList.toggle('off', !v); })),
+      time,
+      h('div', { class: 'trow' }, h('button', { onclick: () => apply(false) }, '전체 변경'), selB));
   };
   const chips = h('div', { class: 'seg' });
   const scopes = [...S.boards.map(b => [b.id, b.name]), ['all', '모든 보드']];
@@ -883,7 +893,7 @@ function fadeTab(body) {
     // 곡별 페이드: 보드 고르기·한 번에 바꾸기·목록이 한 설정임을 상자 하나로 묶어 보여 줌
     h('div', { class: 'fbox' },
       h('div', { class: 'fbox-head' }, h('b', null, '곡별 페이드'), h('span', { class: 'sub' }, '페이드아웃은 곡 끝에 닿을 때와 다시 눌러 끌 때 둘 다 걸려요. 반복 곡은 끌 때만.')),
-      chips, title, bulk('페이드인', 'fin', 'finSec'), bulk('페이드아웃', 'fout', 'foutSec'), list),
+      chips, title, h('div', { class: 'bulk2' }, bulk('페이드인', 'fin', 'finSec'), bulk('페이드아웃', 'fout', 'foutSec')), list),
   );
 }
 
