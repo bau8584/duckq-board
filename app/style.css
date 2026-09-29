@@ -350,3 +350,6 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 [data-cols="8"] .idx{font-size:13px;line-height:18px}
 /* 루프·솔로는 상자 없이 기호만 (인·아웃만 상자) */
 .icons .slot:nth-child(2) svg,.icons .slot:nth-child(3) svg{background:none}
+/* 루프 N번·N초 표시: 루프 기호 오른쪽 아래 작게 */
+.icons .slot{position:relative}
+.lpn{position:absolute;left:18px;bottom:-3px;font:800 10px/1 var(--font);white-space:nowrap;opacity:.85}

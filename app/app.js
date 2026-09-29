@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.38 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.39 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -210,7 +210,7 @@ function makePad(id, n) {
   const p = S.pads[id];
   const el = h('button', { class: 'pad', 'data-id': id, html:
     // 자리 고정: 인 · 루프 · (번호) · 솔로 · 아웃 (꺼진 건 빈자리로 남김 — 패드마다 같은 자리에 보이게)
-    `<div class="icons">${[['fin', 'fi'], ['loop', 'lp'], ['solo', 'so'], ['fout', 'fo']].map(([k, ic]) => `<i class="slot">${p[k] ? IC[ic] : ''}</i>`).join('')}</div>` +
+    `<div class="icons">${[['fin', 'fi'], ['loop', 'lp'], ['solo', 'so'], ['fout', 'fo']].map(([k, ic]) => `<i class="slot">${p[k] ? IC[ic] : ''}${k === 'loop' && loopTag(p) ? `<small class="lpn">${loopTag(p)}</small>` : ''}</i>`).join('')}</div>` +
     `<div class="idx">${String(n).padStart(2, '0')}</div><div class="eq"><i></i><i></i><i></i></div><div class="edit">✓</div>` +
     `<div class="label"></div><div class="meta"><span>00:00</span><b>PLAYED</b><span></span></div>` });
   el.querySelector('.label').textContent = p.label || '(이름 없음)';
@@ -315,7 +315,7 @@ function renderPlays() {
     if (ok && p && Engine.isPlaying(id)) {
       const d = Engine.dur(id), from = Math.min(f * d, Math.max(0, d - 0.1));
       logLine(`재생 위치 옮김 ${nm(id)} → ${fmt(from)}`);
-      Engine.play(id, { fadeIn: 0.08, fadeOut: foutOf(p), from }); paintPad(id);   // 옮긴 자리는 0.08초 올리며 시작 — "뚝" 대신 "슥"
+      Engine.play(id, { fadeIn: 0.08, fadeOut: foutOf(p), from, stopAt: loopStop(p) }); paintPad(id);   // 옮긴 자리는 0.08초 올리며 시작 — "뚝" 대신 "슥"
     }
     renderPlays();
   };
@@ -355,7 +355,7 @@ function tapPad(id) {
 }
 // 페이드아웃은 값 하나: 곡 끝에 닿을 때 + 다시 눌러 끌 때 (소유자 결정 2026-09-29)
 const foutOf = p => S.settings.fadeOverride ? S.settings.fadeSec : p.fout ? p.foutSec : 0;
-const playOpt = (p, from) => ({ fadeIn: p.fin ? p.finSec : 0, fadeOut: foutOf(p), from });
+const playOpt = (p, from) => ({ fadeIn: p.fin ? p.finSec : 0, fadeOut: foutOf(p), from, stopAt: loopStop(p) });
 function soloOthers(id) {
   const m = (S.pads[id] && S.pads[id].soloMode) || S.settings.soloMode;   // 트랙마다, 없으면 예전 전체 설정
   for (const o of Engine.playingIds()) {
@@ -560,7 +560,7 @@ const WHY = { ended: '트랙 끝', faded: '페이드 끝', stop: '바로 정지'
 var playT = {};   // id → 튼 시각(재생 줄 순서)
 Engine.on('play', id => {
   const p = S.pads[id]; playT[id] = performance.now();
-  if (p) logLine(`▶ ${nm(id)} 구간 ${Engine.dur(id).toFixed(1)}초 · 인 ${p.fin ? p.finSec + '초' : '끔'} · 아웃 ${foutOf(p) ? foutOf(p) + '초' : '끔'}${p.loop ? ' · 반복' : ''}`);
+  if (p) logLine(`▶ ${nm(id)} 구간 ${Engine.dur(id).toFixed(1)}초 · 인 ${p.fin ? p.finSec + '초' : '끔'} · 아웃 ${foutOf(p) ? foutOf(p) + '초' : '끔'}${p.loop ? ' · 반복' + (loopTag(p) ? ' ' + loopTag(p) + ` (${loopStop(p).toFixed(1)}초에 멈춤)` : '') : ''}`);
   paintPad(id);
 });
 Engine.on('fade', id => logLine(`◢ ${nm(id)} 페이드아웃 시작`));
@@ -864,6 +864,32 @@ function helpLabel(name, text) {
   return h('span', { class: 'hl' }, nm, q, tip);
 }
 document.addEventListener('click', () => document.querySelectorAll('.tip').forEach(t => { t.hidden = true; }));   // 다른 곳 누르면 말풍선 닫힘
+// 루프: 끔 · 계속 · N번 · N초. loopBy 값 없음 = 계속(예전 패드는 그대로)
+const loopMode = p => !p.loop ? 'off' : p.loopBy || 'on';
+function applyLoop(q, o) {
+  q.loop = o.mode !== 'off';
+  if (o.mode === 'on' || o.mode === 'off') delete q.loopBy; else q.loopBy = o.mode;
+  if (o.n != null) q.loopN = o.n;
+  if (o.s != null) q.loopSec = o.s;
+  Engine.setLoop(q.id, q.loop);
+}
+// 멈출 때까지 걸리는 초(끝 페이드 포함) — 계속이면 0
+const loopStop = p => !p.loop || !p.loopBy ? 0 : p.loopBy === 'n' ? (p.loopN || 3) * segLen(p) : (p.loopSec || 30);
+const loopTag = p => !p.loop || !p.loopBy ? '' : p.loopBy === 'n' ? '×' + (p.loopN || 3) : fmt(p.loopSec || 30);
+function loopCtl(cur, n, s, mixedAny, onchange) {
+  const box = h('div', { style: 'display:contents' });
+  const draw = () => {
+    box.textContent = '';
+    box.append(row(h('span', null, helpLabel('반복(루프)', '계속 = 누를 때까지 돌아요. 번 = 정한 횟수만 돌고 멈춰요. 초 = 정한 시간 동안 돌고 이 트랙의 페이드아웃대로 줄어들며 멈춰요(페이드 포함해서 그 시간).'),
+      mixedAny ? h('span', { class: 'sub mix' }, '지금 제각각') : null),
+      seg([['off', '끔'], ['on', '계속'], ['n', '번'], ['s', '초']], cur, v => { cur = v; mixedAny = false; onchange({ mode: v, n: v === 'n' ? n : null, s: v === 's' ? s : null }); draw(); })));
+    if (cur === 'n') box.append(row('몇 번', stepper(n, 1, 50, 1, v => v + '번', v => { n = v; onchange({ mode: 'n', n: v }); })));
+    if (cur === 's') box.append(row('몇 초', stepper(s, 5, 600, 5, v => fmt(v), v => { s = v; onchange({ mode: 's', s: v }); })));
+  };
+  draw();
+  return box;
+}
+
 const HELP = {
   vol: '이 트랙만의 크기예요. 100% = 파일 원래 소리. 100%보다 키우면 원래보다 커지고(최대 300%), 너무 키우면 소리가 찌그러질 수 있어요. 전체 크기는 오른쪽 MASTER로.',
   pan: '소리를 왼쪽·오른쪽 스피커 중 어디로 보낼지예요. 가운데 = 양쪽 똑같이. 왼쪽 100 = 왼쪽 스피커에서만. 스피커가 하나면 차이가 없어요.',
@@ -983,7 +1009,7 @@ function openPadSheet(id) {
       (trim = trimBox(id, () => { refresh(); renderTop(); }, preview)).el,
       volRow(helpLabel('볼륨', HELP.vol), stepper(Math.round(p.vol * 100), 0, 300, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); }, false, VOL_MAP), 100),
       volRow(helpLabel('팬', HELP.pan), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); }), 0),
-      row('반복(루프)', sw(p.loop, on => { p.loop = on; Engine.setLoop(id, on); refresh(); })),
+      loopCtl(loopMode(p), p.loopN || 3, p.loopSec || 30, false, o => { applyLoop(p, o); refresh(); }),
       row(helpLabel('솔로', '이 트랙을 틀면 이미 울리던 다른 트랙을 끕니다.'), sw(p.solo, on => { p.solo = on; soloBox.hidden = !on; refresh(); })),
       soloBox,
       h('div', { class: 'row col' }, h('label', null, helpLabel('페이드', '비탈 손잡이를 끌어요 · 끝까지 밀면 없음 · 아웃은 트랙 끝 + 다시 눌러 끌 때')),
@@ -1018,7 +1044,8 @@ function openBulkSheet(ids) {
     h('div', { class: 'row col' }, h('label', null, '색', tag('color')), colorChips(same('color'), true, k => set(q => { q.color = k; }))),
     volRow(h('span', null, helpLabel('볼륨', HELP.vol), mixed('vol') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('vol', 100, 0, 300, 5, volTxt, (q, v) => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); }, VOL_MAP), 100),
     volRow(h('span', null, helpLabel('팬', HELP.pan), mixed('pan') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('pan', 100, -100, 100, 10, panTxt, (q, v) => { q.pan = v / 100; Engine.setPan(q.id, q.pan); }), 0),
-    row(lab('반복(루프)', 'loop'), onoff('loop', (q, v) => Engine.setLoop(q.id, v))),
+    loopCtl(ps.every(q => loopMode(q) === loopMode(ps[0])) ? loopMode(ps[0]) : undefined, same('loopN') || 3, same('loopSec') || 30,
+      ['loop', 'loopBy', 'loopN', 'loopSec'].some(mixed), o => set(q => applyLoop(q, o))),
     row(lab('솔로', 'solo'), onoff('solo')),
     fadeRow('페이드인', mixed('fin') || mixed('finSec') ? '지금 제각각' : '', onoff('fin'), num('finSec', 1, 0.1, fadeMax(), 0.1, sec1, (q, v) => { q.finSec = v; })),
     fadeRow('페이드아웃', mixed('fout') || mixed('foutSec') ? '지금 제각각' : '', onoff('fout'), num('foutSec', 1, 0.1, fadeMax(), 0.1, sec1, (q, v) => { q.foutSec = v; }), '트랙 끝에 닿을 때와 재생 중 다시 눌러 끌 때 둘 다 이 시간으로 줄어들어요.'),

@@ -200,8 +200,27 @@ const Engine = (() => {
         }
       }, 40);
     }
+    if (opt.stopAt > 0 && tr.loop) loopStopAt(tr, v, opt.stopAt - from);
     emit('play', id);
     return true;
+  }
+
+  // 루프 N번·N초: 시작부터 T초에 소리가 0이 되게(페이드아웃이 있으면 T 전에 줄기 시작). 출구 시계로 재서 ⏸ 동안은 같이 멈춤
+  function loopStopAt(tr, v, T) {
+    T = Math.max(0.05, T);
+    const fo = Math.min(v.fadeOut || 0, T), t0 = ctx.currentTime;
+    if (v.src) {   // 효과음: 출구 시계에 미리 걸어 두면 칼같이 N번째 끝에서 멈춤
+      const g = v.g.gain, a = Math.max(t0 + v.rise, t0 + T - fo);
+      if (fo > 0 && a < t0 + T) { g.setValueAtTime(1, a); g.linearRampToValueAtTime(0, t0 + T); }
+      v.src.stop(t0 + T); v.tail = true; v.fadeEnd = t0 + T;
+      return;
+    }
+    v.loopTimer = setInterval(() => {
+      if (tr.v !== v) return clearInterval(v.loopTimer);
+      const el = ctx.currentTime - t0;
+      if (fo > 0 && el >= T - fo) { clearInterval(v.loopTimer); stop(tr.id, Math.max(0.01, T - el)); }
+      else if (fo === 0 && el >= T) { clearInterval(v.loopTimer); end(tr, 'ended'); }
+    }, 25);
   }
 
   // sec > 0 → 그만큼 페이드아웃 후 정지, 0 → 바로 정지(5ms)
@@ -220,7 +239,7 @@ const Engine = (() => {
 
   function end(tr, why) {
     const v = tr.v; if (!v) return;
-    tr.v = null; clearTimeout(v.fadeTimer); clearTimeout(v.cut); clearInterval(v.watch);
+    tr.v = null; clearTimeout(v.fadeTimer); clearTimeout(v.cut); clearInterval(v.watch); clearInterval(v.loopTimer);
     const now = ctx.currentTime, at = now + EDGE + 0.005;
     try { const g = v.g.gain; g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(0, now + EDGE); } catch {}
     if (v.src) { v.src.onended = null; try { v.src.stop(at); } catch {} }
