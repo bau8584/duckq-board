@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.42 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.43 (2026-09-29)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -773,7 +773,7 @@ async function exportBoard(b) {
     toast(`긴 곡 자르는 중… ${e.name}`, 600000);
     try {
       const r = await Cut.run(e.blob, Math.max(0, t0), Math.min(dur, t1));
-      if (!r || r.blob.size > e.blob.size * 0.9) { logLine(`자르기 건너뜀 "${e.name}"${r ? ' (별로 안 줄어듦)' : ' (모르는 형식)'}`); continue; }
+      if (!r || r.blob.size > e.blob.size * 0.9) { logLine(`자르기 건너뜀 "${e.name}" (${r ? '별로 안 줄어듦' : Cut.why() || '이유 모름'})`); continue; }
       logLine(`잘라 담음 "${e.name}" ${(e.blob.size / 1048576).toFixed(1)}MB → ${(r.blob.size / 1048576).toFixed(1)}MB · ${r.cut0.toFixed(2)}초부터`);
       e.blob = r.blob; cut0.set(e.fid, r.cut0);
     } catch (err) { logLine(`자르기 실패 "${e.name}" → 원본 그대로: ${err && err.message}`, 'w'); }

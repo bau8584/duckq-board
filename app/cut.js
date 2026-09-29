@@ -3,6 +3,8 @@
 // 돌려주는 cut0 = 잘린 파일의 0초가 원본 재생 시각으로 몇 초였나(트림 위치를 이만큼 당긴다).
 'use strict';
 const Cut = (() => {
+  let why = '';   // 못 자른 이유(로그용)
+  const no = w => { why = w; return null; };
   const str = (dv, o, n) => { let s = ''; for (let i = 0; i < n; i++) s += String.fromCharCode(dv.getUint8(o + i)); return s; };
   const head = async (blob, n) => new DataView(await blob.slice(0, Math.min(blob.size, n)).arrayBuffer());
 
@@ -38,13 +40,43 @@ const Cut = (() => {
     const m1 = ver === 3, sr = SR[si] / (m1 ? 1 : ver === 2 ? 2 : 4), br = (m1 ? BR1 : BR2)[bi];
     return { len: Math.floor((m1 ? 144 : 72) * br * 1000 / sr) + pad, spf: m1 ? 1152 : 576, sr, m1, mono: (u[p + 3] >> 6) === 3 };
   }
+  // ---------- AAC 날것(ADTS) — 이름이 .mp3·.aac인데 속이 이것인 파일이 흔하다 ----------
+  const ASR = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+  function adtsAt(u, p) {
+    if (p + 7 > u.length || u[p] !== 0xFF || (u[p + 1] & 0xF6) !== 0xF0) return null;
+    const len = ((u[p + 3] & 3) << 11) | (u[p + 4] << 3) | (u[p + 5] >> 5), sr = ASR[(u[p + 2] >> 2) & 15];
+    return len >= 7 && sr ? { len, sr, spf: 1024 * ((u[p + 6] & 3) + 1) } : null;
+  }
+  function adts(blob, u, p, t0, t1) {
+    let f = null;
+    for (const lim = Math.min(u.length, p + 65536); p < lim; p++) if ((f = adtsAt(u, p)) && adtsAt(u, p + f.len)) break;
+    if (!f || p >= u.length) return no('AAC 프레임 못 찾음');
+    const first = p, sr = f.sr, g0 = t0 * sr, g1 = t1 * sr;
+    let n = 0, s0 = first, c0 = 0, e = -1;
+    while ((f = adtsAt(u, p))) {
+      if (n <= g0) { s0 = p; c0 = n; }
+      if (n >= g1) { e = p; break; }
+      n += f.spf; p += f.len;
+      if (p > u.length) { p -= f.len; break; }
+    }
+    if (e < 0) e = p;
+    if (e <= s0 || (s0 === first && e === p)) return no('자를 구간 없음');
+    return { blob: blob.slice(s0, e, blob.type || 'audio/aac'), cut0: c0 / sr };
+  }
+  const id3End = u => u[0] === 0x49 && u[1] === 0x44 && u[2] === 0x33 ? 10 + ((u[6] & 127) << 21 | (u[7] & 127) << 14 | (u[8] & 127) << 7 | (u[9] & 127)) + (u[5] & 16 ? 10 : 0) : 0;
   async function mp3(blob, t0, t1) {
     const u = new Uint8Array(await blob.arrayBuffer());
-    let p = 0;
-    if (u[0] === 0x49 && u[1] === 0x44 && u[2] === 0x33) p = 10 + ((u[6] & 127) << 21 | (u[7] & 127) << 14 | (u[8] & 127) << 7 | (u[9] & 127)) + (u[5] & 16 ? 10 : 0);
+    let p = id3End(u);
+    // ID3 뒤가 mp4면 그쪽으로, AAC 날것이면 그쪽으로
+    if (p + 8 < u.length && String.fromCharCode(...u.subarray(p + 4, p + 8)) === 'ftyp') return mp4(p ? blob.slice(p, blob.size, blob.type) : blob, t0, t1);
+    for (let q = p, lim = Math.min(u.length, p + 65536); q < lim; q++) {
+      if (u[q] !== 0xFF) continue;
+      const a = adtsAt(u, q); if (a && adtsAt(u, q + a.len)) return adts(blob, u, q, t0, t1);
+      const m = frameAt(u, q); if (m && frameAt(u, q + m.len)) break;
+    }
     let f = null;
     for (const lim = Math.min(u.length, p + 65536); p < lim; p++) if ((f = frameAt(u, p)) && frameAt(u, p + f.len)) break;
-    if (!f || p >= u.length) return null;
+    if (!f || p >= u.length) return no('mp3 프레임 못 찾음');
     // 첫 프레임이 Xing/Info(길이 정보)면 뺀다 — 자른 뒤엔 틀린 길이가 되므로
     const side = f.m1 ? (f.mono ? 17 : 32) : (f.mono ? 9 : 17), tag = String.fromCharCode(...u.subarray(p + 4 + side, p + 8 + side));
     // LAME 태그의 인코더 지연: 원본은 이만큼 앞을 건너뛰고 재생되지만 자른 파일은 안 건너뜀 → cut0에서 뺀다
@@ -64,7 +96,7 @@ const Cut = (() => {
       if (p > u.length) { p -= f.len; break; }
     }
     if (e < 0) e = p;
-    if (e <= s0 || (s0 === first && e === p)) return null;   // 자를 게 없음
+    if (e <= s0 || (s0 === first && e === p)) return no('자를 구간 없음');
     return { blob: blob.slice(s0, e, blob.type || 'audio/mpeg'), cut0: Math.max(0, (c0 - delay) / sr), delay };
   }
 
@@ -109,14 +141,16 @@ const Cut = (() => {
   async function mp4(blob, t0, t1) {
     const tops = await topBoxes(blob);
     const ftyp = tops.find(b => b.type === 'ftyp'), mv = tops.find(b => b.type === 'moov');
-    if (!ftyp || !mv || tops.some(b => b.type === 'moof')) return null;   // 조각 mp4(녹음 앱 일부)는 그대로
+    if (!ftyp || !mv) return no('mp4 moov 없음'); if (tops.some(b => b.type === 'moof')) return no('조각 mp4');   // 조각 mp4(녹음 앱 일부)는 그대로
     const mvBuf = await blob.slice(mv.s, mv.s + mv.size).arrayBuffer();
     const moov = parseBoxes(new DataView(mvBuf), 0, mv.size)[0];
     const traks = moov.kids.filter(k => k.type === 'trak');
-    if (traks.length !== 1) return null;
-    const trak = traks[0], mdia = find(trak.kids, 'mdia'), stbl = path(mdia, 'minf', 'stbl');
-    const hdlr = find(mdia.kids, 'hdlr');
-    if (!stbl || !hdlr || str(new DataView(hdlr.data.buffer, hdlr.data.byteOffset), 8, 4) !== 'soun') return null;
+    const isSoun = t => { const h = path(t, 'mdia', 'hdlr'); return h && str(new DataView(h.data.buffer, h.data.byteOffset), 8, 4) === 'soun'; };
+    const trak = traks.find(isSoun);
+    if (!trak) return no(`mp4 소리 트랙 없음(트랙 ${traks.length})`);
+    moov.kids = moov.kids.filter(k => k.type !== 'trak' || k === trak);   // 표지·영상 등 다른 트랙은 뺀다
+    const mdia = find(trak.kids, 'mdia'), stbl = path(mdia, 'minf', 'stbl');
+    if (!stbl) return no('mp4 stbl 없음');
     const V = b => new DataView(b.data.buffer, b.data.byteOffset, b.data.length);
     const mdhd = V(find(mdia.kids, 'mdhd')), ts = mdhd.getUint32(mdhd.getUint8(0) ? 20 : 12);
     const stts = V(find(stbl.kids, 'stts')), stsc = V(find(stbl.kids, 'stsc')), stsz = V(find(stbl.kids, 'stsz'));
@@ -149,7 +183,7 @@ const Cut = (() => {
     const g0 = t0 * ts + prime, g1 = t1 * ts + prime;
     let a = 0; while (a + 1 < N && time[a + 1] <= g0) a++;
     let b = a; while (b < N && time[b] < g1) b++;
-    if (b <= a || (a === 0 && b === N)) return null;
+    if (b <= a || (a === 0 && b === N)) return no('자를 구간 없음');
     const n = b - a;
     // 새 표
     const sttsRuns = [];
@@ -172,7 +206,7 @@ const Cut = (() => {
     const dataLen = runs.reduce((x, r) => x + r[1], 0);
     const ftypBuf = await blob.slice(ftyp.s, ftyp.s + ftyp.size).arrayBuffer();
     const moovLen = boxLen(moov), big = ftyp.size + moovLen + 16 + dataLen > 0xFFFFFFFF;
-    if (big) return null;
+    if (big) return no('4GB 넘음');
     const base = ftyp.size + moovLen + 8;
     { const d = new DataView(nStco.data.buffer); d.setUint32(4, n); for (let i = 0, o = base; i < n; i++) { d.setUint32(8 + 4 * i, o); o += size[a + i]; } }
     const moovOut = new Uint8Array(moovLen); writeBox(moov, moovOut, 0);
@@ -183,13 +217,14 @@ const Cut = (() => {
 
   // 형식은 이름이 아니라 파일 앞머리로 알아낸다
   async function run(blob, t0, t1) {
+    why = '';
     const dv = await head(blob, 12);
-    if (dv.byteLength < 12) return null;
+    if (dv.byteLength < 12) return no('파일이 너무 짧음');
     const a = str(dv, 0, 4), b = str(dv, 4, 4), c = str(dv, 8, 4);
-    if (a === 'RIFF' && c === 'WAVE') return wav(blob, t0, t1);
+    if (a === 'RIFF' && c === 'WAVE') return (await wav(blob, t0, t1)) || no(why || 'wav 모양 모름');
     if (b === 'ftyp') return mp4(blob, t0, t1);
-    if (a.startsWith('ID3') || (dv.getUint8(0) === 0xFF && (dv.getUint8(1) & 0xE0) === 0xE0)) return mp3(blob, t0, t1);
-    return null;
+    if (a.startsWith('ID3') || dv.getUint8(0) === 0xFF) return mp3(blob, t0, t1);
+    return no('모르는 형식 · 앞머리 ' + [...new Uint8Array(dv.buffer)].map(x => x.toString(16).padStart(2, '0')).join(' '));
   }
-  return { run };
+  return { run, why: () => why };
 })();
