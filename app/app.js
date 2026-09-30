@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.62 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.63 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1528,6 +1528,23 @@ async function reqWake() {
 
 // ---------- 시작 ----------
 // 판은 바로 그리고(3초 안 복원), 파일은 뒤에서 불러온다. 소리는 [▶ 시작] 탭(손 제스처)에서 연다.
+// 웹 탭으로 열었으면 시작 창에 "앱으로 담기" 안내(탭 저장은 지워질 수 있음). 앱으로 열면 안 보임.
+const Inst = (() => {
+  const app = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  if (app) return;
+  const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  const mac = !ios && /Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox/.test(ua);
+  const tip = ios ? '사파리 아래(또는 위) 공유 □↑ → "홈 화면에 추가". 탭으로만 쓰면 보드가 지워질 수 있어요.'
+    : mac ? '메뉴 파일 → "Dock에 추가". 탭으로만 쓰면 보드가 지워질 수 있어요.'
+    : '크롬·엣지·삼성 인터넷에서 앱으로 설치할 수 있어요. 탭으로만 쓰면 보드가 지워질 수 있어요.';
+  $('instTxt').textContent = tip; $('instBox').hidden = false;
+  $('btnStart').textContent = '▶ 그냥 시작';
+  let ev = null;
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); ev = e; $('btnInst').hidden = false; $('instTxt').textContent = '버튼 한 번이면 끝. 탭으로만 쓰면 보드가 지워질 수 있어요.'; });
+  addEventListener('appinstalled', () => { $('instBox').hidden = true; logLine('앱으로 설치됨'); });
+  $('btnInst').onclick = async () => { if (!ev) return; ev.prompt(); const r = await ev.userChoice; logLine('앱 설치: ' + r.outcome); ev = null; $('btnInst').hidden = true; };
+})();
+
 $('btnStart').onclick = () => {
   Engine.unlock().catch(e => logLine('소리 출구 열기 실패: ' + e.message, 'e'));
   Engine.setMaster(S.master); Engine.setBoost(S.settings.masterBoost || 1);
