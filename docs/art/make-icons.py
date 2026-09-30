@@ -1,28 +1,30 @@
+# 뀨 그림 두 장 → 앱 아이콘·공유 그림. 실행: python docs/art/make-icons.py (duckq-board 폴더에서)
+# 아이콘 = kkyu-icon-1024.png(아이콘 전용 그림), 공유 그림 = kkyu-cue-1024.png(큐버튼 장면)
 import os
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-SRC = r"C:\Users\bau85\OneDrive - 한울초등학교 (1)\code\deokgu-lab\stickers\_ref\받은그림\큐버튼.png"
-APP = r"C:\Users\bau85\OneDrive - 한울초등학교 (1)\code\duckq-board\app"
-PV = r"C:\Users\bau85\AppData\Local\Temp\claude\C--Users-bau85-OneDrive-----------1--code-duckq-board\43bf2940-c08b-4bf3-aea9-14f6016897e9\scratchpad\preview2.png"
+HERE = os.path.dirname(os.path.abspath(__file__))
+APP = os.path.join(HERE, "..", "..", "app")
 BG = (13, 17, 24)
 
-src = Image.open(SRC).convert("RGB")
+# 홈 화면 아이콘: 여백을 줄여 1.15배로 키움(버튼·헤드폰은 안 잘림)
+icon = Image.open(os.path.join(HERE, "kkyu-icon-1024.png")).convert("RGB")
+tight = icon.crop((70, 50, 960, 940))
 for n, s in (("icon-kkyu-512.png", 512), ("icon-kkyu-192.png", 192), ("apple-touch-icon-kkyu.png", 180)):
-    src.resize((s, s), Image.LANCZOS).save(os.path.join(APP, n), optimize=True)
+    tight.resize((s, s), Image.LANCZOS).save(os.path.join(APP, n), optimize=True)
 
-# maskable: shrink so the whole scene sits inside the launcher's safe circle
+# 안드로이드 원 모양: 가장자리가 잘리니 원본을 조금 더 줄여 안전한 원 안에
 m = Image.new("RGB", (1024, 1024), BG)
-k = 0.80
-sm = src.resize((int(1024 * k), int(1024 * k)), Image.LANCZOS)
+sm = icon.resize((920, 920), Image.LANCZOS)
 mask = Image.new("L", sm.size, 0)
-ImageDraw.Draw(mask).rectangle([40, 40, sm.width - 40, sm.height - 40], fill=255)
-mask = mask.filter(ImageFilter.GaussianBlur(28))
-m.paste(sm, ((1024 - sm.width) // 2, (1024 - sm.height) // 2 + 20), mask)
+ImageDraw.Draw(mask).rectangle([30, 30, sm.width - 30, sm.height - 30], fill=255)
+m.paste(sm, (52, 40), mask.filter(ImageFilter.GaussianBlur(20)))
 m.resize((512, 512), Image.LANCZOS).save(os.path.join(APP, "icon-kkyu-maskable.png"), optimize=True)
 
-# share card 1200x630: picture left, words right; fade the picture's right edge into the background
+# 공유 그림 1200x630: 왼쪽 큐버튼 장면, 오른쪽 글
+cue = Image.open(os.path.join(HERE, "kkyu-cue-1024.png")).convert("RGB")
 og = Image.new("RGB", (1200, 630), BG)
-pic = src.resize((630, 630), Image.LANCZOS)
+pic = cue.resize((630, 630), Image.LANCZOS)
 fade = Image.new("L", (630, 630), 255)
 fd = ImageDraw.Draw(fade)
 for x in range(560, 630):
@@ -35,18 +37,4 @@ f = ImageFont.truetype(r"C:\Windows\Fonts\malgun.ttf", 32)
 d.text((694, 392), "설치 없이", font=f, fill=(139, 144, 152))
 d.text((694, 438), "폰 · 태블릿 · 노트북", font=f, fill=(139, 144, 152))
 og.save(os.path.join(APP, "og-kkyu.png"), optimize=True)
-
-# preview sheet
-pv = Image.new("RGB", (1240, 960), (40, 44, 52))
-pv.paste(og, (20, 20))
-x = 20
-full = src
-mk = Image.open(os.path.join(APP, "icon-kkyu-maskable.png"))
-for s in (256, 120, 60):
-    ic = full.resize((s, s), Image.LANCZOS)
-    r = Image.new("L", (s, s), 0); ImageDraw.Draw(r).rounded_rectangle([0, 0, s, s], radius=s * .22, fill=255)
-    pv.paste(ic, (x, 670), r); x += s + 30
-    ic2 = mk.resize((s, s), Image.LANCZOS)
-    c = Image.new("L", (s, s), 0); ImageDraw.Draw(c).ellipse([0, 0, s, s], fill=255)
-    pv.paste(ic2, (x, 670), c); x += s + 50
-pv.save(PV)
+print("ok")
