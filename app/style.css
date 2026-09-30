@@ -170,6 +170,8 @@ button:disabled{cursor:default}
 .go:active{transform:scale(.97)}
 .inst{max-width:340px;margin:0 16px;padding:16px 18px;border-radius:16px;background:rgba(255,255,255,.08);text-align:center}
 .inst b{font-size:18px}.inst p{margin:8px 0 0;font-size:15px;opacity:.9}
+.steps{list-style:none;margin:12px 0 0;padding:0;display:flex;flex-direction:column;gap:10px;text-align:left;font-size:14px}
+.steps li{display:flex;flex-direction:column;gap:4px}.steps img{width:100%;max-width:260px;border-radius:10px}.steps img.sm{width:64px}
 .inst button{margin-top:12px;height:48px;padding:0 22px;border-radius:12px;border:0;background:var(--board);color:#0b0c0e;font:800 17px var(--font)}
 
 /* 설정 판 (시트) */
