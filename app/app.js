@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.53 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.54 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -758,7 +758,7 @@ function addBoard() {
 // 원본 형식 그대로 담고 이름만 패드 이름으로. 가져오기는 늘 새 보드로 더한다(기존 판은 안 건드림).
 const BIG_MB = 300, CUT_PAD = 180;   // 트림 앞뒤로 3분 남기고 자름
 const MIME = { mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', ogg: 'audio/ogg', mp4: 'video/mp4', mov: 'video/quicktime', flac: 'audio/flac' };
-const safeName = s => (s || '소리').replace(/[\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80) || '소리';
+const safeName = s => (s || '소리').normalize('NFC').replace(/[\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80) || '소리';
 async function exportBoard(b) {
   const pads = b.pads.map(id => S.pads[id]).filter(Boolean);
   const names = new Map(), used = new Set(), entries = [], miss = [];
