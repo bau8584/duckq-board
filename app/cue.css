@@ -89,3 +89,4 @@
 .qscene.q-done{opacity:.5}
 .qstrip .qn.qsc{width:40px;padding:3px 0;font:800 10px/1.15 var(--font);white-space:normal;word-break:keep-all;color:#f0b35a;background:color-mix(in srgb,#f0b35a 18%,transparent)}
 .qscene-b{margin-top:6px;width:100%}
+.qn.sm{font-size:11px!important;letter-spacing:-.5px;word-break:break-all;line-height:1.1}

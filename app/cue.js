@@ -4,6 +4,7 @@
 //   트랙대로가 기본, 다를 때만 따로(값 없음 = 트랙 설정): fin 재생 페이드인 초 · vol 재생 볼륨(1=100%) · fout 끄기 페이드아웃 초(0=바로)
 //   off: 꺼질 때(재생만, 값 없음 = 끝까지) go 다음 GO 때 | next 다음 소리가 나올 때 | 'q:큐id' 그 큐가 나갈 때
 //   scene: 장면 제목 — 이 줄 위에 머리 줄(■ 1막 2장 — 병원)로 보임. 줄을 옮겨도 자리에 남음
+//   no: 고정 번호('2', '2-1', '2-1-1') — GO로 나가는 줄에 담을 때 정해 저장(대본 번호가 안 밀림). 값 없음 = 차례대로 매김
 //   when: go(GO를 누를 때) | end(앞 소리가 끝나면) | with(앞 큐와 동시에) · wait: 기다렸다가 초 · at: 'HH:MM' 그 시각에
 // 연극식 번호: GO로 나가는 줄만 번호(큐 1, 큐 2…), 따라 나가는 줄은 ↳
 'use strict';
@@ -11,8 +12,33 @@ window.Cue = (() => {
   const on = () => !!S.settings.cue;
   // 옛 '◣ N초 끄기'(act fade) → '■ 끄기 · 따로 N초'
   const fix = c => { if (c.act === 'fade') { c.act = 'stop'; c.fout = c.sec || 3; delete c.sec; } return c; };
-  const cues = (b = board()) => { const L = b.cues || (b.cues = []); L.forEach(fix); return L; };
+  const cues = (b = board()) => { const L = b.cues || (b.cues = []); L.forEach(fix); fixNos(L); return L; };
+  // 번호 없는 GO 줄에 번호: 끝이면 앞 번호 맨 앞 수 + 1, 사이면 앞 번호의 다음 형제(2-1 → 2-2) 또는 아래(2 → 2-1)
+  function fixNos(L) {
+    let prev = null, changed = false;
+    const used = new Set(L.filter((c, i) => isGo(L, i) && c.no).map(c => c.no));
+    L.forEach((c, i) => {
+      if (!isGo(L, i)) return;
+      if (!c.no) {
+        let j = i + 1; while (j < L.length && !(isGo(L, j) && L[j].no)) j++;
+        const later = j < L.length;
+        let n;
+        if (!prev) n = later ? '0-1' : '1';
+        else if (!later) n = String(parseInt(prev, 10) + 1);
+        else {
+          const a = prev.split('-');
+          if (a.length > 1) { a[a.length - 1] = String(+a[a.length - 1] + 1); n = a.join('-'); }
+          if (!n || used.has(n)) { let k = 1; while (used.has(prev + '-' + k)) k++; n = prev + '-' + k; }
+        }
+        while (used.has(n)) n = String(parseInt(n, 10) + 1);   // 끝에서 겹치면(드묾) 다음 수
+        c.no = n; used.add(n); changed = true;
+      }
+      prev = c.no;
+    });
+    if (changed) save();
+  }
   const isGo = (L, i) => i === 0 || !L[i].when || L[i].when === 'go';
+  const qno = (L, i) => { let j = i; while (j > 0 && !isGo(L, j)) j--; return L[j] ? L[j].no || String(goNo(L, j)) : ''; };
   const goNo = (L, i) => { let n = 0; for (let j = 0; j <= i; j++) if (isGo(L, j)) n++; return n; };
   const ACTS = { play: '▶ 재생', stop: '■ 끄기', duck: '↓ 작게', restore: '↺ 원래 크기' };
   const WHENS = { go: 'GO를 누를 때', end: '앞 줄 소리가 끝나면', with: '앞 줄과 동시에' };
@@ -30,7 +56,7 @@ window.Cue = (() => {
     const j = L.findIndex(x => 'q:' + x.id === c.off);
     return j < 0 ? '' : `꺼짐: ${cueLabel(L, j)}`;
   };
-  const cueLabel = (L, i) => isGo(L, i) ? `큐 ${goNo(L, i)}` : `큐 ${goNo(L, i)}↳`;
+  const cueLabel = (L, i) => isGo(L, i) ? `큐 ${qno(L, i)}` : `큐 ${qno(L, i)}↳`;
 
   // ---------- 실행 ----------
   const sb = {};               // 보드 id → '다음' 줄 번호(0부터)
@@ -232,7 +258,7 @@ window.Cue = (() => {
     const cls = 'qrow' + (isGo(L, i) ? ' q-go' : ' q-ch') + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : '') +
       (live.has(c.id) ? ' q-run' : '') + (pend.has(c.id) ? ' q-wait' : '') + (edit === c.id ? ' q-edit' : '');
     const r = h('div', { class: cls, 'data-i': i, 'data-id': c.id, role: 'button', 'aria-label': `${cueLabel(L, i)} ${padName(c)} — 다음으로` },
-      h('span', { class: 'qn' }, isGo(L, i) ? String(goNo(L, i)) : '↳'),
+      h('span', { class: 'qn' + (isGo(L, i) && qno(L, i).length > 3 ? ' sm' : '') }, isGo(L, i) ? qno(L, i) : '↳'),
       h('span', { class: 'qmain' }, h('b', { class: 'qname' }, padName(c)), h('small', { class: 'qsub' }, subTxt(L, i, c))),
       h('span', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') }, actTxt(c), offTxt(c, L) ? h('small', { class: 'qoff' }, offTxt(c, L)) : ''),
       lock ? '' : h('button', { class: 'qed', 'aria-label': '이 큐 고치기', onclick: e => { e.stopPropagation(); edit = edit === c.id ? null : c.id; paint(); } }, edit === c.id ? '✕' : '⋯'));
@@ -303,7 +329,7 @@ window.Cue = (() => {
       h('div', { class: 'qbtns' },
         h('button', { class: 'sbtn', disabled: i === 0, onclick: () => move(-1) }, '▲ 위로'),
         h('button', { class: 'sbtn', disabled: i === L.length - 1, onclick: () => move(1) }, '▼ 아래로'),
-        h('button', { class: 'sbtn', onclick: () => ch(() => { const d = { ...c, id: uid() }; L.splice(i + 1, 0, d); edit = d.id; }) }, '복제'),
+        h('button', { class: 'sbtn', onclick: () => ch(() => { const d = { ...c, id: uid() }; delete d.no; delete d.scene; L.splice(i + 1, 0, d); edit = d.id; }) }, '복제'),
         h('button', { class: 'sbtn danger', onclick: () => ch(() => { L.splice(i, 1); if (c.scene && L[i] && !L[i].scene) L[i].scene = c.scene; L.forEach(x => { if (x.off === 'q:' + c.id) delete x.off; }); if (cur(b) > i) sb[b.id]--; edit = null; logLine(`큐 줄 지움 ${i + 1}`); }) }, '지우기'),
         h('button', { class: 'sbtn pri', onclick: () => { edit = null; paint(); } }, '닫기')));
     box.onclick = e => e.stopPropagation();
@@ -338,7 +364,7 @@ window.Cue = (() => {
     if (!open) {
       const goRows = L.map((c, i) => i).filter(i => isGo(L, i));
       panel.replaceChildren(h('button', { class: 'qtog', 'aria-label': '큐보드 펼치기', onclick: () => { open = true; paint(); } }, '‹ 큐'), undoB(true), nav,
-        h('div', { class: 'qstrip' }, goRows.flatMap(i => [L[i].scene ? h('button', { class: 'qn qsc', 'aria-label': `${L[i].scene} 장면으로`, onclick: () => setSb(i, '장면 ' + L[i].scene) }, sceneShort(L[i].scene)) : null, h('button', { class: 'qn' + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : ''), onclick: () => setSb(i, '줄 누름') }, String(goNo(L, i)))]).filter(Boolean)));
+        h('div', { class: 'qstrip' }, goRows.flatMap(i => [L[i].scene ? h('button', { class: 'qn qsc', 'aria-label': `${L[i].scene} 장면으로`, onclick: () => setSb(i, '장면 ' + L[i].scene) }, sceneShort(L[i].scene)) : null, h('button', { class: 'qn' + (qno(L, i).length > 3 ? ' sm' : '') + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : ''), onclick: () => setSb(i, '줄 누름') }, qno(L, i))]).filter(Boolean)));
       return;
     }
     const addB = h('button', { class: 'qadd-b' + (adding ? ' on' : ''), hidden: S.lock, onclick: () => { adding = !adding; edit = null; lastIns = null; sceneNext = null; logLine(adding ? '큐 담기 시작' : '큐 담기 끝'); paint(); } }, adding ? '✓ 다 담음' : '+ 담기');
@@ -348,7 +374,7 @@ window.Cue = (() => {
     panel.replaceChildren(
       h('div', { class: 'qhead' },
         h('button', { class: 'qtog', 'aria-label': '큐보드 접기', onclick: () => { open = false; paint(); } }, '큐 ›'),
-        h('span', null, L.length ? `GO ${goNo(L, L.length - 1)}번` : ''),
+        h('span', null, L.length ? `GO ${goNo(L, L.length - 1)}개` : ''),
         h('button', { class: 'qb qhelp-b' + (help ? ' on' : ''), 'aria-label': '큐 사용법', onclick: () => { help = !help; paint(); } }, '?'),
         addB),
       adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 아래에 쌓여요 (소리 안 남)'),
@@ -369,7 +395,7 @@ window.Cue = (() => {
     padEls.forEach(el => { const t = el.querySelector('.qtag'); if (t) t.remove(); });
     if (!on()) return;
     const L = cues(), m = new Map();
-    L.forEach((c, i) => { if (!S.pads[c.pad]) return; const a = m.get(c.pad) || []; const n = goNo(L, i); if (!a.includes(n)) a.push(n); m.set(c.pad, a); });
+    L.forEach((c, i) => { if (!S.pads[c.pad]) return; const a = m.get(c.pad) || []; const n = qno(L, i); if (!a.includes(n)) a.push(n); m.set(c.pad, a); });
     m.forEach((ns, id) => { const el = padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, '큐' + (ns.length > 2 ? ns.slice(0, 2).join('·') + '…' : ns.join('·')))); });
   }
   function paintGo() {
@@ -381,7 +407,7 @@ window.Cue = (() => {
       ctl.prepend(goB);
     }
     const b = board(), L = cues(b), k = cur(b), c = L[k];
-    goB.lastChild.textContent = !L.length ? '큐 없음' : c ? `${goNo(L, k)} ${c.memo || padName(c)}` : '끝';
+    goB.lastChild.textContent = !L.length ? '큐 없음' : c ? `${qno(L, k)} ${c.memo || padName(c)}` : '끝';
   }
   setInterval(() => { if (on() && (pend.size || undo && (undoLeft() > -1 || (undo = null, true)) || dirty && !typing(panel) && !typing(tabBox))) paint(); }, 200);
   new MutationObserver(() => { if (on()) { edit = null; paint(); } }).observe($('tabs'), { childList: true });
@@ -404,6 +430,7 @@ window.Cue = (() => {
       h('div', { class: 'fbox-head' }, h('b', null, helpLabel(`${b.name}의 큐`, '보드마다 큐 목록이 하나예요. 줄의 ⋯를 눌러 고쳐요. 바꾸는 즉시 적용, 아래 [취소]로 창을 열기 전으로 되돌려요.'))),
       helpBox(),
       h('div', { class: 'trow' },
+        h('button', { class: 'sbtn', onclick: () => { if (!L.length || !confirm('큐 번호를 1부터 차례로 다시 매길까요? (2-1 같은 번호가 없어져요)')) return; L.forEach(c => { delete c.no; }); cues(b); save(); logLine('큐 번호 새로 매김'); paint(); } }, '번호 새로 매기기'),
         h('button', { class: 'sbtn', onclick: () => { L.forEach(c => { c.when = 'go'; }); save(); logLine('큐 모두 GO로'); paint(); } }, '모두 GO로 나가게'),
         h('button', { class: 'sbtn danger', onclick: () => { if (!L.length || !confirm(`큐 ${L.length}줄을 모두 지울까요?`)) return; L.length = 0; sb[b.id] = 0; save(); logLine('큐 모두 지움'); paint(); } }, '모두 지우기')),
       tabBox));
