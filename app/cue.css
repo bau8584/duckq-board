@@ -83,3 +83,9 @@
 .qact{display:flex;flex-direction:column;align-items:flex-end}
 .qoff{font:700 10px var(--font);color:var(--text-dim)}
 .qundo{border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:10px;padding:8px;font:800 13px var(--font)}
+.qscene{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin:8px 0 2px;padding:7px 10px;background:var(--bg2);border-radius:8px;cursor:pointer}
+.qscene b{font:800 13px var(--font);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qscene small{font:700 10px var(--font);color:var(--text-dim);flex:none}
+.qscene.q-done{opacity:.5}
+.qstrip .qn.qsc{width:40px;padding:3px 0;font:800 10px/1.15 var(--font);white-space:normal;word-break:keep-all;color:#f0b35a;background:color-mix(in srgb,#f0b35a 18%,transparent)}
+.qscene-b{margin-top:6px;width:100%}
