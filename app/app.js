@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.60 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.61 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -786,7 +786,7 @@ async function exportBoard(b) {
   }
   const mb = entries.reduce((a, e) => a + e.blob.size, 0) / 1048576;
   if (mb > BIG_MB && !confirm(`소리가 ${mb.toFixed(0)}MB예요. 아이패드에서 오래 걸리거나 실패할 수 있어요. 계속할까요?`)) return;
-  const json = { app: 'duckq-board', v: 1, ver: APP_VER, settings: { ...S.settings }, master: S.master, board: { name: b.name, color: b.color },
+  const json = { app: 'duckq-board', v: 1, ver: APP_VER, settings: { ...S.settings }, master: S.master, board: (({ id, pads, cues, ...r }) => r)(b),   // 보드 설정도 있는 것 전부(큐는 Cue가 따로)
     pads: pads.filter(p => names.has(p.file)).map(p => {
       const { id, file, played, ...rest } = p, c = cut0.get(file) || 0, L = cutLen.get(file);
       if (cutLen.has(file)) Object.assign(rest, { start: Math.max(0, (p.start || 0) - c), end: p.end > 0 ? p.end - c : 0, dur: Math.max(0, Math.min((p.dur || 0) - c, L || Infinity)) });   // 잘린 파일 길이로 — 가져온 쪽이 없는 소리를 가리키지 않게
@@ -807,8 +807,9 @@ async function exportBoard(b) {
         if (typeof v === 'number' && typeof o[k] === 'number' ? Math.abs(v - o[k]) > 0.06 : JSON.stringify(v) !== JSON.stringify(o[k])) bad.push(`${o.label}.${k} ${JSON.stringify(o[k])}→${JSON.stringify(v)}`);
       });
     });
-    const sk = Object.keys(S.settings).filter(k => !(k in json.settings));
-    logLine(`설정 담음: 패드 ${json.pads.length} · 항목 ${kinds.size}종 · 앱 설정 ${Object.keys(json.settings).length}개 · 큐 ${(json.board.cues || []).length}개 · ${bad.length || sk.length ? '✖ 다름 ' + bad.concat(sk.map(k => '설정.' + k + ' 빠짐')).slice(0, 12).join(', ') : '전부 같음'}`, bad.length || sk.length ? 'e' : 'i');
+    const sk = Object.keys(S.settings).filter(k => !(k in json.settings)).map(k => '설정.' + k + ' 빠짐')
+      .concat(Object.keys(b).filter(k => !['id', 'pads', 'cues'].includes(k) && JSON.stringify(b[k]) !== JSON.stringify(json.board[k])).map(k => '보드.' + k + ' 빠짐'));
+    logLine(`설정 담음: 패드 ${json.pads.length} · 항목 ${kinds.size}종 · 앱 설정 ${Object.keys(json.settings).length}개 · 큐 ${(json.board.cues || []).length}개 · ${bad.length || sk.length ? '✖ 다름 ' + bad.concat(sk).slice(0, 12).join(', ') : '전부 같음'}`, bad.length || sk.length ? 'e' : 'i');
   }
   entries.forEach(e => delete e.fid);
   entries.unshift({ name: 'board.json', blob: new Blob([JSON.stringify(json, null, 1)], { type: 'application/json' }) });
@@ -842,10 +843,10 @@ const SET_KO = { theme: '화면', cols: '패드 크기', labelSize: '패드 글�
 function importSettings(json) {
   const inc = json.settings && typeof json.settings === 'object' ? json.settings : null;
   if (!inc) return;
-  const keys = Object.keys(SET_KO).filter(k => k in inc && JSON.stringify(inc[k]) !== JSON.stringify(S.settings[k] ?? DEF_SETTINGS[k]));
+  const keys = Object.keys(inc).filter(k => JSON.stringify(inc[k]) !== JSON.stringify(S.settings[k] ?? DEF_SETTINGS[k]));   // 앱 설정도 있는 것 전부(이름표 없으면 키 그대로 보임)
   const mst = typeof json.master === 'number' && Math.abs(json.master - S.master) > 0.005;
   if (!keys.length && !mst) return;
-  const names = keys.map(k => SET_KO[k]).concat(mst ? ['MASTER 볼륨'] : []);
+  const names = keys.map(k => SET_KO[k] || k).concat(mst ? ['MASTER 볼륨'] : []);
   if (!confirm(`패드 설정(트림·볼륨·페이드·루프·솔로 등)과 큐는 모두 들어왔어요.
 
 앱 전체 설정 중 이 아이패드와 다른 것도 파일대로 바꿀까요?
@@ -875,7 +876,8 @@ $('zipIn').addEventListener('change', async e => {
   } catch (err) { logLine('가져오기 실패: ' + err.message, 'e'); toast('가져오기 실패 — ' + err.message, 5000); return; }
   closeSheet();
   const src = json.board || {};
-  const nb = { id: uid(), name: String(src.name || '가져온 보드').slice(0, 20), color: COLORS[src.color] ? src.color : 'sky', pads: [] };
+  const { cues: _q, pads: _p, id: _i, ...srcRest } = src;
+  const nb = { ...srcRest, id: uid(), name: String(src.name || '가져온 보드').slice(0, 20), color: COLORS[src.color] ? src.color : 'sky', pads: [] };   // 보드 설정도 있는 것 전부
   const fileIds = new Map(), bad = [], qIds = [];
   S.boards.push(nb); S.cur = S.boards.length - 1; save();
   applyBoardColor(); renderTop(); renderTabs(); renderGrid();
@@ -917,6 +919,7 @@ $('zipIn').addEventListener('change', async e => {
         if (JSON.stringify(jp[k]) !== JSON.stringify(q[k])) bad.push(`${jp.label}.${k}`);
       });
     });
+    Object.keys(srcRest).forEach(k => { if (k !== 'name' && k !== 'color' && JSON.stringify(srcRest[k]) !== JSON.stringify(nb[k])) bad.push('보드.' + k); });
     const cues = (json.board && json.board.cues || []).length, got = (nb.cues || []).length;
     if (window.Cue && cues !== got) bad.push(`큐 ${cues}→${got}`);
     logLine(`설정 비교: 패드 ${qIds.filter(Boolean).length}/${json.pads.length} · ${bad.length ? '✖ 다름 ' + bad.slice(0, 12).join(', ') : '전부 같음'}${json.settings ? '' : ' · (옛 파일: 앱 설정 없음)'}`, bad.length ? 'e' : 'i');
