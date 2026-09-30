@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.55 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.56 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -829,10 +829,12 @@ function importSettings(json) {
   const mst = typeof json.master === 'number' && Math.abs(json.master - S.master) > 0.005;
   if (!keys.length && !mst) return;
   const names = keys.map(k => SET_KO[k]).concat(mst ? ['MASTER 볼륨'] : []);
-  if (!confirm(`이 파일의 설정도 적용할까요?
-바뀌는 것: ${names.join(', ')}
+  if (!confirm(`패드 설정(트림·볼륨·페이드·루프·솔로 등)과 큐는 모두 들어왔어요.
 
-[확인] 적용 · [취소] 지금 설정 그대로`)) { logLine(`가져온 설정 안 씀 (다른 것: ${names.join(', ')})`); return; }
+앱 전체 설정 중 이 아이패드와 다른 것도 파일대로 바꿀까요?
+다른 것: ${names.join(', ')}
+
+[확인] 파일대로 · [취소] 지금 설정 그대로`)) { logLine(`가져온 설정 안 씀 (다른 것: ${names.join(', ')})`); return; }
   keys.forEach(k => { S.settings[k] = inc[k]; });
   if (mst) S.master = json.master;
   save(); Engine.setBoost(S.settings.masterBoost || 1); Engine.setMaster(S.master); renderAll();
