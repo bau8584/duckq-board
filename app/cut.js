@@ -64,7 +64,7 @@ const Cut = (() => {
       n += f.spf; p += f.len;
     }
     if (e < 0) e = p;
-    if (e <= s0 || (s0 === first && e === p)) return no(`${kind} 자를 구간 없음 · ${(n / sr).toFixed(0)}초·${(p / 1048576).toFixed(1)}/${(u.length / 1048576).toFixed(1)}MB까지 읽음 · 구간 ${t0.toFixed(0)}~${t1.toFixed(0)}초 · 건너뛴 곳 ${skip}`);
+    if (e <= s0 || (s0 === first && e >= u.length)) return no(`${kind} 자를 구간 없음 · ${(n / sr).toFixed(0)}초·${(p / 1048576).toFixed(1)}/${(u.length / 1048576).toFixed(1)}MB까지 읽음 · 구간 ${t0.toFixed(0)}~${t1.toFixed(0)}초 · 건너뛴 곳 ${skip}`);
     return { s0, e, c0 };
   }
   function adts(blob, u, p, t0, t1) {
@@ -97,7 +97,7 @@ const Cut = (() => {
     const sr = f.sr, w = walk(u, p, frameAt, sr, t0, t1, 'mp3');
     if (!w) return null;
     const { s0, e, c0 } = w;
-    return { blob: blob.slice(s0, e, blob.type || 'audio/mpeg'), cut0: Math.max(0, (c0 - delay) / sr), delay };
+    return { blob: blob.slice(s0, e, blob.type || 'audio/mpeg'), cut0: (c0 - delay) / sr, delay };
   }
 
   // ---------- m4a / mp4 (소리 트랙 하나일 때만) ----------

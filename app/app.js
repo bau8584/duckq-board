@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.49 (2026-09-29)';
+const VER = 'DuckQ Board 0.3.50 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -768,10 +768,10 @@ async function exportBoard(b) {
   for (const e of entries) {
     const ps = pads.filter(p => p.file === e.fid), dur = Math.max(...ps.map(p => p.dur || 0));
     const t0 = Math.min(...ps.map(p => p.start || 0)) - CUT_PAD, t1 = Math.max(...ps.map(p => p.end > 0 ? p.end : dur)) + CUT_PAD;
-    if (!(dur > 0) || (t0 <= 0 && t1 >= dur)) continue;
+    if (!(dur > 0) || e.blob.size < 4 * 1048576) continue;   // 작은 파일은 그대로(재생 안 되는 꼬리가 붙은 파일이 있어 길이만 보고 건너뛰지 않음)
     toast(`긴 곡 자르는 중… ${e.name}`, 600000);
     try {
-      const r = await Cut.run(e.blob, Math.max(0, t0), Math.min(dur, t1));
+      const r = await Cut.run(e.blob, Math.max(0, t0), t1);
       if (!r || r.blob.size > e.blob.size * 0.9) { logLine(`자르기 건너뜀 "${e.name}" (${r ? '별로 안 줄어듦' : Cut.why() || '이유 모름'})`); continue; }
       logLine(`잘라 담음 "${e.name}" ${(e.blob.size / 1048576).toFixed(1)}MB → ${(r.blob.size / 1048576).toFixed(1)}MB · ${r.cut0.toFixed(2)}초부터`);
       e.blob = r.blob; cut0.set(e.fid, r.cut0);
