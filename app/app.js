@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.54 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.55 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -786,7 +786,7 @@ async function exportBoard(b) {
   }
   const mb = entries.reduce((a, e) => a + e.blob.size, 0) / 1048576;
   if (mb > BIG_MB && !confirm(`소리가 ${mb.toFixed(0)}MB예요. 아이패드에서 오래 걸리거나 실패할 수 있어요. 계속할까요?`)) return;
-  const json = { app: 'duckq-board', v: 1, ver: APP_VER, board: { name: b.name, color: b.color },
+  const json = { app: 'duckq-board', v: 1, ver: APP_VER, settings: { ...S.settings }, master: S.master, board: { name: b.name, color: b.color },
     pads: pads.filter(p => names.has(p.file)).map(p => {
       const { id, file, played, ...rest } = p, c = cut0.get(file) || 0, L = cutLen.get(file);
       if (cutLen.has(file)) Object.assign(rest, { start: Math.max(0, (p.start || 0) - c), end: p.end > 0 ? p.end - c : 0, dur: Math.max(0, Math.min((p.dur || 0) - c, L || Infinity)) });   // 잘린 파일 길이로 — 가져온 쪽이 없는 소리를 가리키지 않게
@@ -818,6 +818,26 @@ async function saveBlob(blob, fname) {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 60000);
   done('내보내기 다운로드 시작');
+}
+// 가져온 파일의 앱 전체 설정: 다르면 한 번 묻고, 기본은 지금 설정 그대로(기존 판을 안 바꾸는 약속)
+const SET_KO = { theme: '화면', cols: '패드 크기', labelSize: '패드 글자', fadeSec: '페이드 초', fadeOverride: '페이드 덮어쓰기', fadeMax: '페이드 최대', soloMode: '솔로 방식',
+  newFin: '새 곡 페이드인', newFinSec: '새 곡 페이드인 초', newFout: '새 곡 페이드아웃', newFoutSec: '새 곡 페이드아웃 초', masterBoost: 'MASTER 키우기', cue: '큐' };
+function importSettings(json) {
+  const inc = json.settings && typeof json.settings === 'object' ? json.settings : null;
+  if (!inc) return;
+  const keys = Object.keys(SET_KO).filter(k => k in inc && JSON.stringify(inc[k]) !== JSON.stringify(S.settings[k] ?? DEF_SETTINGS[k]));
+  const mst = typeof json.master === 'number' && Math.abs(json.master - S.master) > 0.005;
+  if (!keys.length && !mst) return;
+  const names = keys.map(k => SET_KO[k]).concat(mst ? ['MASTER 볼륨'] : []);
+  if (!confirm(`이 파일의 설정도 적용할까요?
+바뀌는 것: ${names.join(', ')}
+
+[확인] 적용 · [취소] 지금 설정 그대로`)) { logLine(`가져온 설정 안 씀 (다른 것: ${names.join(', ')})`); return; }
+  keys.forEach(k => { S.settings[k] = inc[k]; });
+  if (mst) S.master = json.master;
+  save(); Engine.setBoost(S.settings.masterBoost || 1); Engine.setMaster(S.master); renderAll();
+  if (window.Cue) Cue.paint();
+  logLine(`가져온 설정 적용: ${names.join(', ')}`);
 }
 function pickImport() { if (S.lock) return; $('zipIn').click(); }
 $('zipIn').addEventListener('change', async e => {
@@ -869,6 +889,7 @@ $('zipIn').addEventListener('change', async e => {
     await loadPad(p.id);
   }
   if (window.Cue) Cue.importFix(nb, qIds, json);   // 큐보드
+  importSettings(json);
   logLine(`가져오기 완료 "${nb.name}" · 패드 ${nb.pads.length}개${bad.length ? ' · 못 가져옴 ' + bad.length : ''} · ${((performance.now() - t0) / 1000).toFixed(1)}초`);
   toast(bad.length ? `못 가져온 패드 ${bad.length}개: ${bad.join(', ')}` : `"${nb.name}" 보드로 ${nb.pads.length}개 가져왔어요`, bad.length ? 6000 : 2500);
 });
