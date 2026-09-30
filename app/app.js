@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.50 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.51 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -764,7 +764,7 @@ async function exportBoard(b) {
     used.add(nm.toLowerCase()); names.set(p.file, nm); entries.push({ name: nm, blob: rec.blob, fid: p.file });
   }
   // 트림한 긴 곡은 안 쓰는 앞뒤를 잘라 담는다(같은 파일을 쓰는 패드들의 구간을 모두 덮게)
-  const cut0 = new Map();
+  const cut0 = new Map(), cutLen = new Map();
   for (const e of entries) {
     const ps = pads.filter(p => p.file === e.fid), dur = Math.max(...ps.map(p => p.dur || 0));
     const t0 = Math.min(...ps.map(p => p.start || 0)) - CUT_PAD, t1 = Math.max(...ps.map(p => p.end > 0 ? p.end : dur)) + CUT_PAD;
@@ -774,15 +774,15 @@ async function exportBoard(b) {
       const r = await Cut.run(e.blob, Math.max(0, t0), t1);
       if (!r || r.blob.size > e.blob.size * 0.9) { logLine(`자르기 건너뜀 "${e.name}" (${r ? '별로 안 줄어듦' : Cut.why() || '이유 모름'})`); continue; }
       logLine(`잘라 담음 "${e.name}" ${(e.blob.size / 1048576).toFixed(1)}MB → ${(r.blob.size / 1048576).toFixed(1)}MB · ${r.cut0.toFixed(2)}초부터`);
-      e.blob = r.blob; cut0.set(e.fid, r.cut0);
+      e.blob = r.blob; cut0.set(e.fid, r.cut0); cutLen.set(e.fid, r.len);
     } catch (err) { logLine(`자르기 실패 "${e.name}" → 원본 그대로: ${err && err.message}`, 'w'); }
   }
   const mb = entries.reduce((a, e) => a + e.blob.size, 0) / 1048576;
   if (mb > BIG_MB && !confirm(`소리가 ${mb.toFixed(0)}MB예요. 아이패드에서 오래 걸리거나 실패할 수 있어요. 계속할까요?`)) return;
   const json = { app: 'duckq-board', v: 1, ver: APP_VER, board: { name: b.name, color: b.color },
     pads: pads.filter(p => names.has(p.file)).map(p => {
-      const { id, file, played, ...rest } = p, c = cut0.get(file) || 0;
-      if (c) Object.assign(rest, { start: Math.max(0, (p.start || 0) - c), end: p.end > 0 ? p.end - c : 0, dur: Math.max(0, (p.dur || 0) - c) });
+      const { id, file, played, ...rest } = p, c = cut0.get(file) || 0, L = cutLen.get(file);
+      if (cutLen.has(file)) Object.assign(rest, { start: Math.max(0, (p.start || 0) - c), end: p.end > 0 ? p.end - c : 0, dur: Math.max(0, Math.min((p.dur || 0) - c, L || Infinity)) });   // 잘린 파일 길이로 — 가져온 쪽이 없는 소리를 가리키지 않게
       return { ...rest, file: names.get(file) };
     }) };
   if (window.Cue) Cue.exportFix(json, pads.filter(p => names.has(p.file)), b);   // 큐보드

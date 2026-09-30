@@ -1,6 +1,6 @@
 // 내보낼 때 안 쓰는 앞뒤를 잘라 담는다. 소리를 풀거나 다시 변환하지 않고 조각(프레임) 단위로 골라 담는다 → 음질 그대로·빠름·메모리 적게.
 // wav = 샘플 단위, mp3 = 프레임 단위, m4a/mp4 = 샘플 조각 + 목차(moov) 새로 쓰기. 모르는 모양이면 null(원본 그대로 담음).
-// 돌려주는 cut0 = 잘린 파일의 0초가 원본 재생 시각으로 몇 초였나(트림 위치를 이만큼 당긴다).
+// 돌려주는 cut0 = 잘린 파일의 0초가 원본 재생 시각으로 몇 초였나(트림 위치를 이만큼 당긴다), len = 잘린 파일 길이(초).
 'use strict';
 const Cut = (() => {
   let why = '';   // 못 자른 이유(로그용)
@@ -27,7 +27,7 @@ const Cut = (() => {
     const h = new DataView(new ArrayBuffer(12)), d = new DataView(new ArrayBuffer(8));
     [...'RIFF'].forEach((c, i) => h.setUint8(i, c.charCodeAt(0))); h.setUint32(4, 4 + fmt.len + 8 + n, true); [...'WAVE'].forEach((c, i) => h.setUint8(8 + i, c.charCodeAt(0)));
     [...'data'].forEach((c, i) => d.setUint8(i, c.charCodeAt(0))); d.setUint32(4, n, true);
-    return { blob: new Blob([h.buffer, fmtBytes, d.buffer, blob.slice(dataOff + f0 * ba, dataOff + f1 * ba)], { type: blob.type || 'audio/wav' }), cut0: f0 / sr };
+    return { blob: new Blob([h.buffer, fmtBytes, d.buffer, blob.slice(dataOff + f0 * ba, dataOff + f1 * ba)], { type: blob.type || 'audio/wav' }), cut0: f0 / sr, len: (f1 - f0) / sr };
   }
 
   // ---------- mp3 ----------
@@ -65,11 +65,11 @@ const Cut = (() => {
     }
     if (e < 0) e = p;
     if (e <= s0 || (s0 === first && e >= u.length)) return no(`${kind} 자를 구간 없음 · ${(n / sr).toFixed(0)}초·${(p / 1048576).toFixed(1)}/${(u.length / 1048576).toFixed(1)}MB까지 읽음 · 구간 ${t0.toFixed(0)}~${t1.toFixed(0)}초 · 건너뛴 곳 ${skip}`);
-    return { s0, e, c0 };
+    return { s0, e, c0, len: (n - c0) / sr };
   }
   function adts(blob, u, p, t0, t1) {
     const f = adtsAt(u, p), w = walk(u, p, adtsAt, f.sr, t0, t1, 'AAC');
-    return w && { blob: blob.slice(w.s0, w.e, blob.type || 'audio/aac'), cut0: w.c0 / f.sr };
+    return w && { blob: blob.slice(w.s0, w.e, blob.type || 'audio/aac'), cut0: w.c0 / f.sr, len: w.len };
   }
   const id3End = u => u[0] === 0x49 && u[1] === 0x44 && u[2] === 0x33 ? 10 + ((u[6] & 127) << 21 | (u[7] & 127) << 14 | (u[8] & 127) << 7 | (u[9] & 127)) + (u[5] & 16 ? 10 : 0) : 0;
   async function mp3(blob, t0, t1) {
@@ -96,8 +96,8 @@ const Cut = (() => {
     }
     const sr = f.sr, w = walk(u, p, frameAt, sr, t0, t1, 'mp3');
     if (!w) return null;
-    const { s0, e, c0 } = w;
-    return { blob: blob.slice(s0, e, blob.type || 'audio/mpeg'), cut0: (c0 - delay) / sr, delay };
+    const { s0, e, c0, len } = w;
+    return { blob: blob.slice(s0, e, blob.type || 'audio/mpeg'), cut0: (c0 - delay) / sr, len, delay };
   }
 
   // ---------- m4a / mp4 (소리 트랙 하나일 때만) ----------
@@ -212,7 +212,7 @@ const Cut = (() => {
     const moovOut = new Uint8Array(moovLen); writeBox(moov, moovOut, 0);
     const mdatH = new DataView(new ArrayBuffer(8)); mdatH.setUint32(0, 8 + dataLen); [...'mdat'].forEach((c, i) => mdatH.setUint8(4 + i, c.charCodeAt(0)));
     const parts = [ftypBuf, moovOut, mdatH.buffer, ...runs.map(r => blob.slice(r[0], r[0] + r[1]))];
-    return { blob: new Blob(parts, { type: blob.type || 'audio/mp4' }), cut0: (time[a] - prime) / ts };
+    return { blob: new Blob(parts, { type: blob.type || 'audio/mp4' }), cut0: (time[a] - prime) / ts, len: durMedia / ts };
   }
 
   // 형식은 이름이 아니라 파일 앞머리로 알아낸다
