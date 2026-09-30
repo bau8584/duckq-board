@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.56 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.57 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -793,6 +793,23 @@ async function exportBoard(b) {
       return { ...rest, file: names.get(file) };
     }) };
   if (window.Cue) Cue.exportFix(json, pads.filter(p => names.has(p.file)), b);   // 큐보드
+  { // 원본 패드 ↔ 담을 설정 항목마다 비교(잘라 담은 곡의 시각은 당긴 만큼 되돌려 비교)
+    const src = pads.filter(p => names.has(p.file)), bad = [], kinds = new Set();
+    json.pads.forEach((jp, i) => {
+      const o = src[i], c = cut0.get(o.file) || 0;
+      Object.keys(o).forEach(k => {
+        if (k === 'id' || k === 'file' || k === 'played') return;
+        kinds.add(k);
+        if (!(k in jp)) { bad.push(`${o.label}.${k} 빠짐`); return; }
+        let v = jp[k];
+        if (cutLen.has(o.file) && (k === 'start' || (k === 'end' && o.end > 0))) v += c;
+        if (k === 'dur' && cutLen.has(o.file)) return;   // 길이는 잘린 길이로 바뀌는 게 맞음
+        if (typeof v === 'number' && typeof o[k] === 'number' ? Math.abs(v - o[k]) > 0.06 : JSON.stringify(v) !== JSON.stringify(o[k])) bad.push(`${o.label}.${k} ${JSON.stringify(o[k])}→${JSON.stringify(v)}`);
+      });
+    });
+    const sk = Object.keys(S.settings).filter(k => !(k in json.settings));
+    logLine(`설정 담음: 패드 ${json.pads.length} · 항목 ${kinds.size}종 · 앱 설정 ${Object.keys(json.settings).length}개 · 큐 ${(json.board.cues || []).length}개 · ${bad.length || sk.length ? '✖ 다름 ' + bad.concat(sk.map(k => '설정.' + k + ' 빠짐')).slice(0, 12).join(', ') : '전부 같음'}`, bad.length || sk.length ? 'e' : 'i');
+  }
   entries.forEach(e => delete e.fid);
   entries.unshift({ name: 'board.json', blob: new Blob([JSON.stringify(json, null, 1)], { type: 'application/json' }) });
   const t0 = performance.now();
@@ -885,12 +902,25 @@ $('zipIn').addEventListener('change', async e => {
       files.set(rec.id, rec); fid = rec.id; fileIds.set(jp.file, fid);
     }
     const base = newPad(fid, String(jp.label || '소리'), +jp.dur || 0);
-    const p = { ...base, ...jp, id: base.id, file: fid, played: false, added: base.added };
+    const p = { ...base, ...jp, id: base.id, file: fid, played: false, added: jp.added || base.added };   // 추가 시각도 원본 그대로(추가순 정렬 유지)
     S.pads[p.id] = p; nb.pads.push(p.id); qIds[i] = p.id; save();
     renderTop(); renderGrid();
     await loadPad(p.id);
   }
   if (window.Cue) Cue.importFix(nb, qIds, json);   // 큐보드
+  { // 파일의 설정 ↔ 새 패드 항목마다 비교
+    const bad = [];
+    json.pads.forEach((jp, i) => {
+      const q = S.pads[qIds[i]]; if (!q) return;
+      Object.keys(jp).forEach(k => {
+        if (k === 'file' || k === 'dur') return;   // 파일은 새 id, 길이는 소리를 읽으며 맞춰짐
+        if (JSON.stringify(jp[k]) !== JSON.stringify(q[k])) bad.push(`${jp.label}.${k}`);
+      });
+    });
+    const cues = (json.board && json.board.cues || []).length, got = (nb.cues || []).length;
+    if (window.Cue && cues !== got) bad.push(`큐 ${cues}→${got}`);
+    logLine(`설정 비교: 패드 ${qIds.filter(Boolean).length}/${json.pads.length} · ${bad.length ? '✖ 다름 ' + bad.slice(0, 12).join(', ') : '전부 같음'}${json.settings ? '' : ' · (옛 파일: 앱 설정 없음)'}`, bad.length ? 'e' : 'i');
+  }
   importSettings(json);
   logLine(`가져오기 완료 "${nb.name}" · 패드 ${nb.pads.length}개${bad.length ? ' · 못 가져옴 ' + bad.length : ''} · ${((performance.now() - t0) / 1000).toFixed(1)}초`);
   toast(bad.length ? `못 가져온 패드 ${bad.length}개: ${bad.join(', ')}` : `"${nb.name}" 보드로 ${nb.pads.length}개 가져왔어요`, bad.length ? 6000 : 2500);
