@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.51 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.52 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -250,7 +250,8 @@ function renderMaster() {
   $('mFill').style.height = (v * 100) + '%';
   $('mKnob').style.top = ((1 - v) * 100) + '%';
   const bst = S.settings.masterBoost || 1;
-  $('mVal').textContent = Math.round(v * bst * 100) + '%';
+  const pct = Math.round(v * bst * 100);
+  $('mVal').textContent = (pct === 100 ? '' : '↺') + pct + '%';   // ↺ = 숫자 누르면 100%로
   const over = v * bst > 1.001;   // 실제 100%를 넘으면 막대·숫자 색이 바뀐다
   $('mVal').classList.toggle('boost', over);
   $('master').classList.toggle('over', over);
@@ -605,6 +606,12 @@ hit($('btnFade'), () => { logLine(`◣ 전체 페이드 ${S.settings.fadeSec}초
   $('master').addEventListener('pointermove', e => { if (on) set(e); });
   const up = () => { if (on) { on = false; save(); } };
   $('master').addEventListener('pointerup', up); $('master').addEventListener('pointercancel', up);
+  // 숫자 누르기 = 원래 소리 100%로(키우기 배율과 상관없이)
+  $('mVal').addEventListener('pointerdown', e => {
+    e.stopPropagation(); const bst = S.settings.masterBoost || 1;
+    if (Math.round(S.master * bst * 100) === 100) return;
+    S.master = 1 / bst; Engine.setMaster(S.master); renderMaster(); save(); logLine('MASTER ↺ 100%');
+  });
   sl.setAttribute('role', 'slider'); sl.setAttribute('aria-label', 'MASTER 볼륨');
 })();
 
