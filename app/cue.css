@@ -94,3 +94,22 @@
 .qrow.q-bad .qname{text-decoration:line-through;text-decoration-color:#f0b35a}
 .qnext.q2{opacity:.7}
 .qnext.q2 span{font:700 12px var(--font);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#qsheet{display:none}
+@media print{
+  body.qprint{background:#fff!important;color:#000}
+  body.qprint>*:not(#qsheet){display:none!important}
+  body.qprint #qsheet{display:block;font:12px/1.45 var(--font),sans-serif;color:#000}
+  #qsheet .qs-head{display:flex;justify-content:space-between;align-items:baseline;border-bottom:2px solid #000;padding-bottom:4px;margin-bottom:6px}
+  #qsheet .qs-head b{font-size:16px}
+  #qsheet .qs-head span{font-size:11px;color:#444}
+  #qsheet table{width:100%;border-collapse:collapse;table-layout:fixed}
+  #qsheet th{text-align:left;font-size:11px;color:#444;border-bottom:1px solid #000;padding:4px}
+  #qsheet td{border-bottom:1px solid #ccc;padding:5px 4px;vertical-align:top;word-break:keep-all}
+  #qsheet tr{break-inside:avoid}
+  #qsheet .qs-scene td{background:#eee;font-weight:800;border-top:1px solid #000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #qsheet .qs-no{font-weight:800;font-size:14px}
+  #qsheet .qs-snd{font-weight:700}
+  #qsheet .qs-ch td{color:#333}
+  #qsheet .qs-ch .qs-no{font-weight:400}
+  @page{margin:12mm}
+}

@@ -439,6 +439,46 @@ window.Cue = (() => {
         paint();
       }));
   }
+  // ---------- 큐시트: 한 장만 읽어도 공연 흐름을 아는 표 → 인쇄·PDF로 저장 (보기 전용, 가져오기는 보드 내보내기로) ----------
+  function sheetAct(c) {
+    const p = c.pad !== '*' && S.pads[c.pad], a = [];
+    const sec = v => v ? `${v}초` : '바로';
+    if (c.act === 'stop') { a.push('■ 끔'); const f = p ? fadeOutOf(c, p) : c.fout; if (f) a.push(`아웃 ${f}초`); }
+    else if (c.act === 'duck') a.push(`↓ 1/${Math.round(1 / (c.sec || 0.25))}로 작게`);
+    else if (c.act === 'restore') a.push('↺ 원래 크기로');
+    else {
+      a.push('▶ 켬');
+      const fin = c.fin != null ? c.fin : p && p.fin ? p.finSec : 0; if (fin) a.push(`인 ${fin}초`);
+      if (c.vol != null) a.push(`볼륨 ${Math.round(c.vol * 100)}%`);
+      a.push(offTxt(c) || '꺼짐: 끝까지');
+      if (c.off && p && foutOf(p)) a.push(`아웃 ${sec(foutOf(p))}`);
+    }
+    if (c.wait > 0) a.push(`${c.wait}초 기다렸다가`);
+    if (c.at) a.push(`⏰ ${c.at}`);
+    return a.join(' · ');
+  }
+  function printSheet() {
+    const b = board(), L = cues(b);
+    if (!L.length) return toast('큐가 없어요');
+    const d = new Date(), day = `${d.getFullYear()}.${d.getMonth() + 1}.${d.getDate()}`;
+    const rows = [];
+    L.forEach((c, i) => {
+      if (c.scene) rows.push(h('tr', { class: 'qs-scene' }, h('td', { colspan: 4 }, '■ ' + c.scene)));
+      const cue = isGo(L, i);
+      const sig = [cue ? '' : c.when === 'with' ? '앞 줄과 동시에' : '앞 줄 소리가 끝나면', c.memo || ''].filter(Boolean).join(' · ');
+      rows.push(h('tr', { class: cue ? '' : 'qs-ch' }, h('td', { class: 'qs-no' }, cue ? qno(L, i) : '↳'), h('td', null, sig), h('td', { class: 'qs-snd' }, padName(c)), h('td', null, sheetAct(c))));
+    });
+    const sh = h('div', { id: 'qsheet' },
+      h('div', { class: 'qs-head' }, h('b', null, `${b.name} — 큐시트`), h('span', null, `큐 ${goNo(L, L.length - 1)}개 · ${day} · DuckQ`)),
+      h('table', null, h('colgroup', null, h('col', { style: 'width:9%' }), h('col', { style: 'width:27%' }), h('col', { style: 'width:22%' }), h('col', { style: 'width:42%' })),
+        h('thead', null, h('tr', null, ['번호', '신호', '소리', '켜짐 / 꺼짐'].map(t => h('th', null, t)))), h('tbody', null, rows)));
+    const old = $('qsheet'); if (old) old.remove();
+    document.body.append(sh); document.body.classList.add('qprint');
+    const done = () => { document.body.classList.remove('qprint'); sh.remove(); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    logLine(`큐시트 인쇄 ${L.length}줄`);
+    setTimeout(() => window.print(), 50);
+  }
   // 설정 [큐] 칸: 넓은 화면에서 같은 목록 + 한꺼번에
   function tab(body) {
     const b = board(), L = cues(b);
@@ -448,6 +488,7 @@ window.Cue = (() => {
       helpBox(),
       h('div', { class: 'trow' },
         h('button', { class: 'sbtn', onclick: () => { if (!L.length || !confirm('큐 번호를 1부터 차례로 다시 매길까요? (2-1 같은 번호가 없어져요)')) return; L.forEach(c => { delete c.no; }); cues(b); save(); logLine('큐 번호 새로 매김'); paint(); } }, '번호 새로 매기기'),
+        h('button', { class: 'sbtn pri', onclick: printSheet }, '큐시트 (인쇄·PDF)'),
         h('button', { class: 'sbtn', onclick: () => { L.forEach(c => { c.when = 'go'; }); save(); logLine('큐 모두 GO로'); paint(); } }, '모두 GO로 나가게'),
         h('button', { class: 'sbtn danger', onclick: () => { if (!L.length || !confirm(`큐 ${L.length}줄을 모두 지울까요?`)) return; L.length = 0; sb[b.id] = 0; save(); logLine('큐 모두 지움'); paint(); } }, '모두 지우기')),
       tabBox));
