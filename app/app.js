@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.64 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.65 (2026-09-30)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1536,7 +1536,10 @@ const Inst = (() => {
   const mac = !ios && /Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|Chromium|Edg|Firefox/.test(ua);
   const tip = ios ? '사파리 아래(또는 위) 공유 □↑ → "홈 화면에 추가". 탭으로만 쓰면 보드가 지워질 수 있어요.'
     : mac ? '메뉴 파일 → "Dock에 추가". 탭으로만 쓰면 보드가 지워질 수 있어요.'
-    : '크롬·엣지·삼성 인터넷에서 앱으로 설치할 수 있어요. 탭으로만 쓰면 보드가 지워질 수 있어요.';
+    : /SamsungBrowser/.test(ua) ? '아래 ≡ → "현재 페이지 추가" → "홈 화면". 탭으로만 쓰면 보드가 지워질 수 있어요.'
+    : /Android/.test(ua) ? '오른쪽 위 ⋮ → "홈 화면에 추가" 또는 "앱 설치". 탭으로만 쓰면 보드가 지워질 수 있어요.'
+    : /Chrome|Edg/.test(ua) ? '주소창 오른쪽 설치 아이콘(⊕ 모니터 모양)을 누르세요. 탭으로만 쓰면 보드가 지워질 수 있어요.'
+    : '크롬·엣지·사파리에서 열면 앱으로 담을 수 있어요. 탭으로만 쓰면 보드가 지워질 수 있어요.';
   $('instTxt').textContent = tip; $('instBox').hidden = false;
   if (ios) { $('instTxt').textContent = '탭으로만 쓰면 보드가 지워질 수 있어요.'; $('instSteps').hidden = false; }
   $('btnStart').textContent = '▶ 그냥 시작';
