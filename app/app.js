@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.65 (2026-09-30)';
+const VER = 'DuckQ Board 0.3.66 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -53,14 +53,17 @@ function logLine(msg, lv) {
 // PC로 자동 전송: q.deokgu.com(또는 PC의 log-server)에서 열었을 때만, 5초마다 → logs/app-날짜.txt. PC가 꺼져 있으면 밀린 것까지 다음에.
 let logTotal = 0, logSent = 0;
 const LOG_SEND = location.hostname === 'q.deokgu.com' || location.port === '8765';
+let flushing = false;   // 5초 타이머와 화면 숨김이 겹치면 같은 줄을 두 번 보냈음
 async function flushLog() {
-  if (!LOG_SEND || logSent >= logTotal) return;
+  if (!LOG_SEND || logSent >= logTotal || flushing) return;
+  flushing = true;
   const upto = logTotal, lines = LOG.slice(Math.max(0, LOG.length - (upto - logSent)));
   const head = logSent === 0 ? `\n##### 앱 세션 ${new Date().toISOString()} · ${navigator.userAgent.slice(0, 80)} #####\n` : '';
   try {
     const r = await fetch('/log-app', { method: 'POST', body: head + lines.join('\n') });
     if (r.ok) logSent = upto;
   } catch {}
+  flushing = false;
 }
 // 인터넷 없이 쓴 기록은 아이패드에 남겨 두었다가 다음에 연결될 때 보낸다
 const LOG_KEEP = 'duckq-log-pending';

@@ -163,7 +163,7 @@ window.Cue = (() => {
     lastGo = t;
     const b = board(), L = cues(b), k = cur(b);
     if (!L.length) return toast('큐가 없어요 — 큐보드의 [+ 담기]로 넣어요');
-    if (k >= L.length) { logLine('GO → 끝'); return toast('마지막 큐까지 나갔어요 · ▲ 이전이나 ⤒ 처음으로'); }
+    if (k >= L.length) { seq++; offBy('go', null, null, seq); logLine('GO → 끝'); return toast('마지막 큐까지 나갔어요 · ▲ 이전이나 ⤒ 처음으로'); }
     logLine(`GO ${cueLabel(L, k)}`);
     let j = k + 1; while (j < L.length && !isGo(L, j)) j++;
     sb[b.id] = j; lastIns = null;
@@ -213,11 +213,10 @@ window.Cue = (() => {
     const L = cues();
     let at = L.findIndex(x => x.id === lastIns) + 1;
     if (!at) { const k = cur(); if (k >= L.length) at = L.length; else { at = k + 1; while (at < L.length && !isGo(L, at)) at++; } }
-    // 끼우는 자리 앞에서 이 소리의 마지막 동작이 '재생'이면 이번엔 '끄기' — 패드 누르는 손 그대로(한 번 켜기, 또 한 번 끄기)
-    const last = L.slice(0, at).reverse().find(x => x.pad === id && (x.act === 'play' || x.act === 'stop'));
-    const c = { id: uid(), pad: id, act: last && last.act === 'play' ? 'stop' : 'play', when: 'go' };
+    // 기본은 ▶ 재생. 지금 울리고 있는 소리를 누를 때만 ■ 끄기 (목록 앞 줄로 짐작하지 않음 — 0.3.66, 연습 로그: 켜야 할 줄이 끄기로 담김)
+    const c = { id: uid(), pad: id, act: Engine.isPlaying(id) ? 'stop' : 'play', when: 'go' };
     if (sceneNext) { c.scene = sceneNext; sceneNext = null; logLine(`큐 장면 ${c.scene}`); }
-    L.splice(at, 0, c); lastIns = c.id; save();
+    L.splice(at, 0, c); lastIns = c.id; fixNos(L); save();
     logLine(`큐 담음 ${cueLabel(L, at)} ${actTxt(c)} ${nm(id)}${at < L.length - 1 ? ' (끼움)' : ''}`); paint(c.id);
     const el = padEls.get(id); if (el) { el.classList.add('qadd'); setTimeout(() => el.classList.remove('qadd'), 250); }
     return true;
