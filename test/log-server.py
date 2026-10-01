@@ -5,6 +5,10 @@ python test/log-server.py  (저장소 루트에서)
 → 페이지가 로그를 5초마다 POST /log 로 보내고, logs/engine-YYYY-MM-DD.txt 에 쌓인다.
 """
 import datetime, http.server, os, socket
+import sys
+# 창 없이(pythonw, 작업 스케줄러) 켜면 출력할 곳이 없어 요청마다 죽음 → 버림통으로
+if sys.stdout is None: sys.stdout = open(os.devnull, 'w')
+if sys.stderr is None: sys.stderr = open(os.devnull, 'w')
 
 PORT = 8765
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
