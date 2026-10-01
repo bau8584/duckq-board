@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.76 (2026-10-01)';
+const VER = 'DuckQ Board 0.3.77 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1512,7 +1512,8 @@ function offRow() {
   const btn = h('button', { class: 'sbtn', hidden: true }, '업데이트');
   const paint = () => {
     const up = navigator.onLine && !!Off.latest;   // 서버에서 버전을 받아 와야 '연결됨'
-    const net = up ? '인터넷 연결됨' : '인터넷 없음';
+    // 인터넷은 있는데 버전을 못 받았으면 '인터넷 없음'이 아님 — 서버가 꺼졌거나 로그인이 풀린 것(2026-10-01)
+    const net = up ? '인터넷 연결됨' : navigator.onLine ? '새 버전 확인 못 함 (서버 꺼짐·로그인 풀림 — 새로고침)' : '인터넷 없음';
     if (!Off.ok) { txt.textContent = `${net} · 이 주소에선 오프라인 저장 안 됨`; return; }
     const saved = Off.saved ? `${Off.saved} 담김 — 인터넷 없어도 켜져요` : '아직 안 담김 — 인터넷 없으면 안 켜져요';
     const news = Off.latest && Off.latest !== APP_VER ? ` · 새 버전 ${Off.latest} 있음` : Off.latest ? ' · 최신' : '';
@@ -1580,7 +1581,7 @@ async function boot() {
   const t0 = performance.now();
   renderAll();
   logLine(VER);
-  if (Off.ok) Off.check().then(() => logLine(`오프라인: ${navigator.onLine ? '연결됨' : '인터넷 없음'} · 담긴 ${Off.saved || '없음'}${Off.latest && Off.latest !== APP_VER ? ' · 새 버전 ' + Off.latest : ''}`));
+  if (Off.ok) Off.check().then(() => logLine(`오프라인: ${!navigator.onLine ? '인터넷 없음' : Off.latest ? '연결됨' : '버전 확인 못 함'} · 담긴 ${Off.saved || '없음'}${Off.latest && Off.latest !== APP_VER ? ' · 새 버전 ' + Off.latest : ''}`));
   idleClear();
   try { await Store.open(); } catch (e) { toast('저장소를 열 수 없어요'); logLine('저장소 열기 실패: ' + (e && e.message), 'e'); return; }
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(ok => logLine('영구 저장 ' + (ok ? '허용' : '거부'), ok ? 'i' : 'w'));
