@@ -253,7 +253,7 @@ window.Cue = (() => {
     const e = pend.get(c.id), s = [], bad = badOf(c);
     if (bad) s.push('⚠ ' + bad);
     if (e) s.push(`${Math.max(0, e.sec - (performance.now() - e.t0) / 1000).toFixed(1)}초 뒤 나감`);
-    else if (live.has(c.id)) { const pid = live.get(c.id), d = Engine.dur(pid) || segLen(S.pads[pid]), rm = Math.max(0, d - Engine.pos(pid)); s.push(`♪ ${fmt(Math.ceil(rm))} 남음`); }
+    else if (live.has(c.id)) { const pid = live.get(c.id), d = playLen(S.pads[pid], pid), rm = Math.max(0, d - playPos(pid)); s.push(`♪ ${fmt(Math.ceil(rm))} 남음`); }
     if (i === cur() && !e) s.push('다음 차례 — GO');
     if (!isGo(L, i)) s.push(WHEN1[c.when] || WHEN1.end);
     if (c.wait > 0 && !e) s.push(`+ ${c.wait}초`);
@@ -344,7 +344,7 @@ window.Cue = (() => {
     return [...head, r];
   }
   // 울리는 줄의 진행(%)
-  const prog = cid => { const pid = live.get(cid), d = pid && (Engine.dur(pid) || segLen(S.pads[pid])); return d ? Math.min(100, Math.max(0, Engine.pos(pid) / d * 100)) : 0; };
+  const prog = cid => { const pid = live.get(cid), d = pid && playLen(S.pads[pid], pid); return d ? Math.min(100, Math.max(0, playPos(pid) / d * 100)) : 0; };
   let pressed = false, more = false, editIn = null;
   function openEdit(id, how, el) {
     edit = id; more = false;

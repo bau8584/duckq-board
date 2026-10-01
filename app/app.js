@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.72 (2026-10-01)';
+const VER = 'DuckQ Board 0.3.73 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -238,11 +238,11 @@ function paintPad(id) {
   if (!playing) {
     el.style.setProperty('--p', '0%');
     el._el.textContent = '00:00';
-    el._rm.textContent = st === 'bad' ? (badWhy[id] || '못 틂') : (st === 'ready' ? '-' + fmt(Math.ceil(segLen(p))) : '불러오는 중');
+    el._rm.textContent = st === 'bad' ? (badWhy[id] || '못 틂') : (st === 'ready' ? '-' + fmt(Math.ceil(playLen(p))) : '불러오는 중');
   } else tickPad(id, el);
 }
 function tickPad(id, el) {
-  const d = Engine.dur(id) || segLen(S.pads[id]), pos = Engine.pos(id);
+  const d = playLen(S.pads[id], id), pos = playPos(id);
   el.style.setProperty('--p', Math.min(100, pos / d * 100).toFixed(1) + '%');
   el._el.textContent = fmt(pos); el._rm.textContent = '-' + fmt(Math.ceil(d - pos));
 }
@@ -288,7 +288,7 @@ function renderPlays() {
   if (ids.length <= PLAY_ROWS) playsOpen = false;
   const shown = playsOpen || ids.length <= PLAY_ROWS ? ids : ids.slice(0, PLAY_ROWS - 1);
   const kids = shown.map(id => {
-    const r = playRow(id), p = S.pads[id] || {}, d = Engine.dur(id) || segLen(p), pos = seek && seek.id === id ? seek.f * d : Engine.pos(id);
+    const r = playRow(id), p = S.pads[id] || {}, d = playLen(p, id), pos = seek && seek.id === id ? seek.f * d : playPos(id);
     r.firstChild.style.background = padHex(p);
     r.children[1].textContent = p.label || '';
     r.children[2].firstChild.style.width = Math.min(100, pos / d * 100) + '%';
@@ -319,9 +319,10 @@ function renderPlays() {
     const id = seek.id, f = ok ? frac(tr, e) : null; tr.closest('.prow').classList.remove('drag'); tr = null; seek = null;
     const p = S.pads[id];
     if (ok && p && Engine.isPlaying(id)) {
-      const d = Engine.dur(id), from = Math.min(f * d, Math.max(0, d - 0.1));
-      logLine(`재생 위치 옮김 ${nm(id)} → ${fmt(from)}`);
-      Engine.play(id, { fadeIn: 0.08, fadeOut: foutOf(p), from, stopAt: loopStop(p) }); paintPad(id);   // 옮긴 자리는 0.08초 올리며 시작 — "뚝" 대신 "슥"
+      // 횟수·초 반복이면 막대 = 전체 길이: 몇 바퀴째 어디인지로 나눠 틀고, 멈출 때까지 남은 시간은 그대로
+      const L = Engine.dur(id), T = playLen(p, id), t = Math.min(f * T, Math.max(0, T - 0.1)), k = loopStop(p) ? Math.floor(t / L) : 0, from = Math.min(t - k * L, Math.max(0, L - 0.1));
+      logLine(`재생 위치 옮김 ${nm(id)} → ${fmt(t)}`);
+      Engine.play(id, { fadeIn: 0.08, fadeOut: foutOf(p), from, stopAt: loopStop(p) ? T - t + from : 0 }); lap[id] = { n: k, pos: from }; paintPad(id);   // 옮긴 자리는 0.08초 올리며 시작 — "뚝" 대신 "슥"
     }
     renderPlays();
   };
@@ -572,7 +573,7 @@ const nm = id => `"${(S.pads[id] || {}).label || id}"`;   // 기록용 패드 �
 const WHY = { ended: '트랙 끝', faded: '페이드 끝', stop: '바로 정지', restart: '다시 시작', hidden: '홈 복귀', ousted: '다른 창', error: '오류', unload: '지움' };
 var playT = {};   // id → 튼 시각(재생 줄 순서)
 Engine.on('play', id => {
-  const p = S.pads[id]; playT[id] = performance.now();
+  const p = S.pads[id]; playT[id] = performance.now(); lap[id] = { n: 0, pos: 0 };
   if (p) logLine(`▶ ${nm(id)} 구간 ${Engine.dur(id).toFixed(1)}초 · 인 ${p.fin ? p.finSec + '초' : '끔'} · 아웃 ${foutOf(p) ? foutOf(p) + '초' : '끔'}${p.loop ? ' · 반복' + (loopTag(p) ? ' ' + loopTag(p) + ` (${loopStop(p).toFixed(1)}초에 멈춤)` : '') : ''}`);
   paintPad(id);
 });
@@ -1073,6 +1074,16 @@ function applyLoop(q, o) {
   Engine.setLoop(q.id, q.loop);
 }
 // 멈출 때까지 걸리는 초(끝 페이드 포함) — 계속이면 0
+// 재생 길이: 횟수·초 반복이면 다 도는 전체 길이(3초 × 3번 = 9초). 계속 반복은 한 바퀴
+function playLen(p, id) { return loopStop(p) || (id && Engine.dur(id)) || segLen(p); }
+// 재생 위치: 엔진은 한 바퀴 안 위치만 알려 주니, 되감기면 바퀴를 세어 전체 위치로
+var lap = {};
+function playPos(id) {
+  const pos = Engine.pos(id), p = S.pads[id], o = lap[id] || (lap[id] = { n: 0, pos: 0 });
+  if (pos + 0.05 < o.pos) o.n++;
+  o.pos = pos;
+  return p && loopStop(p) ? Math.min(loopStop(p), o.n * (Engine.dur(id) || segLen(p)) + pos) : pos;
+}
 const loopStop = p => !p.loop || !p.loopBy ? 0 : p.loopBy === 'n' ? (p.loopN || 3) * segLen(p) : (p.loopSec || 30);
 const loopTag = p => !p.loop || !p.loopBy ? '' : p.loopBy === 'n' ? '×' + (p.loopN || 3) : fmt(p.loopSec || 30);
 function loopCtl(cur, n, s, mixedAny, onchange) {
