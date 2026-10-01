@@ -592,8 +592,11 @@ window.Cue = (() => {
   }
   // 패드 구석(페이드아웃 아래): 큐에 쓰이면 '큐' — 번호는 잘려서 뺌(소유자 2026-10-01)
   function padTags() {
-    padEls.forEach(el => { const t = el.querySelector('.qtag'); if (t) t.remove(); });
+    padEls.forEach(el => { const t = el.querySelector('.qtag'); if (t) t.remove(); el.classList.remove('q-next'); });
     if (!on()) return;
+    // 다음 차례 큐(+ 따라 나가는 ↳ 줄)의 패드에 테두리 — GO 누르면 무엇이 나가는지 패드판에서도 보이게 (랜덤은 뺌, 2026-10-01)
+    const L = cues(), k = cur();
+    if (k < L.length) L.slice(k, nextGo(L, k)).forEach(c => { const el = c.pad !== '*' && S.pads[c.pad] && padEls.get(c.pad); if (el) el.classList.add('q-next'); });
     new Set(cues().map(c => c.pad)).forEach(id => { const el = S.pads[id] && padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, '큐')); });
   }
   function paintGo() {

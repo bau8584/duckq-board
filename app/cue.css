@@ -204,3 +204,5 @@
 .qrow .qact{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
 .qact-b{min-height:0;padding:2px 5px;border-radius:6px;font:700 11px var(--font);line-height:1.3;justify-content:flex-start}
 .qrow .qoff{font-size:10px;line-height:1.2;white-space:nowrap}
+/* 다음 차례 큐의 패드: 두꺼운 테두리(울리는 중 = 채움과 구별) */
+.pad.q-next{outline:3px solid var(--board);outline-offset:2px}
