@@ -113,3 +113,32 @@
   #qsheet .qs-ch .qs-no{font-weight:400}
   @page{margin:12mm}
 }
+/* 0.3.67 화면 다듬기 — 말풍선 · 아래 단추 · 재생 줄 강조 */
+.qlist{position:relative}
+.qrow{position:relative}
+.qrow.q-sb{background:none;box-shadow:inset 0 0 0 2px var(--board);border-radius:8px}
+.qrow.q-sb .qn{background:none;color:var(--board);padding:0}
+.qrow.q-sb .qsub{color:var(--board)}
+.qrow.q-run{background:var(--board);color:#0b0c0e;opacity:1;border-radius:8px}
+.qrow.q-run .qn,.qrow.q-run .qsub,.qrow.q-run .qact,.qrow.q-run .qoff{color:#0b0c0e}
+.qrow.q-run .qname{text-decoration:none}
+.qrow.q-run .qed{background:color-mix(in srgb,#fff 35%,transparent);border-color:transparent;color:#0b0c0e}
+.qbar{position:absolute;left:0;bottom:0;height:4px;background:#0b0c0e;opacity:.55;border-radius:0 2px 2px 8px;transition:width .5s linear;pointer-events:none}
+.qrow.q-edit{box-shadow:inset 0 0 0 2px var(--text);border-radius:8px}
+.qaddrow{display:flex;gap:6px;padding:10px 6px 14px}
+.qaddrow .qadd-b{flex:1;height:40px}
+.qpop-w{position:fixed;z-index:60}
+.qpop-w[hidden]{display:none}
+.qpop{max-height:min(560px,calc(100vh - 16px));overflow-y:auto;background:var(--bg1);border:1px solid color-mix(in srgb,var(--text) 30%,var(--line));border-radius:14px;padding:8px 12px 12px;display:flex;flex-direction:column;gap:6px;box-shadow:0 12px 32px rgba(0,0,0,.45)}
+.qpop .sel,.qpop .txt{width:100%;min-width:0}
+.qpop-h{display:flex;align-items:center;gap:8px}
+.qpop-h b{flex:1;font:800 14px var(--font);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qpop-arrow{display:none;position:absolute;right:-8px;width:14px;height:14px;background:var(--bg1);border:1px solid color-mix(in srgb,var(--text) 30%,var(--line));border-left:0;border-bottom:0;transform:rotate(45deg)}
+.qpop-w.side .qpop-arrow{display:block}
+.qwait{display:flex;align-items:center;gap:8px;margin-top:2px}
+.qwait small{font:700 12px var(--font);color:var(--text-dim);flex:1}
+.qwait .qc{width:36px;padding:7px 0}
+.qwait b{font:800 14px var(--font);min-width:56px;text-align:center}
+.qmore{margin-top:6px;border:0;border-top:1px solid var(--line);background:none;color:var(--text-dim);font:700 12px var(--font);padding:8px 0 2px}
+.qstrip .qn.q-run{background:var(--board);color:#0b0c0e}
+.qstrip .qn.q-sb{background:none;box-shadow:inset 0 0 0 2px var(--board);color:var(--board)}
