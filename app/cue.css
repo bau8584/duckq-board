@@ -74,6 +74,7 @@
 /* GO: 조작부 맨 앞, 다른 단추와 같은 높이 */
 .cbtn.qgo{width:132px;flex-direction:column;gap:1px;font:900 18px var(--font);letter-spacing:.06em}
 .cbtn.qgo small{font:600 11px var(--font);letter-spacing:0;opacity:.7;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cbtn.qgo.wait small{opacity:1;font-weight:800;color:var(--board)}
 @media (max-width:900px){.cbtn.qgo{width:96px}.cbtn.qgo small{max-width:84px}}
 /* 큐보드를 펼쳤을 때만 한 줄 패드 수를 줄임(줄 높이는 그대로) — 6→4, 8→6, 4→3. 접으면 원래대로 */
 .stage.qopen .grid[data-cols="6"]{--cols:4!important}

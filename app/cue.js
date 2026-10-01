@@ -99,6 +99,8 @@ window.Cue = (() => {
       if (pid === '*') { const r = b.pads.filter(x => status[x] === 'ready'); pid = r[Math.floor(Math.random() * r.length)]; }
       const p = S.pads[pid];
       if (!p) { logLine(`${tag} 건너뜀 (패드 없음)`, 'w'); return after(b, i, null); }
+      // 이 큐가 튼 소리가 아직 울리면 처음부터 다시 틀지 않음(공연 중 같은 줄을 또 GO = 실수, 2026-10-01 연습) — 따라 나가는 줄도 다시 안 냄
+      if (c.act === 'play' && live.get(c.id) === pid && Engine.isPlaying(pid)) return logLine(`${tag} 이미 울리는 중 — 그대로 둠`, 'w');
       logLine(`${tag} ${actTxt(c)} ${nm(pid)}${c.memo ? ' · ' + c.memo : ''}`);
       if (c.act === 'stop') { if (Engine.isPlaying(pid)) { manual.add(pid); Engine.stop(pid, fadeOutOf(c, p)); } }
       else if (c.act === 'vol') {
@@ -118,6 +120,7 @@ window.Cue = (() => {
       paintPad(pid); soon();
       after(b, i, pid);
     };
+    if (pend.has(c.id)) return logLine(`${tag} 이미 기다리는 중 — 한 번만 나감`, 'w');
     if (c.wait > 0) {
       const e = { t0: performance.now(), sec: c.wait };
       e.timer = setTimeout(function go() { if (Engine.paused) { e.timer = setTimeout(go, 200); return; } act(); }, c.wait * 1000);
@@ -775,7 +778,10 @@ window.Cue = (() => {
       ctl.prepend(goB);
     }
     const b = board(), L = cues(b), k = cur(b), c = L[k];
-    goB.lastChild.textContent = !L.length ? '큐 없음' : c ? `${qno(L, k)} ${c.memo || padName(c)}` : '끝';
+    // 기다렸다가 나가는 줄이 있으면 GO 아래에 남은 초 — 반응이 없는 줄 알고 또 누르지 않게
+    let w = null; pend.forEach((e, id) => { const r = e.sec - (performance.now() - e.t0) / 1000; if (!w || r < w.r) w = { r, i: L.findIndex(x => x.id === id) }; });
+    goB.classList.toggle('wait', !!w);
+    goB.lastChild.textContent = w ? `⏳ ${Math.max(1, Math.ceil(w.r))}초 뒤 ${w.i >= 0 ? qno(L, w.i) : ''}` : !L.length ? '큐 없음' : c ? `${qno(L, k)} ${c.memo || padName(c)}` : '끝';
   }
   setInterval(() => {
     if (!on() || !live.size) return;
