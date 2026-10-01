@@ -516,8 +516,51 @@ window.Cue = (() => {
     if (!at) { const k = cur(b); if (k >= L.length) at = L.length; else { at = k + 1; while (at < L.length && !isGo(L, at)) at++; } }
     return at;
   }
+  // 연결선(곡 생명선): 곡(패드)마다 왼쪽 색 세로선 — ▶에서 시작, ◢에 점, ■(또는 '언제 꺼짐')에서 끝. 화면 표시만 (2026-10-01 소유자: 3칸·패드 색)
+  const LANES = 3;
+  function lanes(L) {
+    const lane = Array(LANES).fill(null), over = new Map(), out = [];   // lane[k] = {pid, endAt}, over = 칸이 모자란 곡
+    L.forEach((c, i) => {
+      const r = { pass: lane.map(x => x && x.pid), seg: Array(LANES).fill(''), extra: '' };
+      lane.forEach((x, k) => { if (x && x.endAt === i) { r.seg[k] = 'end'; lane[k] = null; } });
+      over.forEach((e, pid) => { if (e === i) over.delete(pid); });
+      const pid = c.pad, p = pid && pid !== '*' && S.pads[pid], k = p ? lane.findIndex(x => x && x.pid === pid) : -1;
+      if (p) {
+        const act = c.act || 'play';
+        if (act === 'play') {
+          let endAt = Infinity;
+          if (c.off === 'go') endAt = nextGo(L, i);
+          else if (c.off === 'next') { endAt = L.findIndex((x, j) => j > i && (x.act || 'play') === 'play' && x.pad !== pid); if (endAt < 0) endAt = Infinity; }
+          else if (c.off) { const j = L.findIndex(x => 'q:' + x.id === c.off); if (j > i) endAt = j; }
+          let n = k >= 0 ? k : lane.findIndex(x => !x);
+          if (n < 0) { over.set(pid, endAt); r.extra = '+'; }
+          else { if (r.seg[n] !== 'end') r.seg[n] = k >= 0 ? 'dot' : 'start'; else r.seg[n] = 'restart'; lane[n] = { pid, endAt }; r.pass[n] = pid; }
+        } else if (act === 'stop') {
+          if (k >= 0) { r.seg[k] = 'end'; lane[k] = null; }
+          else if (over.has(pid)) over.delete(pid);
+          else { const w = r.seg.findIndex((s, j) => !lane[j] && !s); r.extra = '!'; if (w >= 0) r.seg[w] = 'warn'; }
+        } else if (k >= 0) r.seg[k] = 'dot';
+      }
+      out[i] = r;
+    });
+    return out;
+  }
+  function laneEl(r, scene) {
+    if (!r) return '';
+    return h('span', { class: 'qln', 'aria-hidden': 'true' }, ...r.pass.map((pid, k) => {
+      const s = scene ? (r.seg[k] === 'start' || r.seg[k] === 'warn' ? '' : 'pass') : r.seg[k] || (pid ? 'pass' : '');
+      if (!s) return '';
+      const p = s !== 'warn' && S.pads[pid];
+      return h('i', { class: 'qln-' + s, style: `left:${k * 6}px` + (p ? `;--lc:${padHex(p)}` : '') });
+    }), !scene && r.extra ? h('b', { class: 'qln-x' + (r.extra === '!' ? ' warn' : '') }, r.extra) : '');
+  }
   function list(b, box, mark) {
-    const L = cues(b), rows = L.flatMap((c, i) => rowEl(b, L, i));
+    const L = cues(b), ln = lanes(L), rows = L.flatMap((c, i) => {
+      const els = rowEl(b, L, i), r = els[els.length - 1];
+      r.prepend(laneEl(ln[i]) || '');
+      if (els.length > 1) els[0].prepend(laneEl(ln[i], true) || '');
+      return els;
+    });
     if (mark) { const at = insAt(L, b), r = h('div', { class: 'qins', 'data-id': 'qins' }, '▼ 여기에 담겨요');
       const before = at < L.length && rows.find(e => e.dataset && e.dataset.id === L[at].id);
       const j = before ? rows.indexOf(before) : rows.length;

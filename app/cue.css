@@ -216,3 +216,20 @@
 .editing .qrow,.editing .qrow.q-ch{grid-template-columns:30px 30px minmax(0,1fr) auto;grid-template-areas:"ed n main act"}
 .qrow .qact{align-items:flex-end;text-align:right;max-width:96px}
 .qrow .qoff{text-align:right}
+/* 연결선(곡 생명선): 곡마다 왼쪽 색 세로선 3칸 — 패드 색 (2026-10-01 소유자) */
+.qlist .qrow,.qlist .qrow.q-ch{padding-left:24px}
+.qlist .qrow.q-ch{padding-left:30px}
+.qlist .qscene{position:relative;padding-left:24px}
+.qln{position:absolute;left:3px;top:0;bottom:0;width:18px;pointer-events:none}
+.qscene .qln{top:-8px;bottom:-2px}
+.qln i{position:absolute;width:3px;top:0;bottom:0;background:var(--lc,var(--text-dim));border-radius:2px}
+.qln .qln-start{top:50%}
+.qln .qln-end{bottom:50%}
+.qln .qln-start::before,.qln .qln-restart::before{content:"";position:absolute;left:-2.5px;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--lc)}
+.qln .qln-restart::before{top:calc(50% - 4px)}
+.qln .qln-end::after{content:"";position:absolute;left:-2.5px;bottom:-1.5px;width:8px;height:3px;border-radius:1px;background:var(--lc)}
+.qln .qln-dot::before{content:"";position:absolute;left:-2.5px;top:calc(50% - 4px);width:4px;height:4px;border-radius:50%;border:2px solid var(--lc);background:var(--bg1,#111)}
+.qln .qln-warn{top:30%;bottom:30%;width:3px;background:#f0b35a}
+.qln-x{position:absolute;left:0;bottom:2px;font:800 9px var(--font);color:var(--text-dim)}
+.qln-x.warn{color:#f0b35a}
+.qrow.q-run .qln i{box-shadow:0 0 0 1px #0b0c0e}
