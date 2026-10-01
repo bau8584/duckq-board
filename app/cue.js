@@ -7,6 +7,7 @@
 //   off: 언제 꺼짐(재생만, 값 없음 = 따로 안 끔) go 다음 큐(다음 GO) 나갈 때 | 'q:큐id' 그 큐가 나갈 때 | next 다른 소리가 나오면(패드 손 누름 포함)
 //   scene: 장면 제목 — 이 줄 위에 머리 줄(■ 1막 2장 — 병원)로 보임. 줄을 옮겨도 자리에 남음
 //   sub: 하위 번호 단계(1 = 앞 번호의 2-1식) · 값 없음 = 1·2·3 저절로. no: 옛(0.3.59) 고정 번호 — '-'가 있으면 하위 번호로 이어받음
+//   alt: 번갈아 — 더 트는 패드 id 목록 · rep: 몇 바퀴(값 없음 = 1). GO마다 [pad, ...alt]의 다음 트랙, 다 돌면 다음 줄(값 없음 = 지금 동작)
 //   when: go(GO를 누를 때) | end(앞 소리가 끝나면) | with(앞 큐와 동시에) · wait: 기다렸다가 초 · at: 'HH:MM' 그 시각에
 // 연극식 번호: GO로 나가는 줄만 번호(큐 1, 큐 2…), 따라 나가는 줄은 ↳
 'use strict';
@@ -42,7 +43,11 @@ window.Cue = (() => {
     c.act === 'vol' ? (c.vol != null ? `◢ ${Math.round(c.vol * 100)}%` : '◢ 원래 볼륨') + (c.ramp ? ` ${c.ramp}초` : '') :
     ACTS.play + (c.fin ? ` 인${c.fin}초` : '') + (c.vol != null ? ` ${Math.round(c.vol * 100)}%` : '');
   const fadeOutOf = (c, p) => c.fout != null ? c.fout : foutOf(p);   // 끄기: 따로 없으면 패드를 다시 눌러 끌 때와 같게
-  const padName = c => c.pad === '*' ? '랜덤 소리' : S.pads[c.pad] ? S.pads[c.pad].label || '(이름 없음)' : '(지운 패드)';
+  // 번갈아: 트랙 목록·전체 GO 수
+  const trks = c => !c.act || c.act === 'play' ? [c.pad, ...(c.alt || [])] : [c.pad];
+  const total = c => (!c.act || c.act === 'play') && (c.alt && c.alt.length || c.rep > 1) ? trks(c).length * (c.rep || 1) : 1;
+  const nm1 = id => id === '*' ? '랜덤 소리' : S.pads[id] ? S.pads[id].label || '(이름 없음)' : '(지운 패드)';
+  const padName = c => total(c) > 1 ? trks(c).map(nm1).join(' ↔ ') + ` ×${c.rep || 1}` : nm1(c.pad);
   // 언제 꺼짐: 따로 안 끔(값 없음) · 큐 N 나갈 때(go = 다음 큐, 'q:id' = 고른 큐) · 다른 소리 나오면(next, 패드 손 누름 포함)
   const offTxt = (c, L = cues()) => {
     if (!c.off || c.act !== 'play') return '';
@@ -51,11 +56,13 @@ window.Cue = (() => {
     return j < 0 ? '' : `꺼짐: ${cueLabel(L, j)}`;
   };
   // 못 트는 줄: 패드가 없거나 파일을 못 읽음(랜덤·불러오는 중은 괜찮음)
-  const badOf = c => c.pad === '*' ? '' : !S.pads[c.pad] ? '패드 없음' : status[c.pad] === 'bad' ? badWhy[c.pad] || '못 틂' : '';
+  const bad1 = id => id === '*' ? '' : !S.pads[id] ? '패드 없음' : status[id] === 'bad' ? badWhy[id] || '못 틂' : '';
+  const badOf = c => trks(c).map(bad1).find(Boolean) || '';
   const nextGo = (L, k) => { let j = k + 1; while (j < L.length && !isGo(L, j)) j++; return j; };
   const cueLabel = (L, i) => isGo(L, i) ? `큐 ${qno(L, i)}` : `큐 ${qno(L, i)}↳`;
 
   // ---------- 실행 ----------
+  const pos = new Map();       // 큐 id → 번갈아 몇 번 나갔나
   const sb = {};               // 보드 id → '다음' 줄 번호(0부터)
   const pend = new Map();      // 큐 id → {t0, sec, timer}
   const waitEnd = new Map();   // 패드 id → [[보드, 줄]…] (그 소리가 끝나면 나갈 줄)
@@ -64,7 +71,7 @@ window.Cue = (() => {
   const live = new Map();      // 큐 id → 패드 id (그 큐가 튼 소리가 울리는 중)
   const volOver = new Set();   // 이 큐만(또는 ◢ 볼륨 큐로) 볼륨을 바꾼 패드 — 끝나면 트랙 볼륨으로
   const duckBy = new Map();    // 패드 id → {list, t} 이 소리가 나올 동안 줄여 둔 다른 소리
-  let pick = null;             // [소리 바꾸기]: 패드를 누르면 이 큐의 소리로
+  let pick = null, pickAlt = false;             // [소리 바꾸기]: 패드를 누르면 이 큐의 소리로
   const offs = new Map();      // 큐 id → {pid, off, seq} ('꺼질 때'를 기다리는 소리)
   let seq = 0;                 // GO 한 번(과 따라 나가는 줄) = 한 묶음 — 같은 묶음 소리끼리는 안 끔
   let lastIns = null;          // 담기: 방금 끼운 큐 id (다음은 그 뒤에)
@@ -88,16 +95,16 @@ window.Cue = (() => {
         offNow(id, kind === 'go' ? '다음 GO' : kind === 'next' ? '다음 소리' : '큐 나감');
     });
   }
-  function run(b, i) {
+  function run(b, i, padO, last = true) {
     const L = cues(b), c = L[i]; if (!c) return;
     const tag = cueLabel(L, i), s = seq;
     const act = () => {
       pend.delete(c.id);
       offBy('q', null, c.id);
-      let pid = c.pad;
+      let pid = padO || c.pad;
       if (pid === '*') { const r = b.pads.filter(x => status[x] === 'ready'); pid = r[Math.floor(Math.random() * r.length)]; }
       const p = S.pads[pid];
-      if (!p) { logLine(`${tag} 건너뜀 (패드 없음)`, 'w'); return after(b, i, null); }
+      if (!p) { logLine(`${tag} 건너뜀 (패드 없음)`, 'w'); if (last) after(b, i, null); return; }
       logLine(`${tag} ${actTxt(c)} ${nm(pid)}${c.memo ? ' · ' + c.memo : ''}`);
       if (c.act === 'stop') { if (Engine.isPlaying(pid)) { manual.add(pid); Engine.stop(pid, fadeOutOf(c, p)); } }
       else if (c.act === 'vol') {
@@ -115,7 +122,7 @@ window.Cue = (() => {
         if (Engine.play(pid, o)) { lastId = pid; p.played = true; S.lastUse = Date.now(); save(); live.set(c.id, pid); if (c.off) offs.set(c.id, { pid, off: c.off, seq: s, fout: c.fout }); if (c.duckO != null) duckOthers(c, pid); }
       }
       paintPad(pid); soon();
-      after(b, i, pid);
+      if (last) after(b, i, pid);
     };
     if (c.wait > 0) {
       const e = { t0: performance.now(), sec: c.wait };
@@ -157,7 +164,7 @@ window.Cue = (() => {
   const cur = (b = board()) => Math.min(sb[b.id] || 0, cues(b).length);
   function setSb(i, why) {
     const b = board(), L = cues(b);
-    sb[b.id] = Math.max(0, Math.min(i, L.length)); lastIns = null; nearSb = true;
+    sb[b.id] = Math.max(0, Math.min(i, L.length)); lastIns = null; nearSb = true; pos.clear();
     logLine(`큐 다음 → ${sb[b.id] < L.length ? cueLabel(L, sb[b.id]) : '끝'}${why ? ' (' + why + ')' : ''}`);
     paint();
   }
@@ -175,19 +182,21 @@ window.Cue = (() => {
     const b = board(), L = cues(b), k = cur(b);
     if (!L.length) return toast('큐가 없어요 — 큐보드의 [+ 담기]로 넣어요');
     if (k >= L.length) { seq++; offBy('go', null, null, seq); logLine('GO → 끝'); return toast('마지막 큐까지 나갔어요 · ▲ 이전이나 ⤒ 처음으로'); }
-    logLine(`GO ${cueLabel(L, k)}`);
-    let j = k + 1; while (j < L.length && !isGo(L, j)) j++;
-    sb[b.id] = j; lastIns = null;
+    // 번갈아: GO마다 다음 트랙, 다 돌아야 다음 줄로(↳ 줄은 마지막 GO에 따라 나감)
+    const c = L[k], n = total(c), at = pos.get(c.id) || 0, T = trks(c), done = at + 1 >= n;
+    logLine(`GO ${cueLabel(L, k)}${n > 1 ? ` (${at + 1}/${n})` : ''}`);
+    if (done) { pos.delete(c.id); let j = k + 1; while (j < L.length && !isGo(L, j)) j++; sb[b.id] = j; } else pos.set(c.id, at + 1);
+    lastIns = null;
     seq++; offBy('go', null, null, seq);
-    center = L[k].id;
-    run(b, k); paint();
+    center = c.id;
+    run(b, k, n > 1 ? T[at % T.length] : null, done); paint();
   }
   function cancelAll(why) {
     if (!pend.size && !waitEnd.size) return;
     logLine(`큐 대기 ${pend.size + waitEnd.size}개 취소 (${why})`);
     pend.forEach(e => clearTimeout(e.timer)); pend.clear(); waitEnd.clear(); soon();
   }
-  const allOff = why => () => { if (!on()) return; Engine.playingIds().forEach(i => manual.add(i)); ducked.clear(); duckBy.clear(); cancelAll(why); };
+  const allOff = why => () => { if (!on()) return; pos.clear(); Engine.playingIds().forEach(i => manual.add(i)); ducked.clear(); duckBy.clear(); cancelAll(why); };
   $('btnStop').addEventListener('pointerdown', allOff('전체정지'));
   $('btnFade').addEventListener('pointerdown', allOff('전체 페이드'));
   $('btnLock').addEventListener('click', () => {
@@ -204,7 +213,9 @@ window.Cue = (() => {
     if (!on()) return false;
     if (pick && !S.lock) {
       const L = cues(), i = L.findIndex(x => x.id === pick); pick = null;
-      if (i >= 0) { L[i].pad = id; save(); logLine(`큐 소리 바꿈 ${cueLabel(L, i)} → ${nm(id)}`); edit = L[i].id; }
+      if (i >= 0 && pickAlt) { const c = L[i]; (c.alt || (c.alt = [])).push(id); if (!c.off) c.off = 'next'; pos.delete(c.id); save(); logLine(`큐 번갈아 더함 ${cueLabel(L, i)} + ${nm(id)}`); edit = c.id; }
+      else if (i >= 0) { L[i].pad = id; save(); logLine(`큐 소리 바꿈 ${cueLabel(L, i)} → ${nm(id)}`); edit = L[i].id; }
+      pickAlt = false;
       paint(); return true;
     }
     if (Engine.isPlaying(id)) manual.add(id);
@@ -254,6 +265,7 @@ window.Cue = (() => {
     if (bad) s.push('⚠ ' + bad);
     if (e) s.push(`${Math.max(0, e.sec - (performance.now() - e.t0) / 1000).toFixed(1)}초 뒤 나감`);
     else if (live.has(c.id)) { const pid = live.get(c.id), d = playLen(S.pads[pid], pid), rm = Math.max(0, d - playPos(pid)); s.push(`♪ ${fmt(Math.ceil(rm))} 남음`); }
+    if (total(c) > 1) { const n = total(c), a = pos.get(c.id) || 0; s.push(n <= 12 ? '●'.repeat(a) + '○'.repeat(n - a) : `${a}/${n}`); }
     if (i === cur() && !e) s.push('다음 차례 — GO');
     if (!isGo(L, i)) s.push(WHEN1[c.when] || WHEN1.end);
     if (c.wait > 0 && !e) s.push(`+ ${c.wait}초`);
@@ -415,6 +427,18 @@ window.Cue = (() => {
     if (c.off === 'next') out.push(h('small', { class: 'qtrack' }, '다른 큐 소리든 패드를 손으로 눌렀든'));
     return out;
   }
+  // 번갈아: 트랙 목록(✕로 빼기) + [+ 트랙] + 몇 바퀴. 트랙 1개 + ×N = 같은 소리를 GO마다 다시
+  function altEd(L, i, c, ch) {
+    const T = trks(c), rep = c.rep || 1;
+    const setRep = v => ch(() => { v = Math.max(1, Math.min(20, v)); if (v > 1) c.rep = v; else delete c.rep; if (!c.off && total(c) > 1) c.off = 'next'; pos.delete(c.id); });
+    return [h('div', { class: 'qopts' }, T.map((id, j) => h('button', { class: 'qc on', 'aria-label': j ? `${nm1(id)} 빼기` : nm1(id), onclick: () => { if (!j) return; ch(() => { c.alt.splice(j - 1, 1); if (!c.alt.length) delete c.alt; pos.delete(c.id); }); } }, nm1(id) + (j ? ' ✕' : ''))),
+        h('button', { class: 'qc', onclick: () => { pick = c.id; pickAlt = true; edit = null; adding = false; logLine(`큐 번갈아 트랙 고르기 ${cueLabel(L, i)}`); paint(); } }, '+ 트랙')),
+      h('div', { class: 'qwait' }, h('small', null, '몇 바퀴'),
+        h('button', { class: 'qc', 'aria-label': '한 바퀴 덜', onclick: () => setRep(rep - 1) }, '−'),
+        h('b', null, `×${rep}`),
+        h('button', { class: 'qc', 'aria-label': '한 바퀴 더', onclick: () => setRep(rep + 1) }, '+')),
+      total(c) > 1 ? h('small', { class: 'qtrack' }, `GO ${total(c)}번 나간 뒤 다음 줄로`) : ''];
+  }
   const ASK = { play: '언제 재생?', stop: '언제 끄기?', vol: '언제 조절?' };
   const box = (t, ...kids) => h('div', { class: 'qbox' }, t ? h('b', { class: 'qbox-t' }, t) : '', ...kids);
   // 말풍선: ① 무엇을(▶ ■ ◢) ② 언제 ③ 언제 꺼짐(재생만) ④ 더 보기(접힘): 페이드·볼륨·배경 낮추기·하위 번호·소리·메모
@@ -440,6 +464,7 @@ window.Cue = (() => {
           h('button', { class: 'qc', 'aria-label': '덜 기다리기', onclick: () => setWait(wait - (wait > 10 ? 5 : wait > 3 ? 1 : 0.5)) }, '−'),
           h('b', null, wait ? `+ ${wait}초` : '바로'),
           h('button', { class: 'qc', 'aria-label': '더 기다리기', onclick: () => setWait(wait + (wait >= 10 ? 5 : wait >= 3 ? 1 : 0.5)) }, '+'))),
+      act === 'play' ? box('번갈아 (GO마다 다음 트랙)', ...altEd(L, i, c, ch)) : '',
       act === 'play' ? box('언제 꺼짐?', ...offEd(L, i, c, ch)) : '',
       h('div', { class: 'qbox more' + (more ? ' open' : '') },
         h('button', { class: 'qmore', onclick: () => { more = !more; paint(); } }, more ? '더 보기 ▴' : `더 보기 ▾ (${isVol ? '' : '페이드·'}${act === 'play' ? '볼륨·' : ''}번호·소리·메모)`),
@@ -569,8 +594,8 @@ window.Cue = (() => {
         h('span', null, L.length ? `GO ${goNo(L, L.length - 1)}개` : ''),
         ...addBtns(),
         h('button', { class: 'qb qhelp-b' + (help ? ' on' : ''), 'aria-label': '큐 사용법', onclick: () => { help = !help; paint(); } }, '?')),
-      pick ? h('div', { class: 'qaddbar' }, h('div', null, '바꿀 소리의 패드를 누르세요 (소리 안 남)'),
-        h('button', { class: 'qc', onclick: () => { pick = null; paint(); } }, '취소')) :
+      pick ? h('div', { class: 'qaddbar' }, h('div', null, pickAlt ? '번갈아 틀 트랙의 패드를 누르세요 (소리 안 남)' : '바꿀 소리의 패드를 누르세요 (소리 안 남)'),
+        h('button', { class: 'qc', onclick: () => { pick = null; pickAlt = false; paint(); } }, '취소')) :
       adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 ▼ 자리에 쌓여요 (소리 안 남)'),
         h('div', { class: 'qdim' }, '한 번 누르면 ▶ 재생, 켜 둔 소리를 또 누르면 ■ 끄기로 담겨요'),
         sceneNext ? h('div', { class: 'qdim' }, `■ ${sceneNext} — 다음에 담는 줄 위에 붙어요`) : '') : '',
@@ -596,8 +621,8 @@ window.Cue = (() => {
     if (!on()) return;
     // 다음 차례 큐(+ 따라 나가는 ↳ 줄)의 패드에 테두리 — GO 누르면 무엇이 나가는지 패드판에서도 보이게 (랜덤은 뺌, 2026-10-01)
     const L = cues(), k = cur();
-    if (k < L.length) L.slice(k, nextGo(L, k)).forEach(c => { const el = c.pad !== '*' && S.pads[c.pad] && padEls.get(c.pad); if (el) el.classList.add('q-next'); });
-    new Set(cues().map(c => c.pad)).forEach(id => { const el = S.pads[id] && padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, '큐')); });
+    if (k < L.length) L.slice(k, nextGo(L, k)).forEach(c => { const T = trks(c), id = total(c) > 1 ? T[(pos.get(c.id) || 0) % T.length] : c.pad; const el = id !== '*' && S.pads[id] && padEls.get(id); if (el) el.classList.add('q-next'); });
+    new Set(cues().flatMap(trks)).forEach(id => { const el = S.pads[id] && padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, '큐')); });
   }
   function paintGo() {
     const ctl = document.querySelector('.bottom .ctl');
@@ -608,7 +633,8 @@ window.Cue = (() => {
       ctl.prepend(goB);
     }
     const b = board(), L = cues(b), k = cur(b), c = L[k];
-    goB.lastChild.textContent = !L.length ? '큐 없음' : c ? `${qno(L, k)} ${c.memo || padName(c)}` : '끝';
+    const a = c ? pos.get(c.id) || 0 : 0;
+    goB.lastChild.textContent = !L.length ? '큐 없음' : c ? `${qno(L, k)} ${c.memo || (total(c) > 1 ? `${nm1(trks(c)[a % trks(c).length])} ${a + 1}/${total(c)}` : padName(c))}` : '끝';
   }
   setInterval(() => {
     if (!on() || !live.size) return;
@@ -616,7 +642,7 @@ window.Cue = (() => {
     live.forEach((pid, cid) => { const i = L.findIndex(c => c.id === cid); if (i < 0) return; [panel, tabBox].forEach(bx => { const el = bx && bx.querySelector(`.qrow[data-id="${cid}"] .qsub`); if (el) el.textContent = subTxt(L, i, L[i]); const bar = bx && bx.querySelector(`.qrow[data-id="${cid}"] .qbar`); if (bar) bar.style.width = prog(cid) + '%'; }); });
   }, 500);
   setInterval(() => { if (on() && (pend.size || dirty && !typing(panel) && !typing(tabBox))) paint(); }, 200);
-  new MutationObserver(() => { if (on()) { edit = null; paint(); } }).observe($('tabs'), { childList: true });
+  new MutationObserver(() => { if (on()) { edit = null; pos.clear(); paint(); } }).observe($('tabs'), { childList: true });
   new MutationObserver(() => { if (on()) padTags(); }).observe($('grid'), { childList: true });
 
   // ---------- 설정 ----------
@@ -690,11 +716,11 @@ window.Cue = (() => {
   function exportFix(json, srcPads, b) {
     if (!b.cues || !b.cues.length) return;
     const ix = new Map(b.cues.map((c, i) => [c.id, i]));
-    json.board.cues = b.cues.map(c => { const { id, pad, ...r } = c; if (r.off && r.off.startsWith('q:')) { if (ix.has(r.off.slice(2))) r.off = 'qi:' + ix.get(r.off.slice(2)); else delete r.off; } const k = srcPads.findIndex(p => p.id === pad); return { ...r, padN: pad === '*' ? '*' : k + 1 }; }).filter(c => c.padN);
+    json.board.cues = b.cues.map(c => { const { id, pad, ...r } = c; if (r.off && r.off.startsWith('q:')) { if (ix.has(r.off.slice(2))) r.off = 'qi:' + ix.get(r.off.slice(2)); else delete r.off; } const k = srcPads.findIndex(p => p.id === pad); if (r.alt) r.alt = r.alt.map(a => a === '*' ? '*' : srcPads.findIndex(p => p.id === a) + 1).filter(Boolean); return { ...r, padN: pad === '*' ? '*' : k + 1 }; }).filter(c => c.padN);
   }
   function importFix(nb, newIds, json) {
     const src = json.board && json.board.cues; if (!Array.isArray(src)) return;
-    const all = src.map(c => { const { padN, ...r } = c; return { ...r, id: uid(), pad: padN === '*' ? '*' : newIds[padN - 1] }; });
+    const all = src.map(c => { const { padN, ...r } = c; if (Array.isArray(r.alt)) { r.alt = r.alt.map(n => n === '*' ? '*' : newIds[n - 1]).filter(Boolean); if (!r.alt.length) delete r.alt; } return { ...r, id: uid(), pad: padN === '*' ? '*' : newIds[padN - 1] }; });
     all.forEach(c => { if (typeof c.off === 'string' && c.off.startsWith('qi:')) { const t = all[+c.off.slice(3)]; if (t) c.off = 'q:' + t.id; else delete c.off; } });
     nb.cues = all.filter(c => c.pad);
     save();
