@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.80 (2026-10-01)';
+const VER = 'DuckQ Board 0.3.81 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -561,8 +561,8 @@ function renderSelBar() {
       save(); sel.clear(); renderTop(); renderGrid(); toast(`${n}개 복제했어요`);
     } }, '복제'),
     S.boards.length > 1 ? moveSel : null,
-    h('button', { class: 'sbtn danger', disabled: dis, onclick: () => {
-      if (!confirm(`패드 ${n}개를 지울까요?`)) return;
+    h('button', { class: 'sbtn danger', disabled: dis, onclick: async () => {
+      if (!await ask(`패드 ${n}개를 지울까요?`, { ok: '지우기', danger: true })) return;
       ids.forEach(removePad); sel.clear(); save(); renderTop(); renderGrid();
     } }, '삭제'),
   ].filter(Boolean));
@@ -795,7 +795,7 @@ async function exportBoard(b) {
     } catch (err) { logLine(`자르기 실패 "${e.name}" → 원본 그대로: ${err && err.message}`, 'w'); }
   }
   const mb = entries.reduce((a, e) => a + e.blob.size, 0) / 1048576;
-  if (mb > BIG_MB && !confirm(`소리가 ${mb.toFixed(0)}MB예요. 아이패드에서 오래 걸리거나 실패할 수 있어요. 계속할까요?`)) return;
+  if (mb > BIG_MB && !await ask(`소리가 ${mb.toFixed(0)}MB예요. 아이패드에서 오래 걸리거나 실패할 수 있어요. 계속할까요?`, { ok: '계속' })) return;
   const json = { app: 'duckq-board', v: 1, ver: APP_VER, settings: { ...S.settings }, master: S.master, board: (({ id, pads, cues, ...r }) => r)(b),   // 보드 설정도 있는 것 전부(큐는 Cue가 따로)
     pads: pads.filter(p => names.has(p.file)).map(p => {
       const { id, file, played, ...rest } = p, c = cut0.get(file) || 0, L = cutLen.get(file);
@@ -850,19 +850,17 @@ async function saveBlob(blob, fname) {
 // 가져온 파일의 앱 전체 설정: 다르면 한 번 묻고, 기본은 지금 설정 그대로(기존 판을 안 바꾸는 약속)
 const SET_KO = { theme: '화면', cols: '패드 크기', labelSize: '패드 글자', fadeSec: '페이드 초', fadeOverride: '페이드 덮어쓰기', fadeMax: '페이드 최대', soloMode: '솔로 방식',
   newFin: '새 곡 페이드인', newFinSec: '새 곡 페이드인 초', newFout: '새 곡 페이드아웃', newFoutSec: '새 곡 페이드아웃 초', masterBoost: 'MASTER 키우기', cue: '큐' };
-function importSettings(json) {
+async function importSettings(json) {
   const inc = json.settings && typeof json.settings === 'object' ? json.settings : null;
   if (!inc) return;
   const keys = Object.keys(inc).filter(k => JSON.stringify(inc[k]) !== JSON.stringify(S.settings[k] ?? DEF_SETTINGS[k]));   // 앱 설정도 있는 것 전부(이름표 없으면 키 그대로 보임)
   const mst = typeof json.master === 'number' && Math.abs(json.master - S.master) > 0.005;
   if (!keys.length && !mst) return;
   const names = keys.map(k => SET_KO[k] || k).concat(mst ? ['MASTER 볼륨'] : []);
-  if (!confirm(`패드 설정(트림·볼륨·페이드·루프·솔로 등)과 큐는 모두 들어왔어요.
+  if (!await ask(`패드 설정(트림·볼륨·페이드·루프·솔로 등)과 큐는 모두 들어왔어요.
 
 앱 전체 설정 중 이 아이패드와 다른 것도 파일대로 바꿀까요?
-다른 것: ${names.join(', ')}
-
-[확인] 파일대로 · [취소] 지금 설정 그대로`)) { logLine(`가져온 설정 안 씀 (다른 것: ${names.join(', ')})`); return; }
+다른 것: ${names.join(', ')}`, { ok: '파일대로', no: '지금 설정 그대로' })) { logLine(`가져온 설정 안 씀 (다른 것: ${names.join(', ')})`); return; }
   keys.forEach(k => { S.settings[k] = inc[k]; });
   if (mst) S.master = json.master;
   save(); Engine.setBoost(S.settings.masterBoost || 1); Engine.setMaster(S.master); renderAll();
@@ -934,7 +932,7 @@ $('zipIn').addEventListener('change', async e => {
     if (window.Cue && cues !== got) bad.push(`큐 ${cues}→${got}`);
     logLine(`설정 비교: 패드 ${qIds.filter(Boolean).length}/${json.pads.length} · ${bad.length ? '✖ 다름 ' + bad.slice(0, 12).join(', ') : '전부 같음'}${json.settings ? '' : ' · (옛 파일: 앱 설정 없음)'}`, bad.length ? 'e' : 'i');
   }
-  importSettings(json);
+  await importSettings(json);
   logLine(`가져오기 완료 "${nb.name}" · 패드 ${nb.pads.length}개${bad.length ? ' · 못 가져옴 ' + bad.length : ''} · ${((performance.now() - t0) / 1000).toFixed(1)}초`);
   toast(bad.length ? `못 가져온 패드 ${bad.length}개: ${bad.join(', ')}` : `"${nb.name}" 보드로 ${nb.pads.length}개 가져왔어요`, bad.length ? 6000 : 2500);
 });
@@ -1207,8 +1205,8 @@ function openPadSheet(id) {
       seg([['each', '트랙별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], p.soloMode || S.settings.soloMode, v => { p.soloMode = v; touchEdit(p); save(); }));
     const act = h('div', { class: 'hact' }, h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
-      } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: () => {
-        if (!confirm(`"${p.label}" 패드를 지울까요?`)) return;
+      } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: async () => {
+        if (!await ask(`"${p.label}" 패드를 지울까요?`, { ok: '지우기', danger: true })) return;
         removePad(id); save(); closeSheet(); renderTop();
       } }, '삭제'));
     const head = body.previousSibling; head.insertBefore(act, head.lastChild);   // 닫기 왼쪽
@@ -1452,8 +1450,8 @@ function openBoardSheet() {
       row('보드', h('button', { class: 'sbtn', onclick: () => {
         const nb = { id: uid(), name: b.name + ' 복사', color: b.color, pads: b.pads.map(id => clonePad(id)) };
         S.boards.splice(S.cur + 1, 0, nb); S.cur++; save(); applyBoardColor(); closeSheet(); toast('보드를 복제했어요');
-      } }, '복제'), h('button', { class: 'sbtn danger', disabled: S.boards.length < 2, onclick: () => {
-        if (!confirm(`"${b.name}" 보드와 패드 ${b.pads.length}개를 지울까요?`)) return;
+      } }, '복제'), h('button', { class: 'sbtn danger', disabled: S.boards.length < 2, onclick: async () => {
+        if (!await ask(`"${b.name}" 보드와 패드 ${b.pads.length}개를 지울까요?`, { ok: '지우기', danger: true })) return;
         [...b.pads].forEach(id => removePad(id)); S.boards.splice(S.cur, 1); S.cur = Math.max(0, S.cur - 1); save(); applyBoardColor(); closeSheet();
       } }, '삭제')),
     );
@@ -1487,7 +1485,7 @@ function openSettings(tab = 'general', keep) {
       offRow(),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
         h('div', { style: 'display:flex;gap:8px' },
-          h('button', { class: 'sbtn', onclick: () => { const m = prompt('기록에 남길 메모 (예: A3 지직 없음)'); if (m) { logLine('📝 ' + m); flushLog(); toast('메모를 남겼어요'); } } }, '메모 남기기'),
+          h('button', { class: 'sbtn', onclick: async () => { const m = (await askText('기록에 남길 메모 (예: A3 지직 없음)')) || ''; if (m.trim()) { logLine('📝 ' + m); flushLog(); toast('메모를 남겼어요'); } } }, '메모 남기기'),
           h('button', { class: 'sbtn', onclick: () => { logBox.hidden = !logBox.hidden; logBox.textContent = LOG.join('\n') || '(기록 없음)'; } }, '최근 기록'),
           h('button', { class: 'sbtn', onclick: async () => { try { await navigator.clipboard.writeText(LOG.join('\n')); toast('기록을 복사했어요'); } catch { toast('복사 실패 — 기록을 길게 눌러 선택'); } } }, '기록 복사')),
         logBox),
@@ -1522,7 +1520,7 @@ function offRow() {
     btn.textContent = news.includes('새') ? `${Off.latest}로 업데이트` : '다시 받기';
   };
   btn.onclick = async () => {
-    if (Engine.playingIds().length && !confirm('재생 중인 소리가 멈춰요. 업데이트할까요?')) return;
+    if (Engine.playingIds().length && !await ask('재생 중인 소리가 멈춰요. 업데이트할까요?', { ok: '업데이트' })) return;
     btn.disabled = true; txt.textContent = '기록 보내고 받는 중…';
     logLine(`업데이트 시작 ${APP_VER} → ${Off.latest || '?'}`);
     keepLog(); await sendKept(); await flushLog();
@@ -1540,6 +1538,27 @@ function toast(msg, ms = 1800, act) {
   if (act) t.append(h('button', { class: 'tact', onclick: () => { t.hidden = true; act.fn(); } }, act.label));
   clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, ms);
 }
+
+// ---------- 묻기 창 — 기본 confirm/prompt는 iOS가 앱 전체(소리 포함)를 멈춰서 쓰지 않는다 ----------
+// ask(글, {ok, no, danger}) → true/false · askText(글, 처음값) → 글자 또는 null(취소)
+function askBox(msg, o, input) {
+  return new Promise(res => {
+    const prev = document.activeElement;
+    const fin = v => { document.removeEventListener('keydown', key, true); w.remove(); if (prev && prev.focus) try { prev.focus({ preventScroll: true }); } catch {} res(v); };
+    const yes = () => fin(input ? input.value : true), no = () => fin(input ? null : false);
+    const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); no(); } else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); yes(); } };
+    const okB = h('button', { class: 'sbtn ' + (o.danger ? 'danger' : 'pri'), onclick: yes }, o.ok || '확인');
+    const w = h('div', { class: 'ask-wrap', onclick: e => { if (e.target === w) no(); } },
+      h('div', { class: 'ask', role: 'dialog', 'aria-modal': 'true' },
+        h('p', null, msg), input,
+        h('div', { class: 'ask-btns' }, h('button', { class: 'sbtn', onclick: no }, o.no || '취소'), okB)));
+    document.addEventListener('keydown', key, true);
+    document.body.append(w);
+    (input || okB).focus({ preventScroll: true }); if (input) input.select();
+  });
+}
+const ask = (msg, o = {}) => askBox(msg, o);
+const askText = (msg, def = '', o = {}) => askBox(msg, o, h('input', { class: 'ask-in', type: 'text', value: def, maxlength: 60 }));
 
 // ---------- 화면 꺼짐 방지 ----------
 async function reqWake() {

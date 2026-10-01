@@ -70,6 +70,7 @@ window.Cue = (() => {
   let lastIns = null;          // 담기: 방금 끼운 큐 id (다음은 그 뒤에)
   let sceneNext = null;        // 담기: [+ 장면]으로 적은 제목 — 다음에 담는 줄 위에 붙음
   const sceneShort = t => { const a = t.split('—')[0].trim(); return a.length > 7 ? a.slice(0, 7) + '…' : a; };
+  let addAct = 'play';   // 담기 때 고른 동작 — 담기를 켤 때마다 ▶ 재생으로
   let adding = false, lastGo = 0, open = true, edit = null, help = false;
   // 편집 = 위쪽 전체 [편집](패드와 함께 큐 줄도 흔들림) — 줄 끌어 옮기기 · 오른쪽 칸 골라 복제·지우기
   const editing = () => typeof editMode !== 'undefined' && editMode && !S.lock;
@@ -211,8 +212,8 @@ window.Cue = (() => {
     if (!adding || S.lock) { if (!Engine.isPlaying(id)) offBy('next', id); return false; }
     // '다음 차례' 줄(과 따라 나가는 ↳) 뒤에 끼움 — 이어서 담으면 방금 끼운 줄 뒤에
     const L = cues(), at = insAt(L);
-    // 기본은 ▶ 재생. 지금 울리고 있는 소리를 누를 때만 ■ 끄기 (목록 앞 줄로 짐작하지 않음 — 0.3.66, 연습 로그: 켜야 할 줄이 끄기로 담김)
-    const c = { id: uid(), pad: id, act: Engine.isPlaying(id) ? 'stop' : 'play', when: 'go' };
+    // 담기 막대에서 고른 동작(▶ 재생 · ■ 끄기 · ◢ 볼륨)으로 담음 — 울리는지로 짐작하지 않음(담기 중엔 소리가 안 나서 뜻이 없었음)
+    const c = { id: uid(), pad: id, act: addAct, when: 'go' };
     if (sceneNext) { c.scene = sceneNext; sceneNext = null; logLine(`큐 구분 ${c.scene}`); }
     L.splice(at, 0, c); lastIns = c.id; save();
     logLine(`큐 담음 ${cueLabel(L, at)} ${actTxt(c)} ${nm(id)}${at < L.length - 1 ? ' (끼움)' : ''}`); paint('qins');
@@ -276,8 +277,8 @@ window.Cue = (() => {
     });
     logLine(`큐 줄 복제 ${qsel.size}줄`); qsel.clear(); save(); paint(); renderSelBar();
   }
-  function delSel(b, L) {
-    const n = qsel.size; if (!n || !confirm(`큐 ${n}줄을 지울까요?`)) return;
+  async function delSel(b, L) {
+    const n = qsel.size; if (!n || !await ask(`큐 ${n}줄을 지울까요?`, { ok: '지우기', danger: true })) return;
     const kid = L[cur(b)] && L[cur(b)].id;
     [...qsel].map(id => L.findIndex(c => c.id === id)).filter(i => i >= 0).sort((a, b) => b - a).forEach(i => {
       const c = L[i]; L.splice(i, 1);
@@ -349,8 +350,8 @@ window.Cue = (() => {
     logLine(`큐 구분 옮김 ${a} ${i + 1} → ${j + 1}줄${o ? ` (${o}와 바꿈)` : ''}`); save(); paint();
   }
   const rowAt = (box, y) => [...box.querySelectorAll('.qrow,.qscene')].find(x => { if (x.classList.contains('q-drag') || x.classList.contains('q-gather')) return false; const rr = x.getBoundingClientRect(); return y >= rr.top && y < rr.bottom; });
-  function sceneAsk(L, i) {
-    const c = L[i], v = prompt('구분 이름 (이 줄 위에 구분 줄 · 비우면 없앰)', c.scene || '');
+  async function sceneAsk(L, i) {
+    const c = L[i], v = await askText('구분 이름 (이 줄 위에 구분 줄 · 비우면 없앰)', c.scene || '');
     if (v == null) return;
     if (v.trim()) c.scene = v.trim().slice(0, 30); else delete c.scene;
     logLine(`큐 구분 ${c.scene || '없앰'} (${i + 1}줄)`); save(); paint();
@@ -500,7 +501,7 @@ window.Cue = (() => {
   }
   const WHEN1 = { go: 'GO 때', with: '앞 줄과 같이', end: '앞 줄 끝나고' };
   const HELP = [
-    ['+ 담기', '(위)를 누르고 패드를 차례로 누르면 ▼ 자리에 큐가 쌓여요 (켜 둔 소리를 또 누르면 끄기)'],
+    ['+ 담기', '(위)를 누르고 패드를 차례로 누르면 ▼ 자리에 큐가 쌓여요 — 재생·끄기·볼륨은 담기 막대에서 골라요'],
     ['GO', '(아래 단추)를 누르면 색칠된 줄("다음")이 나가요'],
     ['줄', '을 누르면 그 줄이 "다음"이 돼요 · ▲ ▼ 로도 옮겨요'],
     ['▶ 재생', ' 같은 동작 단추를 누르거나 줄을 꾹 누르면 말풍선에서 무엇을 · 언제 · 언제 꺼짐을 바꿔요'],
@@ -540,10 +541,10 @@ window.Cue = (() => {
   // 위 머리 줄: [+ 담기] [+ 장면] 작게 — 담는 자리는 목록 속 '▼ 여기에 담겨요' 줄로 보임 (맨 아래 두면 끝에 붙는 걸로 읽힘 — 2026-10-01)
   function addBtns() {
     if (S.lock || editing()) return [];
-    const toggle = () => { adding = !adding; edit = null; pick = null; lastIns = null; if (!adding) sceneNext = null; logLine(adding ? '큐 담기 시작' : '큐 담기 끝'); paint(); };
+    const toggle = () => { adding = !adding; addAct = 'play'; edit = null; pick = null; lastIns = null; if (!adding) sceneNext = null; logLine(adding ? '큐 담기 시작' : '큐 담기 끝'); paint(); };
     return [h('button', { class: 'qb qadd-s' + (adding ? ' on' : ''), onclick: toggle }, adding ? '✓ 다 담음' : '+ 담기'),
-      h('button', { class: 'qb qadd-s' + (sceneNext ? ' on' : ''), onclick: () => {
-        const v = (prompt('구분 이름 (다음에 담는 줄 위에 붙어요)', sceneNext || '') || '').trim(); sceneNext = v || null;
+      h('button', { class: 'qb qadd-s' + (sceneNext ? ' on' : ''), onclick: async () => {
+        const v = (await askText('구분 이름 (다음에 담는 줄 위에 붙어요)', sceneNext || '') || '').trim(); sceneNext = v || null;
         if (sceneNext && !adding) { adding = true; edit = null; lastIns = null; logLine('큐 담기 시작'); }
         paint();
       } }, sceneNext ? `■ ${sceneShort(sceneNext)}` : '+ 구분')];
@@ -613,7 +614,7 @@ window.Cue = (() => {
       pick ? h('div', { class: 'qaddbar' }, h('div', null, '바꿀 소리의 패드를 누르세요 (소리 안 남)'),
         h('button', { class: 'qc', onclick: () => { pick = null; paint(); } }, '취소')) :
       adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 ▼ 자리에 쌓여요 (소리 안 남)'),
-        h('div', { class: 'qdim' }, '한 번 누르면 ▶ 재생, 켜 둔 소리를 또 누르면 ■ 끄기로 담겨요'),
+        opts([['play', ACTS.play], ['stop', ACTS.stop], ['vol', ACTS.vol]], addAct, v => { addAct = v; logLine(`큐 담기 동작 ${ACTS[v]}`); paint(); }),
         sceneNext ? h('div', { class: 'qdim' }, `■ ${sceneNext} — 다음에 담는 줄 위에 붙어요`) : '') : '',
       help || !L.length ? helpBox() : '',
       box,
@@ -662,7 +663,7 @@ window.Cue = (() => {
 
   // ---------- 설정 ----------
   function settingRow() {
-    return row(helpLabel('큐', '켜면 오른쪽에 큐보드, 아래에 GO 단추가 생겨요. [+ 담기] → 패드를 차례로 누르면 큐가 쌓이고, GO를 누를 때마다 차례로 나가요. 켜 둔 소리를 또 누르면 끄기로 담겨요. 줄의 ⋯로 "앞 줄 소리가 끝나면 저절로" 같은 것을 정해요. 페이드·볼륨은 트랙 설정대로, 이 큐만 다르게 할 때만 ⋯에서 따로. 끄면 전부 숨고 원래대로 — 넣은 큐는 남아 있어요.'),
+    return row(helpLabel('큐', '켜면 오른쪽에 큐보드, 아래에 GO 단추가 생겨요. [+ 담기] → 패드를 차례로 누르면 큐가 쌓이고, GO를 누를 때마다 차례로 나가요. 끄기·볼륨은 담기 막대에서 고르고 담아요. 줄의 ⋯로 "앞 줄 소리가 끝나면 저절로" 같은 것을 정해요. 페이드·볼륨은 트랙 설정대로, 이 큐만 다르게 할 때만 ⋯에서 따로. 끄면 전부 숨고 원래대로 — 넣은 큐는 남아 있어요.'),
       sw(on(), v => {
         S.settings.cue = v; save(); logLine(`큐 ${v ? '켬' : '끔'}`);
         if (!v) { cancelAll('큐 끔'); ducked.forEach((_, id) => S.pads[id] && Engine.setVolume(id, S.pads[id].vol)); ducked.clear(); }
@@ -719,10 +720,10 @@ window.Cue = (() => {
       h('div', { class: 'fbox-head' }, h('b', null, helpLabel(`${b.name}의 큐`, '보드마다 큐 목록이 하나예요. 줄의 ⋯를 눌러 고쳐요. 옮기기·복제·지우기는 맨 위 [편집]을 켜고. 바꾸는 즉시 적용, 아래 [취소]로 창을 열기 전으로 되돌려요.'))),
       helpBox(),
       h('div', { class: 'trow' },
-        h('button', { class: 'sbtn', onclick: () => { if (!L.length || !confirm('큐 번호를 1부터 차례로 다시 매길까요? (하위 번호 2-1이 없어져요)')) return; L.forEach(c => { delete c.no; delete c.sub; }); save(); logLine('큐 번호 새로 매김'); paint(); } }, '번호 새로 매기기'),
+        h('button', { class: 'sbtn', onclick: async () => { if (!L.length || !await ask('큐 번호를 1부터 차례로 다시 매길까요? (하위 번호 2-1이 없어져요)', { ok: '다시 매기기' })) return; L.forEach(c => { delete c.no; delete c.sub; }); save(); logLine('큐 번호 새로 매김'); paint(); } }, '번호 새로 매기기'),
         h('button', { class: 'sbtn pri', onclick: printSheet }, '큐시트 (인쇄·PDF)'),
         h('button', { class: 'sbtn', onclick: () => { L.forEach(c => { c.when = 'go'; }); save(); logLine('큐 모두 GO로'); paint(); } }, '모두 GO로 나가게'),
-        h('button', { class: 'sbtn danger', onclick: () => { if (!L.length || !confirm(`큐 ${L.length}줄을 모두 지울까요?`)) return; L.length = 0; sb[b.id] = 0; save(); logLine('큐 모두 지움'); paint(); } }, '모두 지우기')),
+        h('button', { class: 'sbtn danger', onclick: async () => { if (!L.length || !await ask(`큐 ${L.length}줄을 모두 지울까요?`, { ok: '모두 지우기', danger: true })) return; L.length = 0; sb[b.id] = 0; save(); logLine('큐 모두 지움'); paint(); } }, '모두 지우기')),
       tabBox));
     list(b, tabBox);
   }
