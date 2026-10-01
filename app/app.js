@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.81 (2026-10-01)';
+const VER = 'DuckQ Board 0.3.82 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1546,7 +1546,8 @@ function askBox(msg, o, input) {
     const prev = document.activeElement;
     const fin = v => { document.removeEventListener('keydown', key, true); w.remove(); if (prev && prev.focus) try { prev.focus({ preventScroll: true }); } catch {} res(v); };
     const yes = () => fin(input ? input.value : true), no = () => fin(input ? null : false);
-    const key = e => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); no(); } else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); e.stopPropagation(); yes(); } };
+    const key = e => { e.stopPropagation();   // 창이 떠 있는 동안 GO 등 단축키 막기
+      if (e.key === 'Escape') { e.preventDefault(); no(); } else if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); yes(); } };
     const okB = h('button', { class: 'sbtn ' + (o.danger ? 'danger' : 'pri'), onclick: yes }, o.ok || '확인');
     const w = h('div', { class: 'ask-wrap', onclick: e => { if (e.target === w) no(); } },
       h('div', { class: 'ask', role: 'dialog', 'aria-modal': 'true' },

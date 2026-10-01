@@ -362,3 +362,10 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .lpn{position:absolute;left:18px;bottom:-3px;font:800 10px/1 var(--font);white-space:nowrap;opacity:.85}
 /* 볼륨 칸: 줄마다 막대가 남는 폭을 다 씀 */
 .frow.ck.vrow .step{justify-content:flex-end}.frow.ck.vrow .step input[type=range]{flex:1;width:auto;min-width:60px}
+/* 묻기 창 — 기본 confirm 대신(iOS 기본 팝업은 소리를 멈춤) */
+.ask-wrap{position:fixed;inset:0;z-index:60;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px}
+.ask{width:min(420px,100%);background:var(--bg1);border:1px solid var(--line);border-radius:16px;padding:20px;display:flex;flex-direction:column;gap:14px;box-shadow:0 20px 50px rgba(0,0,0,.4)}
+.ask p{margin:0;color:var(--text);font-size:16px;line-height:1.5;white-space:pre-line;word-break:keep-all}
+.ask-in{height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font:inherit;font-size:16px}
+.ask-btns{display:flex;justify-content:flex-end;gap:8px}
+.ask-btns .sbtn{min-width:88px}
