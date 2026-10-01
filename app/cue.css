@@ -175,3 +175,15 @@
 .qc.danger{color:#ff6b6b}
 .qpop .env{margin-top:2px}
 .qrow.q-over.dn{box-shadow:inset 0 -3px 0 var(--text)}
+/* 편집 화면 통일 (2026-10-01): 큐 줄 왼쪽부터 ⋯ · 정보 · 이름 · 번호(맨 오른쪽 — 큐 목록이 판 오른쪽이라) */
+.qrow,.qrow.q-ch{grid-template-columns:34px auto minmax(0,1fr) 30px;grid-template-areas:"ed act main n";padding:7px 4px 7px 6px}
+.qrow.q-ch{grid-template-columns:34px auto minmax(0,1fr) 20px;padding-left:6px;padding-right:14px}
+.qrow .qed{grid-area:ed}.qrow .qact{grid-area:act;align-items:flex-start}.qrow .qmain{grid-area:main}.qrow .qn{grid-area:n}
+/* 고르기 칸 = 패드 고르기 동그라미와 같은 모양 */
+.qrow .qchk{width:26px;height:26px;justify-self:center;border-radius:50%;border:2px solid currentColor;background:none;font-size:0;color:var(--text)}
+.qrow .qchk.on{background:var(--text);border-color:var(--text);color:var(--bg0);font-size:15px;font-weight:900}
+/* 큐 팝업 = 패드 팝업(.selbar)과 같은 틀, 큐 목록 아래 가운데 */
+.qpanel{position:relative}
+.selbar.qsbar{position:absolute;left:6px;right:6px;bottom:88px;transform:none;max-width:none;z-index:6;gap:6px;padding:8px 6px}
+.qsbar .cnt{width:100%;text-align:center}
+.editing .qlist{padding-bottom:110px}

@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.71 (2026-10-01)';
+const VER = 'DuckQ Board 0.3.72 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -529,12 +529,17 @@ function endDrag(t) {
 }
 
 // ---------- 여러 개 고르기 (편집 모드) ----------
-function toggleSel(id) { if (sel.has(id)) sel.delete(id); else sel.add(id); paintPad(id); renderSelBar(); }
+function toggleSel(id) { if (sel.has(id)) sel.delete(id); else sel.add(id); if (window.Cue) Cue.clearSel(); paintPad(id); renderSelBar(); }
 function clearSel() { sel.clear(); paintAll(); renderSelBar(); }
 const selIds = () => board().pads.filter(id => sel.has(id));   // 보드 순서대로
+// 패드 팝업은 패드판 가운데에 (큐 목록이 열리고 닫혀도 따라감)
+function placeSelBar() { const bar = $('selBar'); if (bar.hidden) return; const g = grid.getBoundingClientRect(); bar.style.left = g.width ? `${g.left + g.width / 2}px` : ''; bar.style.maxWidth = g.width ? `${g.width - 16}px` : ''; }
+addEventListener('resize', placeSelBar);
 function renderSelBar() {
   const bar = $('selBar'), ids = selIds();
-  bar.hidden = !editMode; bar.textContent = ''; if (!editMode) return;
+  // 큐 줄을 고르는 중이면 패드 팝업은 숨김 — 큐 팝업만(2026-10-01)
+  bar.hidden = !editMode || !!(window.Cue && Cue.selN()); bar.textContent = ''; if (bar.hidden) return;
+  placeSelBar();
   const b = board(), n = ids.length, dis = !n;
   const moveSel = h('select', { class: 'sel', disabled: dis }, h('option', { value: '' }, '보드 이동'),
     S.boards.filter(x => x !== b).map(x => h('option', { value: x.id }, x.name)));
@@ -544,7 +549,8 @@ function renderSelBar() {
     save(); toast(`${n}개 → ${to.name}`); sel.clear(); renderTop(); renderGrid();
   };
   bar.append(...[
-    h('span', { class: 'cnt' }, n ? `${n}개 고름` : '눌러서 고르기 · 꾹 끌면 옮기기 · 이름 꾹 → 이름 바꾸기'),
+    h('span', { class: 'cnt' }, n ? `${n}개 고름` : '패드 고르기'),
+    h('button', { class: 'sbtn', 'aria-label': '패드 편집 설명', onclick: () => toast('눌러서 고르기 · 꾹 끌면 옮기기 · 이름 꾹 → 이름 바꾸기') }, '?'),
     h('button', { class: 'sbtn', onclick: openSort }, '정렬'),
     h('button', { class: 'sbtn', onclick: () => { if (n === b.pads.length) clearSel(); else { b.pads.forEach(id => sel.add(id)); paintAll(); renderSelBar(); } } }, n && n === b.pads.length ? '고르기 해제' : '전체 고르기'),
     n === 1 ? h('button', { class: 'sbtn', onclick: () => openPadSheet(ids[0]) }, '설정') : null,

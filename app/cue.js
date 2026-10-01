@@ -213,7 +213,7 @@ window.Cue = (() => {
     const L = cues(), at = insAt(L);
     // 기본은 ▶ 재생. 지금 울리고 있는 소리를 누를 때만 ■ 끄기 (목록 앞 줄로 짐작하지 않음 — 0.3.66, 연습 로그: 켜야 할 줄이 끄기로 담김)
     const c = { id: uid(), pad: id, act: Engine.isPlaying(id) ? 'stop' : 'play', when: 'go' };
-    if (sceneNext) { c.scene = sceneNext; sceneNext = null; logLine(`큐 장면 ${c.scene}`); }
+    if (sceneNext) { c.scene = sceneNext; sceneNext = null; logLine(`큐 구분 ${c.scene}`); }
     L.splice(at, 0, c); lastIns = c.id; save();
     logLine(`큐 담음 ${cueLabel(L, at)} ${actTxt(c)} ${nm(id)}${at < L.length - 1 ? ' (끼움)' : ''}`); paint('qins');
     const el = padEls.get(id); if (el) { el.classList.add('qadd'); setTimeout(() => el.classList.remove('qadd'), 250); }
@@ -274,7 +274,7 @@ window.Cue = (() => {
     [...qsel].map(id => L.findIndex(c => c.id === id)).filter(i => i >= 0).sort((a, b) => b - a).forEach(i => {
       const d = { ...L[i], id: uid() }; delete d.no; delete d.sub; delete d.scene; L.splice(i + 1, 0, d);
     });
-    logLine(`큐 줄 복제 ${qsel.size}줄`); qsel.clear(); save(); paint();
+    logLine(`큐 줄 복제 ${qsel.size}줄`); qsel.clear(); save(); paint(); renderSelBar();
   }
   function delSel(b, L) {
     const n = qsel.size; if (!n || !confirm(`큐 ${n}줄을 지울까요?`)) return;
@@ -285,7 +285,7 @@ window.Cue = (() => {
       L.forEach(x => { if (x.off === 'q:' + c.id) delete x.off; });
     });
     const k = L.findIndex(c => c.id === kid); if (k >= 0) sb[b.id] = k; else sb[b.id] = Math.min(sb[b.id] || 0, L.length);
-    logLine(`큐 줄 지움 ${n}줄`); qsel.clear(); save(); paint();
+    logLine(`큐 줄 지움 ${n}줄`); qsel.clear(); save(); paint(); renderSelBar();
   }
   // 줄을 끌어 위아래로: 6px 넘게 움직이면 끌기 시작, 손 뗀 줄 자리로
   function dragRow(r, b, L, i) {
@@ -310,21 +310,21 @@ window.Cue = (() => {
   }
   const rowAt = (box, y) => [...box.querySelectorAll('.qrow')].find(x => { if (x.classList.contains('q-drag')) return false; const rr = x.getBoundingClientRect(); return y >= rr.top && y < rr.bottom; });
   function sceneAsk(L, i) {
-    const c = L[i], v = prompt('장면 제목 (이 줄 위에 머리 줄 · 비우면 없앰)', c.scene || '');
+    const c = L[i], v = prompt('구분 이름 (이 줄 위에 구분 줄 · 비우면 없앰)', c.scene || '');
     if (v == null) return;
     if (v.trim()) c.scene = v.trim().slice(0, 30); else delete c.scene;
-    logLine(`큐 장면 ${c.scene || '없앰'} (${i + 1}줄)`); save(); paint();
+    logLine(`큐 구분 ${c.scene || '없앰'} (${i + 1}줄)`); save(); paint();
   }
   function rowEl(b, L, i) {
     const c = L[i], k = cur(b), lock = S.lock, ed = editing();
     const cls = 'qrow' + (isGo(L, i) ? ' q-go' : ' q-ch') + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : '') +
       (live.has(c.id) ? ' q-run' : '') + (pend.has(c.id) ? ' q-wait' : '') + (badOf(c) ? ' q-bad' : '') + (edit === c.id ? ' q-edit' : '') + (pick === c.id ? ' q-pick' : '') + (qsel.has(c.id) ? ' q-sel' : '');
-    const selT = () => { if (qsel.has(c.id)) qsel.delete(c.id); else qsel.add(c.id); paint(); };
+    const selT = () => { if (qsel.has(c.id)) qsel.delete(c.id); else qsel.add(c.id); if (qsel.size && sel.size) clearSel(); paint(); renderSelBar(); };
     const r = h('div', { class: cls, 'data-i': i, 'data-id': c.id, role: 'button', 'aria-label': ed ? `${cueLabel(L, i)} ${padName(c)} — 고르기` : `${cueLabel(L, i)} ${padName(c)} — 다음으로` },
       h('span', { class: 'qn' + (isGo(L, i) && qno(L, i).length > 3 ? ' sm' : '') }, isGo(L, i) ? qno(L, i) : '↳'),
       h('span', { class: 'qmain' }, h('b', { class: 'qname' }, padName(c)), h('small', { class: 'qsub' }, subTxt(L, i, c))),
       h('span', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') }, actTxt(c), offTxt(c, L) ? h('small', { class: 'qoff' }, offTxt(c, L)) : ''),
-      ed ? h('button', { class: 'qed qchk' + (qsel.has(c.id) ? ' on' : ''), 'aria-label': '이 줄 고르기', onclick: e => { e.stopPropagation(); selT(); } }, qsel.has(c.id) ? '✓' : '') :
+      ed ? h('button', { class: 'qed qchk' + (qsel.has(c.id) ? ' on' : ''), 'aria-label': '이 줄 고르기', onclick: e => { e.stopPropagation(); selT(); } }, '✓') :
       lock ? '' : h('button', { class: 'qed', 'aria-label': '이 큐 고치기', onclick: e => { e.stopPropagation(); openEdit(edit === c.id ? null : c.id, '', r); } }, edit === c.id ? '✕' : '⋯'),
       live.has(c.id) ? h('i', { class: 'qbar', style: `width:${prog(c.id)}%` }) : '');
     r.onclick = () => { if (pressed) { pressed = false; return; } if (ed) return selT(); lastIns = null; if (i !== k) setSb(i, '줄 누름'); };
@@ -338,9 +338,9 @@ window.Cue = (() => {
       ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => r.addEventListener(n, stop));
       r.addEventListener('contextmenu', e => e.preventDefault());
     }
-    const head = c.scene ? [h('div', { class: 'qscene' + (i < k ? ' q-done' : ''), role: 'button', 'aria-label': ed ? `${c.scene} 장면 제목 고치기` : `${c.scene} 장면으로`,
-      onclick: () => { if (ed) return sceneAsk(L, i); lastIns = null; setSb(i, '장면 ' + c.scene); } },
-      h('b', null, '■ ' + c.scene), h('small', null, ed ? '누르면 제목 고치기' : '누르면 여기로'))] : [];
+    const head = c.scene ? [h('div', { class: 'qscene' + (i < k ? ' q-done' : ''), role: 'button', 'aria-label': ed ? `${c.scene} 구분 이름 고치기` : `${c.scene} 구분으로`,
+      onclick: () => { if (ed) return sceneAsk(L, i); lastIns = null; setSb(i, '구분 ' + c.scene); } },
+      h('b', null, '■ ' + c.scene), h('small', null, ed ? '누르면 이름 고치기' : '누르면 여기로'))] : [];
     return [...head, r];
   }
   // 울리는 줄의 진행(%)
@@ -459,7 +459,7 @@ window.Cue = (() => {
     ['GO', '(아래 단추)를 누르면 색칠된 줄("다음")이 나가요'],
     ['줄', '을 누르면 그 줄이 "다음"이 돼요 · ▲ ▼ 로도 옮겨요'],
     ['⋯', '를 누르거나 줄을 꾹 누르면 말풍선에서 무엇을 · 언제 · 언제 꺼짐을 바꿔요'],
-    ['편집', '(맨 위)을 켜면 큐 줄도 흔들려요 — 줄을 끌어 옮기고, 오른쪽 칸을 골라 복제·지우기'],
+    ['편집', '(맨 위)을 켜면 큐 줄도 흔들려요 — 줄을 끌어 옮기고, 왼쪽 동그라미로 골라 복제·지우기·구분'],
     ['↳', ' 줄은 GO 없이 앞 줄을 따라 저절로 나가요'],
   ];
   const helpBox = () => h('div', { class: 'qhelp' }, HELP.map(([k, t]) => h('div', null, h('b', null, k), t)),
@@ -481,17 +481,16 @@ window.Cue = (() => {
   }
   // 위쪽 [편집]을 켜고 끌 때: 말풍선·담기를 닫고 고른 줄을 비움
   $('btnEdit').addEventListener('click', () => { if (!on()) return; edit = null; adding = false; pick = null; sceneNext = null; qsel.clear(); paint(); });
-  // 편집 중 고른 줄: 복제·지우기(·장면 제목은 한 줄일 때)
+  // 편집 중 고른 줄: 큐 팝업 — 패드 팝업(.selbar)과 같은 모양, 큐 목록 아래에 뜸. 고른 줄이 없으면 안 뜸(2026-10-01)
   function selBar(b, L) {
-    if (!editing()) return '';
-    if (!qsel.size) return h('div', { class: 'qaddbar' }, h('div', { class: 'qdim' }, '줄을 끌어 옮겨요 · 줄을 누르면 골라요'));
+    if (!editing() || !qsel.size) return '';
     const one = qsel.size === 1 ? L.findIndex(c => qsel.has(c.id)) : -1;
-    return h('div', { class: 'qaddbar qselbar' }, h('div', null, `${qsel.size}줄 골랐어요`),
-      h('div', { class: 'qopts' },
-        h('button', { class: 'qc', onclick: () => dupSel(L) }, '⧉ 복제'),
-        one >= 0 ? h('button', { class: 'qc', onclick: () => sceneAsk(L, one) }, '■ 장면 제목') : '',
-        h('button', { class: 'qc danger', onclick: () => delSel(b, L) }, '✕ 지우기'),
-        h('button', { class: 'qc', onclick: () => { qsel.clear(); paint(); } }, '고르기 취소')));
+    return h('div', { class: 'selbar qsbar' },
+      h('span', { class: 'cnt' }, `${qsel.size}줄 고름`),
+      h('button', { class: 'sbtn', onclick: () => dupSel(L) }, '복제'),
+      one >= 0 ? h('button', { class: 'sbtn', onclick: () => sceneAsk(L, one) }, '구분') : '',
+      h('button', { class: 'sbtn', onclick: () => { qsel.clear(); paint(); renderSelBar(); } }, '고르기 해제'),
+      h('button', { class: 'sbtn danger', onclick: () => delSel(b, L) }, '삭제'));
   }
   // 위 머리 줄: [+ 담기] [+ 장면] 작게 — 담는 자리는 목록 속 '▼ 여기에 담겨요' 줄로 보임 (맨 아래 두면 끝에 붙는 걸로 읽힘 — 2026-10-01)
   function addBtns() {
@@ -499,10 +498,10 @@ window.Cue = (() => {
     const toggle = () => { adding = !adding; edit = null; pick = null; lastIns = null; if (!adding) sceneNext = null; logLine(adding ? '큐 담기 시작' : '큐 담기 끝'); paint(); };
     return [h('button', { class: 'qb qadd-s' + (adding ? ' on' : ''), onclick: toggle }, adding ? '✓ 다 담음' : '+ 담기'),
       h('button', { class: 'qb qadd-s' + (sceneNext ? ' on' : ''), onclick: () => {
-        const v = (prompt('장면 제목 (다음에 담는 줄 위에 붙어요)', sceneNext || '') || '').trim(); sceneNext = v || null;
+        const v = (prompt('구분 이름 (다음에 담는 줄 위에 붙어요)', sceneNext || '') || '').trim(); sceneNext = v || null;
         if (sceneNext && !adding) { adding = true; edit = null; lastIns = null; logLine('큐 담기 시작'); }
         paint();
-      } }, sceneNext ? `■ ${sceneShort(sceneNext)}` : '+ 장면')];
+      } }, sceneNext ? `■ ${sceneShort(sceneNext)}` : '+ 구분')];
   }
   // 말풍선(몸에 붙여 띄움): 큐보드 줄이면 줄 왼쪽(패드 위)에 화살표로, 설정 [큐] 칸이면 줄 아래에
   const pop = h('div', { class: 'qpop-w', hidden: true });
@@ -538,7 +537,7 @@ window.Cue = (() => {
   let center = null, nearSb = true;   // GO: 울리는 줄을 가운데로 (한 번만 — 그 뒤 손으로 스크롤해도 끌어당기지 않음)
   function paint(scrollId) {
     stage.classList.toggle('qon', on()); stage.classList.toggle('qopen', on() && open);
-    paintGo(); padTags();
+    paintGo(); padTags(); requestAnimationFrame(placeSelBar);
     if (!on()) { panel.textContent = ''; adding = false; edit = null; qsel.clear(); pick = null; pop.hidden = true; document.body.classList.remove('qadding'); return; }
     if (typing(panel) || typing(tabBox) || typing(pop)) { dirty = true; return; }
     dirty = false;
@@ -552,7 +551,7 @@ window.Cue = (() => {
     if (!open) {
       const goRows = L.map((c, i) => i).filter(i => isGo(L, i)), ns = nos(L);
       panel.replaceChildren(h('button', { class: 'qtog', 'aria-label': '큐보드 펼치기', onclick: () => { open = true; paint(); } }, '‹ 큐'), nav,
-        h('div', { class: 'qstrip' }, goRows.flatMap(i => [L[i].scene ? h('button', { class: 'qn qsc', 'aria-label': `${L[i].scene} 장면으로`, onclick: () => setSb(i, '장면 ' + L[i].scene) }, sceneShort(L[i].scene)) : null, h('button', { class: 'qn' + (ns[i].length > 3 ? ' sm' : '') + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : '') + (L.slice(i, nextGo(L, i)).some(c => live.has(c.id)) ? ' q-run' : ''), onclick: () => setSb(i, '줄 누름') }, ns[i])]).filter(Boolean)));
+        h('div', { class: 'qstrip' }, goRows.flatMap(i => [L[i].scene ? h('button', { class: 'qn qsc', 'aria-label': `${L[i].scene} 구분으로`, onclick: () => setSb(i, '구분 ' + L[i].scene) }, sceneShort(L[i].scene)) : null, h('button', { class: 'qn' + (ns[i].length > 3 ? ' sm' : '') + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : '') + (L.slice(i, nextGo(L, i)).some(c => live.has(c.id)) ? ' q-run' : ''), onclick: () => setSb(i, '줄 누름') }, ns[i])]).filter(Boolean)));
       paintPop();
       return;
     }
@@ -571,11 +570,11 @@ window.Cue = (() => {
       adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 ▼ 자리에 쌓여요 (소리 안 남)'),
         h('div', { class: 'qdim' }, '한 번 누르면 ▶ 재생, 켜 둔 소리를 또 누르면 ■ 끄기로 담겨요'),
         sceneNext ? h('div', { class: 'qdim' }, `■ ${sceneNext} — 다음에 담는 줄 위에 붙어요`) : '') : '',
-      selBar(b, L),
       help || !L.length ? helpBox() : '',
       box,
       h('div', { class: 'qfoot' }, nav, h('div', { class: 'qnext' }, h('small', null, '다음'), h('b', null, next ? `${cueLabel(L, k)} · ${next.memo || padName(next)}` : L.length ? '끝 — ▲로 되돌리기' : '—')),
-        next && L[nextGo(L, k)] ? h('div', { class: 'qnext q2' }, h('small', null, '그다음'), h('span', null, `${cueLabel(L, nextGo(L, k))} · ${L[nextGo(L, k)].memo || padName(L[nextGo(L, k)])}`)) : ''));
+        next && L[nextGo(L, k)] ? h('div', { class: 'qnext q2' }, h('small', null, '그다음'), h('span', null, `${cueLabel(L, nextGo(L, k))} · ${L[nextGo(L, k)].memo || padName(L[nextGo(L, k)])}`)) : ''),
+      selBar(b, L));
     box.scrollTop = top;   // 다시 그려도 손으로 둔 자리 그대로
     if (center) {
       const el = box.querySelector(`.qrow[data-id="${center}"]`); center = null;
@@ -695,5 +694,5 @@ window.Cue = (() => {
   }
 
   if (on()) paint();
-  return { tap, go, step, settingRow, tab, exportFix, importFix, paint: () => paint() };
+  return { tap, go, step, settingRow, tab, exportFix, importFix, paint: () => paint(), selN: () => editing() ? qsel.size : 0, clearSel: () => { if (qsel.size) { qsel.clear(); paint(); } } };
 })();
