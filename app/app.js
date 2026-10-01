@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.78 (2026-10-01)';
+const VER = 'DuckQ Board 0.3.77 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -932,7 +932,6 @@ $('zipIn').addEventListener('change', async e => {
     Object.keys(srcRest).forEach(k => { if (k !== 'name' && k !== 'color' && JSON.stringify(srcRest[k]) !== JSON.stringify(nb[k])) bad.push('보드.' + k); });
     const cues = (json.board && json.board.cues || []).length, got = (nb.cues || []).length;
     if (window.Cue && cues !== got) bad.push(`큐 ${cues}→${got}`);
-    else if (window.Cue) (json.board.cues || []).forEach((c, i) => { if ((c.alt || []).length !== (nb.cues[i].alt || []).length || c.rep !== nb.cues[i].rep) bad.push(`큐 ${i + 1} 번갈아`); });
     logLine(`설정 비교: 패드 ${qIds.filter(Boolean).length}/${json.pads.length} · ${bad.length ? '✖ 다름 ' + bad.slice(0, 12).join(', ') : '전부 같음'}${json.settings ? '' : ' · (옛 파일: 앱 설정 없음)'}`, bad.length ? 'e' : 'i');
   }
   importSettings(json);
