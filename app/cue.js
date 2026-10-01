@@ -291,7 +291,8 @@ window.Cue = (() => {
       const set = (what, fn, xs = cs, re = true) => { xs.forEach(fn); save(); paint(); logLine(`큐 일괄 수정 ${xs.length}줄 · ${what}`); if (re) draw(); };
       const mix = (f, xs) => same(f, xs) === undefined ? h('span', { class: 'sub mix' }, '지금 제각각') : null;
       const lab = (t, f, xs = cs) => h('span', null, t, xs.length < cs.length ? h('span', { class: 'sub' }, ` ${xs.length}줄에만`) : null, mix(f, xs));
-      const bar = (f, xs, what, fn) => volBar(xs.reduce((a, c) => a + f(c), 0) / xs.length, x => set(`${what} ${Math.round(x * 100)}%`, c => fn(c, x), xs, false));
+      // 막대 = 패드 일괄 수정의 볼륨 줄과 똑같이(오른쪽 정렬 + ↺). def = ↺ 값(%)
+      const bar = (f, xs, what, fn, def) => volRow('', volBar(xs.reduce((a, c) => a + f(c), 0) / xs.length, x => set(`${what} ${Math.round(x * 100)}%`, c => fn(c, x), xs, false), same(f, xs) === undefined), def);
       const wv = same(c => c.wait || 0), mv = same(c => c.memo || '');
       const memo = h('input', { class: 'txt', value: mv || '', maxlength: 40, placeholder: mv === undefined ? '제각각 — 쓰면 모두 같아져요' : '예: 2막 암전 뒤' });
       memo.onchange = () => { const v = memo.value.trim(); set(`메모 ${v || '없음'}`, c => { if (v) c.memo = v; else delete c.memo; }); };
@@ -330,12 +331,12 @@ window.Cue = (() => {
         const vo = same(c => c.vol != null, pl);
         out.push(row(lab('이 소리 볼륨', c => c.vol == null ? null : c.vol, pl), seg([[false, '트랙대로'], [true, '막대로']], vo,
           v => set(`이 소리 볼륨 ${v ? '막대로' : '트랙대로'}`, c => { if (!v) delete c.vol; else if (c.vol == null) { const p = padOf(c); c.vol = p ? p.vol : 1; } }, pl))));
-        if (vo === true) out.push(bar(c => c.vol, pl, '이 소리 볼륨', (c, x) => { c.vol = x; }));
+        if (vo === true) out.push(bar(c => c.vol, pl, '이 소리 볼륨', (c, x) => { c.vol = x; }, 100));
         const dO = same(c => c.duckO != null, pl);
         out.push(row(lab('배경 낮추기', c => c.duckO == null ? null : c.duckO, pl), seg([[false, '그대로'], [true, '막대로']], dO,
           v => set(`배경 낮추기 ${v ? '막대로' : '그대로'}`, c => { if (!v) { delete c.duckO; delete c.ramp; } else if (c.duckO == null) c.duckO = 0.5; }, pl))));
         if (dO === true) {
-          out.push(bar(c => c.duckO, pl, '배경 낮추기', (c, x) => { c.duckO = x; }),
+          out.push(bar(c => c.duckO, pl, '배경 낮추기', (c, x) => { c.duckO = x; }, 50),
             row(lab('바뀌는 데 걸리는 시간', c => c.ramp || null, pl), seg(RAMPS, same(c => c.ramp || null, pl), v => set(`배경 시간 ${v || '바로'}`, c => { if (v == null) delete c.ramp; else c.ramp = v; }, pl))));
         }
       }
@@ -346,7 +347,7 @@ window.Cue = (() => {
         out.push(row(lab('볼륨 줄', bk, vl), seg([[false, '막대로'], [true, '원래대로']], bv, v => set(`볼륨 줄 ${v ? '원래대로' : '막대로'}`, c => {
           toVol(c); if (v) delete c.vol; else if (c.vol == null) c.vol = tv(c) * 0.5;
         }, vl))));
-        if (bv === false) out.push(bar(c => c.act === 'duck' ? tv(c) * (c.sec || 0.25) : c.vol, vl, '볼륨 줄', (c, x) => { toVol(c); c.vol = x; }));
+        if (bv === false) out.push(bar(c => c.act === 'duck' ? tv(c) * (c.sec || 0.25) : c.vol, vl, '볼륨 줄', (c, x) => { toVol(c); c.vol = x; }, 50));
         out.push(row(lab('바뀌는 데 걸리는 시간', c => c.ramp || null, vl), seg(RAMPS, same(c => c.ramp || null, vl), v => set(`볼륨 시간 ${v || '바로'}`, c => { toVol(c); if (v == null) delete c.ramp; else c.ramp = v; }, vl))));
       }
       out.push(h('div', { class: 'row col' }, h('label', null, '메모', mix(c => c.memo || '')), memo));
@@ -480,7 +481,7 @@ window.Cue = (() => {
   const tsec = v => v ? `${v}초` : '바로';
   const RAMPS = [[null, '바로'], [1, '1초'], [3, '3초'], [5, '5초']];
   // 볼륨 막대 = 패드·트랙 설정과 같은 막대(가운데 100%, 오른쪽 반 100~300%)
-  const volBar = (v, fn) => stepper(Math.round(v * 100), 0, 300, 5, volTxt, x => fn(x / 100), false, VOL_MAP);
+  const volBar = (v, fn, mixed) => stepper(Math.round(v * 100), 0, 300, 5, volTxt, x => fn(x / 100), !!mixed, VOL_MAP);
   // 페이드 [트랙대로 / 따로] — 따로면 트랙 설정과 같은 페이드 막대(재생 = 인·아웃, 끄기 = 아웃만). 0초 = 없음
   function fadeEd(c, p, ch) {
     const stop = c.act === 'stop', own = stop ? c.fout != null : c.fin != null || c.fout != null;

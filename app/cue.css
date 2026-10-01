@@ -232,3 +232,5 @@
 .qln-x{position:absolute;right:2px;bottom:2px;font:800 10px var(--font);color:var(--text-dim)}
 .qln-x.warn{color:#f0b35a}
 .qrow.q-run .qln i{box-shadow:0 0 0 1px #0b0c0e}
+/* 말풍선 볼륨 막대: 폭이 좁아 −/＋·값 칸을 줄이고 막대를 패드 설정(130px)만큼 */
+.qpop .step{gap:6px}.qpop .step button{min-width:32px;height:34px;padding:0}.qpop .step output{min-width:46px;font-size:14px}.qpop .step input{min-width:110px}
