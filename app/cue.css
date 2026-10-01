@@ -221,12 +221,14 @@
 .qlist .qscene{position:relative;padding-right:26px}
 .qln{position:absolute;right:3px;top:0;bottom:0;width:18px;pointer-events:none}
 .qscene .qln{top:-8px;bottom:-2px}
-.qln i{position:absolute;width:3px;top:0;bottom:0;background:var(--lc);border-radius:2px}
+.qln i{position:absolute;width:2px;top:0;bottom:-1px;background:var(--lc);border-radius:1px}
 .qln .qln-start{top:50%}
 .qln .qln-end{bottom:50%}
-.qln .qln-start::before{content:"";position:absolute;left:-2.5px;top:-4px;width:8px;height:8px;border-radius:50%;background:var(--lc)}
-.qln .qln-end::after{content:"";position:absolute;left:-2.5px;bottom:-1.5px;width:8px;height:3px;border-radius:1px;background:var(--lc)}
-.qln .qln-dot::before{content:"";position:absolute;left:-2.5px;top:calc(50% - 4px);width:4px;height:4px;border-radius:50%;border:2px solid var(--lc);background:var(--bg1,#111)}
+/* 시작 ┐ · 끝 ┘ — 동작 단추 쪽으로 꺾어 "이 줄부터 이 줄까지" */
+.qln .qln-start::before,.qln .qln-end::before{content:"";position:absolute;right:0;width:9px;height:2px;border-radius:1px;background:var(--lc)}
+.qln .qln-start::before{top:0}
+.qln .qln-end::before{bottom:0}
+.qln .qln-dot::before{content:"";position:absolute;left:-2px;top:calc(50% - 3px);width:2px;height:2px;border-radius:50%;border:2px solid var(--lc);background:var(--bg1,#fff)}
 .qln-x{position:absolute;right:2px;bottom:2px;font:800 10px var(--font);color:var(--text-dim)}
 .qln-x.warn{color:#f0b35a}
 .qrow.q-run .qln i{box-shadow:0 0 0 1px #0b0c0e}
