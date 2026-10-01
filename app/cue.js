@@ -141,6 +141,7 @@ window.Cue = (() => {
   Engine.on('play', () => soon());
   Engine.on('end', (id, why) => {
     const m = manual.delete(id);
+    if (why === 'restart') { soon(); return; }   // 재생 막대 옮김·다시 누름 = 같은 소리가 이어짐 → 언제 꺼짐·끝나면 대기·볼륨·배경 낮추기는 그대로 둠
     ducked.delete(id);
     const d = duckBy.get(id);
     if (d) { duckBy.delete(id); d.list.forEach(o => { if (ducked.delete(o) && S.pads[o]) { volOver.delete(o); Engine.setVolume(o, S.pads[o].vol, d.t); } }); if (d.list.length) logLine(`큐 다른 소리 원래대로`); }
