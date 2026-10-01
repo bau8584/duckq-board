@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.92 (2026-10-02)';
+const VER = 'DuckQ Board 0.3.93 (2026-10-02)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -131,8 +131,20 @@ if (!(S.cur >= 0 && S.cur < S.boards.length)) S.cur = 0;
   S.boards.forEach(b => { b.pads = (b.pads || []).filter(id => S.pads[id] && !inBoard.has(id) && inBoard.add(id)); });
   Object.keys(S.pads).forEach(id => { if (!inBoard.has(id)) delete S.pads[id]; });
 }
+// 창이 둘이면 나중에 연 창만 저장 — 옛 창이 낡은 판으로 덮어쓰지 않게 (10/1 리허설: 옛 창이 PLAYED 지우고 덮어씀)
+let asleep = false;
+const winCh = 'BroadcastChannel' in window ? new BroadcastChannel('duckq-board-win') : null;
+if (winCh) {
+  winCh.onmessage = e => {
+    if (e.data !== 'hi' || asleep) return;
+    asleep = true; $('sleepOv').hidden = false; $('startOv').hidden = true;
+    logLine('다른 창이 열려서 이 창은 쉼 (저장 안 함)', 'w');
+  };
+  winCh.postMessage('hi');
+}
 let saveFail = false;
 function save() {
+  if (asleep) return;
   const ok = Store.saveState(S);
   if (!ok && !saveFail) toast('저장 공간이 부족해서 저장하지 못했어요');
   saveFail = !ok;
@@ -660,7 +672,7 @@ function clearPlayed() {
 }
 // 마지막 사용 6시간 뒤 저절로 지움 (다음 날 공연에 어제 표시가 남지 않게)
 function idleClear() {
-  if (!S.lastUse || Date.now() - S.lastUse < PLAYED_IDLE_MS) return;
+  if (asleep || !S.lastUse || Date.now() - S.lastUse < PLAYED_IDLE_MS) return;
   S.lastUse = 0;
   const was = clearPlayed(); save();
   if (was.length) { paintAll(); logLine(`6시간 안 써서 PLAYED ${was.length}개 지움`); }
