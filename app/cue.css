@@ -142,3 +142,13 @@
 .qmore{margin-top:6px;border:0;border-top:1px solid var(--line);background:none;color:var(--text-dim);font:700 12px var(--font);padding:8px 0 2px}
 .qstrip .qn.q-run{background:var(--board);color:#0b0c0e}
 .qstrip .qn.q-sb{background:none;box-shadow:inset 0 0 0 2px var(--board);color:var(--board)}
+/* 0.3.68 [편집] 줄 단추 · 소리 바꾸기 · 말풍선 볼륨 막대 */
+.qtools{display:flex;gap:3px;flex-shrink:0}
+.qt{width:28px;height:30px;border:1px solid var(--line);background:var(--bg2);color:var(--text);border-radius:8px;font:800 12px var(--font);padding:0}
+.qt:disabled{opacity:.3}
+.qt.danger{color:#ff6b6b}
+.qb.qedit-b{width:auto;padding:0 10px;font:700 12px var(--font)}
+.qb.qedit-b.on{background:var(--text);color:var(--bg0)}
+.qrow.q-pick{outline:2px dashed var(--text);outline-offset:-2px}
+.qpop .step{min-width:0}
+.qpop .step input{min-width:60px;flex:1}

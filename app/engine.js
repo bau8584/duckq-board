@@ -309,9 +309,14 @@ const Engine = (() => {
     return 0;
   }
 
-  function setVolume(id, x) {
+  // sec: 그 시간 동안 천천히 바뀜(큐 ◢ 볼륨) · 없으면 바로
+  function setVolume(id, x, sec = 0) {
     const tr = tracks.get(id); if (!tr) return;
-    tr.volume = x; tr.vol.gain.setTargetAtTime(x, ctx.currentTime, 0.02);
+    tr.volume = x;
+    const g = tr.vol.gain, t = ctx.currentTime;
+    g.cancelScheduledValues(t);
+    if (sec > 0) { g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(x, t + sec); }
+    else g.setTargetAtTime(x, t, 0.02);
     routeBoost();
   }
   function setPan(id, x) {
