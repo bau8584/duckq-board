@@ -163,7 +163,12 @@
 .qb.qadd-s{width:auto;padding:0 8px;font:700 12px var(--font);white-space:nowrap}
 .qb.qadd-s.on{background:var(--text);color:var(--bg0)}
 .qhead{gap:6px}
-.editing .qrow{animation:qjig .16s ease-in-out infinite alternate;touch-action:none}
+.editing .qrow{animation:qjig .16s ease-in-out infinite alternate;touch-action:pan-y}
+.editing .qscene{touch-action:pan-y}
+.qscene.q-drag{position:relative;z-index:5;box-shadow:0 8px 20px rgba(0,0,0,.4)}
+.qscene.q-over{box-shadow:inset 0 3px 0 var(--text)}
+.qrow.q-gather{display:none}
+.qrow.q-drag[data-n]::after{content:attr(data-n);position:absolute;top:-6px;right:-6px;min-width:24px;height:24px;padding:0 6px;border-radius:12px;background:var(--text);color:var(--bg0);font:800 13px/24px var(--font);text-align:center}
 .editing .qrow:nth-child(even){animation-delay:-.08s}
 @keyframes qjig{0%{transform:rotate(-.35deg)}100%{transform:rotate(.35deg)}}
 .qrow.q-drag{animation:none!important;position:relative;z-index:5;background:var(--bg2);box-shadow:0 8px 20px rgba(0,0,0,.4);opacity:.95}

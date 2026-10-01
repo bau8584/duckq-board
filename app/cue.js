@@ -287,28 +287,68 @@ window.Cue = (() => {
     const k = L.findIndex(c => c.id === kid); if (k >= 0) sb[b.id] = k; else sb[b.id] = Math.min(sb[b.id] || 0, L.length);
     logLine(`큐 줄 지움 ${n}줄`); qsel.clear(); save(); paint(); renderSelBar();
   }
-  // 줄을 끌어 위아래로: 6px 넘게 움직이면 끌기 시작, 손 뗀 줄 자리로
-  function dragRow(r, b, L, i) {
-    let y0 = 0, on = false, id = null;
-    r.addEventListener('pointerdown', e => { if (e.target.closest('.qchk')) return; y0 = e.clientY; on = false; id = e.pointerId; });
+  // 꾹 눌러(트랙 편집처럼 HOLD_MS) 끌어 위아래로 — 고른 줄을 끌면 고른 줄 전부 함께, 구분 줄도 꾹 끌어 다른 줄 위로 (2026-10-01 소유자)
+  let qdrag = false;
+  document.addEventListener('touchmove', e => { if (qdrag) e.preventDefault(); }, { passive: false });
+  function dragRow(r, b, L, i, scene) {
+    let x0 = 0, y0 = 0, on = false, id = null, tm = 0, group = null;
+    const c = L[i], box = () => r.closest('.qlist');
+    const clear = () => box() && box().querySelectorAll('.q-over').forEach(x => x.classList.remove('q-over', 'dn'));
+    const start = () => {
+      tm = 0; if (id == null) return;
+      on = true; qdrag = true; pressed = true;
+      try { r.setPointerCapture(id); } catch {}
+      r.classList.add('q-drag');
+      if (!scene && qsel.has(c.id) && qsel.size > 1) {
+        group = L.filter(x => qsel.has(x.id)).map(x => x.id);
+        box().querySelectorAll('.qrow').forEach(x => { if (x !== r && group.includes(x.dataset.id)) x.classList.add('q-gather'); });
+        r.dataset.n = group.length;
+      }
+    };
+    r.addEventListener('pointerdown', e => {
+      if (e.target.closest('.qchk') || (e.pointerType === 'mouse' && e.button !== 0)) return;
+      x0 = e.clientX; y0 = e.clientY; on = false; group = null; id = e.pointerId; clearTimeout(tm); tm = setTimeout(start, HOLD_MS);
+    });
     r.addEventListener('pointermove', e => {
       if (id !== e.pointerId) return;
-      if (!on && Math.abs(e.clientY - y0) > 6) { on = true; pressed = true; r.setPointerCapture(id); r.classList.add('q-drag'); }
-      if (!on) return;
+      if (!on) { if (tm && Math.hypot(e.clientX - x0, e.clientY - y0) > MOVE_PX) { clearTimeout(tm); tm = 0; id = null; } return; }
       r.style.transform = `translateY(${e.clientY - y0}px)`;
-      const box = r.closest('.qlist'); box.querySelectorAll('.q-over').forEach(x => x.classList.remove('q-over', 'dn'));
-      const t = rowAt(box, e.clientY); if (t && t !== r) t.classList.add('q-over', ...(+t.dataset.i > i ? ['dn'] : []));
+      clear();
+      const t = rowAt(box(), e.clientY), j = t ? +t.dataset.i : -1;
+      if (t && t !== r) t.classList.add('q-over', ...(!scene && j > i ? ['dn'] : []));
     });
+    r.addEventListener('contextmenu', e => e.preventDefault());
     const up = e => {
-      if (id !== e.pointerId) return; id = null;
-      if (!on) return; on = false;
-      const box = r.closest('.qlist'), t = rowAt(box, e.clientY);
-      r.classList.remove('q-drag'); r.style.transform = '';
-      if (t && t !== r) moveTo(b, L, i, +t.dataset.i); else paint();
+      if (id !== e.pointerId) return; id = null; clearTimeout(tm); tm = 0;
+      if (!on) return; on = false; qdrag = false;
+      const t = rowAt(box(), e.clientY); let j = t ? +t.dataset.i : -1;
+      if (!scene && t && t.classList.contains('qscene') && j > i) j--;   // 아래로 끌어 구분 줄에 놓으면 = 그 구분 위
+      clear(); r.classList.remove('q-drag'); r.style.transform = '';
+      if (j < 0 || t === r) return paint();
+      if (scene) moveScene(L, i, j); else moveRows(b, L, group || [c.id], i, j);
     };
     r.addEventListener('pointerup', up); r.addEventListener('pointercancel', up);
   }
-  const rowAt = (box, y) => [...box.querySelectorAll('.qrow')].find(x => { if (x.classList.contains('q-drag')) return false; const rr = x.getBoundingClientRect(); return y >= rr.top && y < rr.bottom; });
+  // 줄(여럿) 옮기기: 놓은 줄 위(위로 끌 때)·아래(아래로 끌 때)에 원래 순서대로. 구분은 자리에 남음
+  function moveRows(b, L, ids, i, j) {
+    if (ids.includes(L[j].id)) return paint();
+    const sc = L.map(c => c.scene), k = cur(b), kid = L[k] && L[k].id;
+    const items = L.filter(c => ids.includes(c.id)), rest = L.filter(c => !ids.includes(c.id));
+    rest.splice(rest.indexOf(L[j]) + (j > i ? 1 : 0), 0, ...items);
+    L.splice(0, L.length, ...rest);
+    L.forEach((c, n) => { if (sc[n]) c.scene = sc[n]; else delete c.scene; });
+    if (kid) sb[b.id] = L.findIndex(c => c.id === kid);
+    logLine(ids.length > 1 ? `큐 줄 ${ids.length}개 함께 옮김 → ${L.indexOf(items[0]) + 1}` : `큐 줄 옮김 ${i + 1} → ${L.indexOf(items[0]) + 1}`);
+    save(); paint();
+  }
+  // 구분 옮기기: 놓은 줄 위로. 거기 구분이 있으면 서로 바꿈
+  function moveScene(L, i, j) {
+    if (i === j) return paint();
+    const a = L[i].scene, o = L[j].scene;
+    L[j].scene = a; if (o) L[i].scene = o; else delete L[i].scene;
+    logLine(`큐 구분 옮김 ${a} ${i + 1} → ${j + 1}줄${o ? ` (${o}와 바꿈)` : ''}`); save(); paint();
+  }
+  const rowAt = (box, y) => [...box.querySelectorAll('.qrow,.qscene')].find(x => { if (x.classList.contains('q-drag') || x.classList.contains('q-gather')) return false; const rr = x.getBoundingClientRect(); return y >= rr.top && y < rr.bottom; });
   function sceneAsk(L, i) {
     const c = L[i], v = prompt('구분 이름 (이 줄 위에 구분 줄 · 비우면 없앰)', c.scene || '');
     if (v == null) return;
@@ -342,9 +382,10 @@ window.Cue = (() => {
       ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => r.addEventListener(n, stop));
       r.addEventListener('contextmenu', e => e.preventDefault());
     }
-    const head = c.scene ? [h('div', { class: 'qscene' + (i < k ? ' q-done' : ''), role: 'button', 'aria-label': ed ? `${c.scene} 구분 이름 고치기` : `${c.scene} 구분으로`,
-      onclick: () => { if (ed) return sceneAsk(L, i); lastIns = null; setSb(i, '구분 ' + c.scene); } },
-      h('b', null, '■ ' + c.scene), h('small', null, ed ? '누르면 이름 고치기' : '누르면 여기로'))] : [];
+    const head = c.scene ? [h('div', { class: 'qscene' + (i < k ? ' q-done' : ''), 'data-i': i, role: 'button', 'aria-label': ed ? `${c.scene} 구분 이름 고치기` : `${c.scene} 구분으로`,
+      onclick: () => { if (pressed) { pressed = false; return; } if (ed) return sceneAsk(L, i); lastIns = null; setSb(i, '구분 ' + c.scene); } },
+      h('b', null, '■ ' + c.scene), h('small', null, ed ? '누르면 이름 · 꾹 끌면 옮기기' : '누르면 여기로'))] : [];
+    if (ed && head[0]) dragRow(head[0], b, L, i, true);
     return [...head, r];
   }
   // 울리는 줄의 진행(%)
@@ -463,7 +504,7 @@ window.Cue = (() => {
     ['GO', '(아래 단추)를 누르면 색칠된 줄("다음")이 나가요'],
     ['줄', '을 누르면 그 줄이 "다음"이 돼요 · ▲ ▼ 로도 옮겨요'],
     ['▶ 재생', ' 같은 동작 단추를 누르거나 줄을 꾹 누르면 말풍선에서 무엇을 · 언제 · 언제 꺼짐을 바꿔요'],
-    ['편집', '(맨 위)을 켜면 큐 줄도 흔들려요 — 줄을 끌어 옮기고, 왼쪽 동그라미로 골라 복제·지우기·구분'],
+    ['편집', '(맨 위)을 켜면 큐 줄도 흔들려요 — 줄을 꾹 눌러 끌어 옮기고(고른 줄은 함께), 구분 줄도 꾹 끌어 옮겨요 · 왼쪽 ✓로 골라 복제·지우기·구분'],
     ['↳', ' 줄은 GO 없이 앞 줄을 따라 저절로 나가요'],
   ];
   const helpBox = () => h('div', { class: 'qhelp' }, HELP.map(([k, t]) => h('div', null, h('b', null, k), t)),
