@@ -151,7 +151,8 @@ button:disabled{cursor:default}
 .ptrack i{position:absolute;left:0;top:11px;height:6px;width:0;background:var(--lit);border-radius:3px}
 .prow:not(.idle) .ptrack i::after{content:"";position:absolute;right:-7px;top:-4px;width:14px;height:14px;border-radius:50%;background:var(--lit)}
 .prow.drag .ptrack::before,.prow.drag .ptrack i{top:9px;height:10px}
-.ptime{min-width:92px;text-align:right}
+.ptime{min-width:92px;text-align:right;white-space:nowrap}
+.pvol{font-weight:800;color:var(--text);margin-right:8px}
 .pstop{width:34px;height:26px;border-radius:8px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font-size:13px;padding:0}
 .pstop:active{background:var(--btn-press)}
 .pmore{height:26px;border-radius:8px;border:1px dashed var(--line);background:none;color:var(--text-dim);font:700 12px var(--font)}
@@ -359,6 +360,8 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .icons .slot:nth-child(2) svg,.icons .slot:nth-child(3) svg{background:none}
 /* 루프 N번·N초 표시: 루프 기호 오른쪽 아래 작게 */
 .icons .slot{position:relative}
+.vln{position:absolute;left:0;top:24px;font:800 10px/1 var(--font);white-space:nowrap;opacity:.85}
+[data-cols="8"] .vln{top:19px}
 .lpn{position:absolute;left:18px;bottom:-3px;font:800 10px/1 var(--font);white-space:nowrap;opacity:.85}
 /* 볼륨 칸: 줄마다 막대가 남는 폭을 다 씀 */
 .frow.ck.vrow .step{justify-content:flex-end}.frow.ck.vrow .step input[type=range]{flex:1;width:auto;min-width:60px}

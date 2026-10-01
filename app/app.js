@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.88 (2026-10-01)';
+const VER = 'DuckQ Board 0.3.89 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -213,7 +213,7 @@ function makePad(id, n) {
   const p = S.pads[id];
   const el = h('button', { class: 'pad', 'data-id': id, html:
     // 자리 고정: 인 · 루프 · (번호) · 솔로 · 아웃 (꺼진 건 빈자리로 남김 — 패드마다 같은 자리에 보이게)
-    `<div class="icons">${[['fin', 'fi'], ['loop', 'lp'], ['solo', 'so'], ['fout', 'fo']].map(([k, ic]) => `<i class="slot">${p[k] ? IC[ic] : ''}${k === 'loop' && loopTag(p) ? `<small class="lpn">${loopTag(p)}</small>` : ''}</i>`).join('')}</div>` +
+    `<div class="icons">${[['fin', 'fi'], ['loop', 'lp'], ['solo', 'so'], ['fout', 'fo']].map(([k, ic]) => `<i class="slot">${p[k] ? IC[ic] : ''}${k === 'loop' && loopTag(p) ? `<small class="lpn">${loopTag(p)}</small>` : ''}${k === 'fin' && Math.round(p.vol * 100) !== 100 ? `<small class="vln">${Math.round(p.vol * 100)}%</small>` : ''}</i>`).join('')}</div>` +
     `<div class="idx">${String(n).padStart(2, '0')}</div><div class="eq"><i></i><i></i><i></i></div><div class="edit">✓</div>` +
     `<div class="label"></div><div class="meta"><span>00:00</span><b>PLAYED</b><span></span></div>` });
   el.querySelector('.label').textContent = p.label || '(이름 없음)';
@@ -254,7 +254,7 @@ function renderMaster() {
   $('mKnob').style.top = ((1 - v) * 100) + '%';
   const bst = S.settings.masterBoost || 1;
   const pct = Math.round(v * bst * 100);
-  $('mVal').textContent = (pct === 100 ? '' : '↺') + pct + '%';   // ↺ = 숫자 누르면 100%로
+  $('mVal').textContent = (pct === 100 ? '' : '↺') + (pct / 100).toFixed(2) + '배';   // ↺ = 숫자 누르면 1.00배로 · 패드 볼륨(%)과 헷갈리지 않게 '배'
   const over = v * bst > 1.001;   // 실제 100%를 넘으면 막대·숫자 색이 바뀐다
   $('mVal').classList.toggle('boost', over);
   $('master').classList.toggle('over', over);
@@ -290,9 +290,10 @@ function renderPlays() {
   const kids = shown.map(id => {
     const r = playRow(id), p = S.pads[id] || {}, d = playLen(p, id), pos = seek && seek.id === id ? seek.f * d : playPos(id);
     r.firstChild.style.background = padHex(p);
+    const vp = Math.round((Engine.volume(id) ?? p.vol ?? 1) * 100);   // 지금 송출 볼륨(MASTER 빼고) — 100%면 안 보임
     r.children[1].textContent = p.label || '';
     r.children[2].firstChild.style.width = Math.min(100, pos / d * 100) + '%';
-    r.children[3].textContent = fmt(pos) + ' / ' + (endless(p) ? '∞' : fmt(d));
+    r.children[3].replaceChildren(...(vp === 100 ? [] : [h('b', { class: 'pvol' }, vp + '%')]), fmt(pos) + ' / ' + (endless(p) ? '∞' : fmt(d)));
     return r;
   });
   if (!ids.length) {   // 아무것도 안 울릴 때: 마지막 트랙 이름만 흐리게

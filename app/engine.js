@@ -723,6 +723,7 @@ const Engine = (() => {
     unlock, probeDuration, load, unload, play, stop, stopAll, pauseAll, resumeAll,
     pos, setVolume, setPan, setTrim, setLoop, setMaster, setBoost, playingIds, peaks,
     isPlaying: id => !!(tracks.get(id) && tracks.get(id).v),
+    volume: id => tracks.get(id) ? tracks.get(id).volume : null,   // 지금 송출 볼륨(큐가 바꾼 것 포함, 1=100%)
     isFading: id => !!(tracks.get(id) && tracks.get(id).v && tracks.get(id).v.fading),
     dur: id => { const tr = tracks.get(id); return tr ? (tr.v ? tr.v.seg.L : seg(tr).L) : 0; },   // 구간 길이
     fileDur: id => (tracks.get(id) || {}).dur || 0,
