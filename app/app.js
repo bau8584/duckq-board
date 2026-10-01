@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.91 (2026-10-02)';
+const VER = 'DuckQ Board 0.3.92 (2026-10-02)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -250,8 +250,9 @@ function paintAll() { padEls.forEach((_, id) => paintPad(id)); }
 
 function renderMaster() {
   const v = S.master, sl = $('mSlider');
-  $('mFill').style.height = (v * 100) + '%';
-  $('mKnob').style.top = ((1 - v) * 100) + '%';
+  const y = Math.sqrt(v);   // 막대 높이 = 귀 기준(배 = 높이²)
+  $('mFill').style.height = (y * 100) + '%';
+  $('mKnob').style.top = ((1 - y) * 100) + '%';
   const bst = S.settings.masterBoost || 1;
   const pct = Math.round(v * bst * 100);
   $('mVal').textContent = (pct === 100 ? '' : '↺') + (pct / 100).toFixed(2) + '배';   // ↺ = 숫자 누르면 1.00배로 · 패드 볼륨(%)과 헷갈리지 않게 '배'
@@ -606,10 +607,11 @@ hit($('btnFade'), () => { logLine(`◣ 전체 페이드 ${S.settings.fadeSec}초
   const sl = $('mSlider'); let on = false;
   const set = e => {
     const r = sl.getBoundingClientRect();
-    let v = Math.round(Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height)) * 100) / 100;
+    const y = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height));
+    let v = Math.round(y * y * 100) / 100;   // 귀 기준: 가운데 = 0.25배
     // 키웠을 때 100% 자리 근처(막대 길이 ±5%)면 딱 100%에 붙는다 — 배율과 상관없이 손 느낌 같게
     const bst = S.settings.masterBoost || 1;
-    if (bst > 1 && Math.abs(v - 1 / bst) <= 0.05) v = 1 / bst;
+    if (bst > 1 && Math.abs(y - Math.sqrt(1 / bst)) <= 0.05) v = 1 / bst;
     S.master = v;
     Engine.setMaster(S.master); renderMaster();
   };
@@ -1026,7 +1028,7 @@ function stepper(val, min, max, step, show, onchange, mixed, map) {
   const rng = h('input', { type: 'range', min: map ? map.min : min, max: map ? map.max : max, step: map ? 'any' : step, value: to(val) });
   const dec = String(step).split('.')[1]?.length || 0;
   const set = v => { v = Math.min(max, Math.max(min, +(+v).toFixed(dec))); val = v; rng.value = to(v); out.textContent = show(v); box.classList.remove('mixed'); onchange(v); };
-  rng.oninput = () => set(Math.round(from(+rng.value) / step) * step);
+  rng.oninput = () => set(map && map.snap ? map.snap(from(+rng.value)) : Math.round(from(+rng.value) / step) * step);
   const box = h('div', { class: 'step' + (mixed ? ' mixed' : '') }, h('button', { onclick: () => set(val - step), 'aria-label': '줄이기' }, '−'), rng, h('button', { onclick: () => set(val + step), 'aria-label': '늘리기' }, '＋'), out);
   box.set = set;
   return box;
@@ -1052,7 +1054,9 @@ function colorChips(cur, withNone, onchange) {
 }
 const sec1 = v => v.toFixed(1) + '초';
 const volTxt = v => v + '%' + (v > 100 ? ' ↑' : '');   // 볼륨 0~300%, 슬라이더 가운데 = 100%(원래 소리)
-const VOL_MAP = { min: 0, max: 200, to: v => v <= 100 ? v : 100 + (v - 100) / 2, from: x => x <= 100 ? x : 100 + (x - 100) * 2 };
+// 막대 위치 ↔ % : 100% 아래는 귀 기준(% = 위치²) — 가운데 = 25%(−12dB, 귀로 절반). 20% 아래는 1%씩, 그 위는 5%씩 붙는다
+const VOL_MAP = { min: 0, max: 200, to: v => v <= 100 ? Math.sqrt(v / 100) * 100 : 100 + (v - 100) / 2, from: x => x <= 100 ? x * x / 100 : 100 + (x - 100) * 2,
+  snap: v => v < 20 ? Math.round(v) : Math.round(v / 5) * 5 };
 // 이름 옆 [?]: 누르면 설명 말풍선
 function helpLabel(name, text) {
   const tip = h('span', { class: 'tip', hidden: true }, text);
