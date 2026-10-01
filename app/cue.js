@@ -278,28 +278,82 @@ window.Cue = (() => {
     logLine(`큐 줄 복제 ${qsel.size}줄`); qsel.clear(); save(); paint(); renderSelBar();
   }
   // 큐 일괄 수정(2026-10-01): 패드 일괄 수정처럼 — 손댄 항목만 고른 줄 모두에 같은 값. 첫 줄은 늘 GO라 '언제'는 그대로
+  // 항목 = 말풍선과 같음(소리·번호 빼고). 재생/끄기/볼륨 줄에만 맞는 항목은 그 줄에만 들어가고, 몇 줄에 들어가는지 보임
   function bulkSel(L) {
     const cs = L.filter(c => qsel.has(c.id)); if (!cs.length) return;
     const k3 = c => { const a = c.act || 'play'; return a === 'duck' || a === 'restore' ? 'vol' : a; };
-    const same = f => cs.every(c => f(c) === f(cs[0])) ? f(cs[0]) : undefined;
-    const set = (what, fn) => { cs.forEach(fn); save(); paint(); logLine(`큐 일괄 수정 ${cs.length}줄 · ${what}`); };
-    const mix = f => same(f) === undefined ? h('span', { class: 'sub mix' }, '지금 제각각') : null;
-    const lab = (t, f) => h('span', null, t, mix(f));
-    const wv = same(c => c.wait || 0);
-    const memo = h('input', { class: 'txt', value: same(c => c.memo || '') || '', maxlength: 40, placeholder: same(c => c.memo || '') === undefined ? '제각각' : '예: 2막 암전 뒤' });
-    memo.onchange = () => { const v = memo.value.trim(); set(`메모 ${v || '없음'}`, c => { if (v) c.memo = v; else delete c.memo; }); };
-    openSheet(`큐 ${cs.length}줄 일괄 수정`, body => body.append(
-      h('div', { class: 'row' }, h('label', null, helpLabel('일괄 수정', '모두 같은 항목은 그 값이, 서로 다른 항목은 "제각각"으로 보여요. 손댄 항목만 고른 줄 모두에 같은 값으로 들어가요.'))),
-      row(lab('무엇을', k3), seg([['play', ACTS.play], ['stop', ACTS.stop], ['vol', ACTS.vol]], same(k3), v => set(ACTS[v], c => {
-        if (k3(c) === v) return;
-        const p = c.pad !== '*' && S.pads[c.pad];
-        c.act = v; if (v !== 'play') { delete c.off; delete c.duckO; }
-        delete c.fin; delete c.vol; delete c.fout; delete c.sec; delete c.ramp; if (v === 'vol') c.vol = (p ? p.vol : 1) * 0.5;
-      }))),
-      row(lab('언제', c => c.when || 'go'), seg(Object.entries(WHEN1), same(c => c.when || 'go'), v => set(WHEN1[v], c => { c.when = v; }))),
-      row(lab('기다렸다가', c => c.wait || 0), stepper(wv === undefined ? 0 : wv, 0, 60, 0.5, x => x ? `+ ${x}초` : '바로',
-        v => set(`기다림 ${v}초`, c => { if (v) c.wait = v; else delete c.wait; }), wv === undefined)),
-      h('div', { class: 'row col' }, h('label', null, '메모', mix(c => c.memo || '')), memo)));
+    const padOf = c => c.pad !== '*' && S.pads[c.pad];
+    const wrap = h('div', { class: 'qbulk' });
+    const draw = () => {
+      const of = k => cs.filter(c => k3(c) === k), pl = of('play'), vl = of('vol'), fl = cs.filter(c => k3(c) !== 'vol');
+      const same = (f, xs = cs) => xs.length && xs.every(c => f(c) === f(xs[0])) ? f(xs[0]) : undefined;
+      // re = 창을 다시 그림(항목이 바뀌는 선택). 막대·초는 끄는 중이라 다시 안 그림
+      const set = (what, fn, xs = cs, re = true) => { xs.forEach(fn); save(); paint(); logLine(`큐 일괄 수정 ${xs.length}줄 · ${what}`); if (re) draw(); };
+      const mix = (f, xs) => same(f, xs) === undefined ? h('span', { class: 'sub mix' }, '지금 제각각') : null;
+      const lab = (t, f, xs = cs) => h('span', null, t, xs.length < cs.length ? h('span', { class: 'sub' }, ` ${xs.length}줄에만`) : null, mix(f, xs));
+      const bar = (f, xs, what, fn) => volBar(xs.reduce((a, c) => a + f(c), 0) / xs.length, x => set(`${what} ${Math.round(x * 100)}%`, c => fn(c, x), xs, false));
+      const wv = same(c => c.wait || 0), mv = same(c => c.memo || '');
+      const memo = h('input', { class: 'txt', value: mv || '', maxlength: 40, placeholder: mv === undefined ? '제각각 — 쓰면 모두 같아져요' : '예: 2막 암전 뒤' });
+      memo.onchange = () => { const v = memo.value.trim(); set(`메모 ${v || '없음'}`, c => { if (v) c.memo = v; else delete c.memo; }); };
+      const out = [
+        h('div', { class: 'row' }, h('label', null, helpLabel('일괄 수정', '모두 같은 항목은 그 값이, 서로 다른 항목은 "제각각"으로 보여요. 손댄 항목만 고른 줄 모두에 같은 값으로 들어가요. 재생·끄기·볼륨 줄에만 맞는 항목은 그 줄에만 들어가요.'))),
+        row(lab('무엇을', k3), seg([['play', ACTS.play], ['stop', ACTS.stop], ['vol', ACTS.vol]], same(k3), v => set(ACTS[v], c => {
+          if (k3(c) === v) return;
+          const p = padOf(c);
+          c.act = v; if (v !== 'play') { delete c.off; delete c.duckO; }
+          delete c.fin; delete c.vol; delete c.fout; delete c.sec; delete c.ramp; if (v === 'vol') c.vol = (p ? p.vol : 1) * 0.5;
+        }))),
+        row(lab('언제', c => c.when || 'go'), seg(Object.entries(WHEN1), same(c => c.when || 'go'), v => set(WHEN1[v], c => { c.when = v; }))),
+        row(lab('기다렸다가', c => c.wait || 0), stepper(wv === undefined ? 0 : wv, 0, 60, 0.5, x => x ? `+ ${x}초` : '바로',
+          v => set(`기다림 ${v}초`, c => { if (v) c.wait = v; else delete c.wait; }, cs, false), wv === undefined))];
+      if (pl.length) {
+        const ok = c => c.off === 'go' || !!c.off && c.off.startsWith('q:') ? 'q' : c.off || null;
+        out.push(row(lab('언제 꺼짐?', ok, pl), seg([[null, '따로 안 끔'], ['q', '다음 큐'], ['next', '다른 소리 나오면']], same(ok, pl),
+          v => set(`언제 꺼짐 ${v || '안 끔'}`, c => { if (v == null) delete c.off; else if (v === 'q') c.off = 'go'; else c.off = v; }, pl))));
+      }
+      if (fl.length) {
+        const own = c => k3(c) === 'stop' ? c.fout != null : c.fin != null || c.fout != null, ov = same(own, fl);
+        out.push(row(lab('페이드', own, fl), seg([[false, '트랙대로'], [true, '따로']], ov, v => set(`페이드 ${v ? '따로' : '트랙대로'}`, c => {
+          const p = padOf(c);
+          if (!v) { delete c.fin; delete c.fout; }
+          else if (!own(c)) { c.fout = p ? foutOf(p) : 0; if (k3(c) !== 'stop') c.fin = p && p.fin ? p.finSec : 0; }
+        }, fl))));
+        if (ov === true) {
+          const pf = fl.filter(c => k3(c) !== 'stop'), fi = same(c => c.fin || 0, pf), fo = same(c => c.fout || 0, fl);
+          out.push(fadeEnv({ fin: fi > 0, finSec: fi || 0, fout: fo > 0, foutSec: fo || 0 }, (side, s, final) => {
+            (side === 'in' ? pf : fl).forEach(c => { if (side === 'in') c.fin = s; else c.fout = s; });
+            if (final) { save(); paint(); logLine(`큐 일괄 수정 페이드 ${side === 'in' ? '인' : '아웃'} ${s}초`); }
+          }, { outOnly: !pf.length, dim: { in: fi === undefined, out: fo === undefined } }));
+        }
+      }
+      if (pl.length) {
+        const vo = same(c => c.vol != null, pl);
+        out.push(row(lab('이 소리 볼륨', c => c.vol == null ? null : c.vol, pl), seg([[false, '트랙대로'], [true, '막대로']], vo,
+          v => set(`이 소리 볼륨 ${v ? '막대로' : '트랙대로'}`, c => { if (!v) delete c.vol; else if (c.vol == null) { const p = padOf(c); c.vol = p ? p.vol : 1; } }, pl))));
+        if (vo === true) out.push(bar(c => c.vol, pl, '이 소리 볼륨', (c, x) => { c.vol = x; }));
+        const dO = same(c => c.duckO != null, pl);
+        out.push(row(lab('배경 낮추기', c => c.duckO == null ? null : c.duckO, pl), seg([[false, '그대로'], [true, '막대로']], dO,
+          v => set(`배경 낮추기 ${v ? '막대로' : '그대로'}`, c => { if (!v) { delete c.duckO; delete c.ramp; } else if (c.duckO == null) c.duckO = 0.5; }, pl))));
+        if (dO === true) {
+          out.push(bar(c => c.duckO, pl, '배경 낮추기', (c, x) => { c.duckO = x; }),
+            row(lab('바뀌는 데 걸리는 시간', c => c.ramp || null, pl), seg(RAMPS, same(c => c.ramp || null, pl), v => set(`배경 시간 ${v || '바로'}`, c => { if (v == null) delete c.ramp; else c.ramp = v; }, pl))));
+        }
+      }
+      if (vl.length) {
+        const tv = c => padOf(c) ? padOf(c).vol : 1;
+        const toVol = c => { if (c.act !== 'vol') { if (c.act === 'duck') c.vol = tv(c) * (c.sec || 0.25); c.act = 'vol'; delete c.sec; } };
+        const bk = c => c.act === 'restore' || c.act === 'vol' && c.vol == null, bv = same(bk, vl);
+        out.push(row(lab('볼륨 줄', bk, vl), seg([[false, '막대로'], [true, '원래대로']], bv, v => set(`볼륨 줄 ${v ? '원래대로' : '막대로'}`, c => {
+          toVol(c); if (v) delete c.vol; else if (c.vol == null) c.vol = tv(c) * 0.5;
+        }, vl))));
+        if (bv === false) out.push(bar(c => c.act === 'duck' ? tv(c) * (c.sec || 0.25) : c.vol, vl, '볼륨 줄', (c, x) => { toVol(c); c.vol = x; }));
+        out.push(row(lab('바뀌는 데 걸리는 시간', c => c.ramp || null, vl), seg(RAMPS, same(c => c.ramp || null, vl), v => set(`볼륨 시간 ${v || '바로'}`, c => { toVol(c); if (v == null) delete c.ramp; else c.ramp = v; }, vl))));
+      }
+      out.push(h('div', { class: 'row col' }, h('label', null, '메모', mix(c => c.memo || '')), memo));
+      wrap.replaceChildren(...out);
+    };
+    draw();
+    openSheet(`큐 ${cs.length}줄 일괄 수정`, body => body.append(wrap));
   }
   async function delSel(b, L) {
     const n = qsel.size; if (!n || !await ask(`큐 ${n}줄을 지울까요?`, { ok: '지우기', danger: true })) return;
