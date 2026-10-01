@@ -200,3 +200,7 @@
 .qact-b{min-height:36px;padding:3px 6px;border:1px solid var(--line);border-radius:9px;background:var(--bg2);font:inherit;color:inherit;text-align:left;justify-content:center;cursor:pointer}
 .qact-b.on{border-color:var(--text);box-shadow:inset 0 0 0 1px var(--text)}
 .qrow.q-run .qact-b{background:color-mix(in srgb,#fff 35%,transparent);border-color:transparent}
+/* 0.3.75: 동작 단추는 작게(글자 크기 그대로), 꺼짐 정보는 그 아래 */
+.qrow .qact{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.qact-b{min-height:0;padding:2px 5px;border-radius:6px;font:700 11px var(--font);line-height:1.3;justify-content:flex-start}
+.qrow .qoff{font-size:10px;line-height:1.2;white-space:nowrap}

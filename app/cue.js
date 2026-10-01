@@ -323,9 +323,11 @@ window.Cue = (() => {
     const r = h('div', { class: cls, 'data-i': i, 'data-id': c.id, role: 'button', 'aria-label': ed ? `${cueLabel(L, i)} ${padName(c)} — 고르기` : `${cueLabel(L, i)} ${padName(c)} — 다음으로` },
       // 왼쪽부터 [고르기(편집 중)] · 동작 단추(누르면 말풍선 — 옛 ⋯) · 번호 · 이름/정보 (2026-10-01 소유자)
       ed ? h('button', { class: 'qed qchk' + (qsel.has(c.id) ? ' on' : ''), 'aria-label': '이 줄 고르기', onclick: e => { e.stopPropagation(); selT(); } }, '✓') : '',
-      h(lock || ed ? 'span' : 'button', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') + (lock || ed ? '' : ' qact-b') + (edit === c.id ? ' on' : ''),
-        ...(lock || ed ? {} : { 'aria-label': '이 큐 고치기', onclick: e => { e.stopPropagation(); openEdit(edit === c.id ? null : c.id, '', r); } }) },
-        actTxt(c), offTxt(c, L) ? h('small', { class: 'qoff' }, offTxt(c, L)) : ''),
+      // 맨 왼쪽 칸: 작은 동작 단추 + 그 아래 꺼짐 정보 (2026-10-01 소유자)
+      h('span', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') },
+        h(lock || ed ? 'span' : 'button', { class: 'qact-t' + (lock || ed ? '' : ' qact-b') + (edit === c.id ? ' on' : ''),
+          ...(lock || ed ? {} : { 'aria-label': '이 큐 고치기', onclick: e => { e.stopPropagation(); openEdit(edit === c.id ? null : c.id, '', r); } }) }, actTxt(c)),
+        offTxt(c, L) ? h('small', { class: 'qoff' }, offTxt(c, L)) : ''),
       h('span', { class: 'qn' + (isGo(L, i) && qno(L, i).length > 3 ? ' sm' : '') }, isGo(L, i) ? qno(L, i) : '↳'),
       h('span', { class: 'qmain' }, h('b', { class: 'qname' }, padName(c)), h('small', { class: 'qsub' }, subTxt(L, i, c))),
       live.has(c.id) ? h('i', { class: 'qbar', style: `width:${prog(c.id)}%` }) : '');
