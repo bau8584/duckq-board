@@ -187,3 +187,8 @@
 .selbar.qsbar{position:absolute;left:6px;right:6px;bottom:88px;transform:none;max-width:none;z-index:6;gap:6px;padding:8px 6px}
 .qsbar .cnt{width:100%;text-align:center}
 .editing .qlist{padding-bottom:110px}
+/* 트랙 이름 왼쪽 줄 맞춤: 정보 칸 너비를 고정(2026-10-01) */
+.qrow,.qrow.q-ch{grid-template-columns:34px 66px minmax(0,1fr) 30px}
+.qrow.q-ch{grid-template-columns:34px 66px minmax(0,1fr) 20px}
+.qrow .qact,.qrow .qact small{min-width:0;max-width:66px;overflow:hidden;text-overflow:ellipsis}
+.qrow .qmain{text-align:left;align-items:flex-start}
