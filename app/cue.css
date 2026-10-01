@@ -233,3 +233,5 @@
 .qln-x{position:absolute;left:0;bottom:2px;font:800 9px var(--font);color:var(--text-dim)}
 .qln-x.warn{color:#f0b35a}
 .qrow.q-run .qln i{box-shadow:0 0 0 1px #0b0c0e}
+/* 0.3.82: 담기 막대의 ▶재생·■끄기·◢볼륨은 가운데 (2026-10-01 소유자) */
+.qaddbar .qopts{justify-content:center}

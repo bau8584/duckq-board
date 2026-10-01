@@ -656,7 +656,7 @@ window.Cue = (() => {
         h('button', { class: 'qb qhelp-b' + (help ? ' on' : ''), 'aria-label': '큐 사용법', onclick: () => { help = !help; paint(); } }, '?')),
       pick ? h('div', { class: 'qaddbar' }, h('div', null, '바꿀 소리의 패드를 누르세요 (소리 안 남)'),
         h('button', { class: 'qc', onclick: () => { pick = null; paint(); } }, '취소')) :
-      adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 ▼ 자리에 쌓여요 (소리 안 남)'),
+      adding ? h('div', { class: 'qaddbar' },
         opts([['play', ACTS.play], ['stop', ACTS.stop], ['vol', ACTS.vol]], addAct, v => { addAct = v; logLine(`큐 담기 동작 ${ACTS[v]}`); paint(); }),
         sceneNext ? h('div', { class: 'qdim' }, `■ ${sceneNext} — 다음에 담는 줄 위에 붙어요`) : '') : '',
       help || !L.length ? helpBox() : '',
