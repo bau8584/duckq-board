@@ -254,7 +254,7 @@ window.Cue = (() => {
     const e = pend.get(c.id), s = [], bad = badOf(c);
     if (bad) s.push('⚠ ' + bad);
     if (e) s.push(`${Math.max(0, e.sec - (performance.now() - e.t0) / 1000).toFixed(1)}초 뒤 나감`);
-    else if (live.has(c.id)) { const pid = live.get(c.id), p = S.pads[pid]; if (p && p.loop && !p.loopBy) s.push('♪ ∞ 반복'); else { const d = playLen(p, pid), rm = Math.max(0, d - playPos(pid)); s.push(`♪ ${fmt(Math.ceil(rm))} 남음`); } }
+    else if (live.has(c.id)) { const pid = live.get(c.id), p = S.pads[pid]; if (endless(p)) s.push('♪ ∞ 반복'); else { const d = playLen(p, pid), rm = Math.max(0, d - playPos(pid)); s.push(`♪ ${fmt(Math.ceil(rm))} 남음`); } }
     if (i === cur() && !e) s.push('다음 차례 — GO');
     if (!isGo(L, i)) s.push(WHEN1[c.when] || WHEN1.end);
     if (c.wait > 0 && !e) s.push(`+ ${c.wait}초`);

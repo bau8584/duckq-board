@@ -238,13 +238,13 @@ function paintPad(id) {
   if (!playing) {
     el.style.setProperty('--p', '0%');
     el._el.textContent = '00:00';
-    el._rm.textContent = st === 'bad' ? (badWhy[id] || '못 틂') : (st === 'ready' ? '-' + fmt(Math.ceil(playLen(p))) : '불러오는 중');
+    el._rm.textContent = st === 'bad' ? (badWhy[id] || '못 틂') : (st === 'ready' ? (endless(p) ? '∞' : '-' + fmt(Math.ceil(playLen(p)))) : '불러오는 중');
   } else tickPad(id, el);
 }
 function tickPad(id, el) {
   const d = playLen(S.pads[id], id), pos = playPos(id);
   el.style.setProperty('--p', Math.min(100, pos / d * 100).toFixed(1) + '%');
-  el._el.textContent = fmt(pos); el._rm.textContent = '-' + fmt(Math.ceil(d - pos));
+  el._el.textContent = fmt(pos); el._rm.textContent = endless(S.pads[id]) ? '∞' : '-' + fmt(Math.ceil(d - pos));
 }
 function paintAll() { padEls.forEach((_, id) => paintPad(id)); }
 
@@ -292,7 +292,7 @@ function renderPlays() {
     r.firstChild.style.background = padHex(p);
     r.children[1].textContent = p.label || '';
     r.children[2].firstChild.style.width = Math.min(100, pos / d * 100) + '%';
-    r.children[3].textContent = fmt(pos) + ' / ' + fmt(d);
+    r.children[3].textContent = fmt(pos) + ' / ' + (endless(p) ? '∞' : fmt(d));
     return r;
   });
   if (!ids.length) {   // 아무것도 안 울릴 때: 마지막 트랙 이름만 흐리게
@@ -1083,6 +1083,7 @@ function playPos(id) {
   return p && loopStop(p) ? Math.min(loopStop(p), o.n * (Engine.dur(id) || segLen(p)) + pos) : pos;
 }
 const loopStop = p => !p.loop || !p.loopBy ? 0 : p.loopBy === 'n' ? (p.loopN || 3) * segLen(p) : (p.loopSec || 30);
+const endless = p => !!(p && p.loop && !p.loopBy);   // 끝없이 반복 — 남은 시간·전체 길이 대신 ∞
 const loopTag = p => !p.loop || !p.loopBy ? '' : p.loopBy === 'n' ? '×' + (p.loopN || 3) : fmt(p.loopSec || 30);
 function loopCtl(cur, n, s, mixedAny, onchange) {
   const box = h('div', { style: 'display:contents' });
