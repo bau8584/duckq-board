@@ -207,14 +207,12 @@ window.Cue = (() => {
     if (Engine.isPlaying(id)) manual.add(id);
     if (!adding || S.lock) { if (!Engine.isPlaying(id)) offBy('next', id); return false; }
     // '다음 차례' 줄(과 따라 나가는 ↳) 뒤에 끼움 — 이어서 담으면 방금 끼운 줄 뒤에
-    const L = cues();
-    let at = L.findIndex(x => x.id === lastIns) + 1;
-    if (!at) { const k = cur(); if (k >= L.length) at = L.length; else { at = k + 1; while (at < L.length && !isGo(L, at)) at++; } }
+    const L = cues(), at = insAt(L);
     // 기본은 ▶ 재생. 지금 울리고 있는 소리를 누를 때만 ■ 끄기 (목록 앞 줄로 짐작하지 않음 — 0.3.66, 연습 로그: 켜야 할 줄이 끄기로 담김)
     const c = { id: uid(), pad: id, act: Engine.isPlaying(id) ? 'stop' : 'play', when: 'go' };
     if (sceneNext) { c.scene = sceneNext; sceneNext = null; logLine(`큐 장면 ${c.scene}`); }
     L.splice(at, 0, c); lastIns = c.id; save();
-    logLine(`큐 담음 ${cueLabel(L, at)} ${actTxt(c)} ${nm(id)}${at < L.length - 1 ? ' (끼움)' : ''}`); paint(c.id);
+    logLine(`큐 담음 ${cueLabel(L, at)} ${actTxt(c)} ${nm(id)}${at < L.length - 1 ? ' (끼움)' : ''}`); paint('qins');
     const el = padEls.get(id); if (el) { el.classList.add('qadd'); setTimeout(() => el.classList.remove('qadd'), 250); }
     return true;
   }
@@ -403,7 +401,7 @@ window.Cue = (() => {
   }
   const WHEN1 = { go: 'GO 때', with: '앞 줄과 같이', end: '앞 줄 끝나고' };
   const HELP = [
-    ['+ 큐 담기', '(목록 맨 아래)를 누르고 패드를 차례로 누르면 큐가 쌓여요 (또 누르면 끄기)'],
+    ['+ 큐 담기', '(목록 위)를 누르고 패드를 차례로 누르면 큐가 쌓여요 (또 누르면 끄기)'],
     ['GO', '(아래 단추)를 누르면 색칠된 줄("다음")이 나가요'],
     ['줄', '을 누르면 그 줄이 "다음"이 돼요 · ▲ ▼ 로도 옮겨요'],
     ['⋯', '를 누르거나 줄을 꾹 누르면 말풍선에서 무엇을 · 언제 · 꺼짐을 바꿔요'],
@@ -412,12 +410,23 @@ window.Cue = (() => {
   ];
   const helpBox = () => h('div', { class: 'qhelp' }, HELP.map(([k, t]) => h('div', null, h('b', null, k), t)),
     h('div', { class: 'qdim' }, '페달·키보드: → 스페이스 = GO · ← = 이전'));
-  function list(b, box, foot) {
-    const L = cues(b);
-    box.replaceChildren(...L.flatMap((c, i) => rowEl(b, L, i)), foot || '');
+  // 담을 자리: '다음 차례' 줄(과 따라 나가는 ↳) 뒤 — 이어서 담으면 방금 끼운 줄 뒤
+  function insAt(L, b) {
+    let at = L.findIndex(x => x.id === lastIns) + 1;
+    if (!at) { const k = cur(b); if (k >= L.length) at = L.length; else { at = k + 1; while (at < L.length && !isGo(L, at)) at++; } }
+    return at;
+  }
+  function list(b, box, mark) {
+    const L = cues(b), rows = L.flatMap((c, i) => rowEl(b, L, i));
+    if (mark) { const at = insAt(L, b), r = h('div', { class: 'qins', 'data-id': 'qins' }, '▼ 여기에 담겨요');
+      const before = at < L.length && rows.find(e => e.dataset && e.dataset.id === L[at].id);
+      const j = before ? rows.indexOf(before) : rows.length;
+      // 장면 제목 줄이 그 줄 앞에 붙어 있으면 그 앞에
+      rows.splice(j > 0 && rows[j - 1].classList.contains('qscene') ? j - 1 : j, 0, r); }
+    box.replaceChildren(...rows);
   }
   function toggleEdit() { editing = !editing; edit = null; adding = false; pick = null; sceneNext = null; logLine(editing ? '큐 편집 켬' : '큐 편집 끝'); paint(); }
-  // 목록 맨 아래: 큐는 아래로 쌓이니까 담기·장면 단추도 아래에
+  // 목록 위: 담는 자리는 목록 속 '▼ 여기에 담겨요' 줄로 보임 (맨 아래 두면 끝에 붙는 걸로 읽힘 — 2026-10-01)
   function addRow() {
     if (S.lock || editing) return '';
     const toggle = () => { adding = !adding; edit = null; pick = null; lastIns = null; if (!adding) sceneNext = null; logLine(adding ? '큐 담기 시작' : '큐 담기 끝'); paint(); };
@@ -483,7 +492,7 @@ window.Cue = (() => {
     }
     const old = panel.querySelector('.qlist'), top = old ? old.scrollTop : 0;
     const box = h('div', { class: 'qlist' });
-    list(b, box, addRow());
+    list(b, box, adding && !editing && !S.lock);
     const next = L[k];
     panel.replaceChildren(
       h('div', { class: 'qhead' },
@@ -493,9 +502,10 @@ window.Cue = (() => {
         h('button', { class: 'qb qhelp-b' + (help ? ' on' : ''), 'aria-label': '큐 사용법', onclick: () => { help = !help; paint(); } }, '?')),
       pick ? h('div', { class: 'qaddbar' }, h('div', null, '바꿀 소리의 패드를 누르세요 (소리 안 남)'),
         h('button', { class: 'qc', onclick: () => { pick = null; paint(); } }, '취소')) :
-      adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 "다음" 줄 뒤에 쌓여요 (소리 안 남)'),
+      adding ? h('div', { class: 'qaddbar' }, h('div', null, '패드를 누르면 ▼ 자리에 쌓여요 (소리 안 남)'),
         h('div', { class: 'qdim' }, '한 번 누르면 ▶ 재생, 켜 둔 소리를 또 누르면 ■ 끄기로 담겨요'),
         sceneNext ? h('div', { class: 'qdim' }, `■ ${sceneNext} — 다음에 담는 줄 위에 붙어요`) : '') : '',
+      addRow(),
       help || !L.length ? helpBox() : '',
       box,
       h('div', { class: 'qfoot' }, nav, h('div', { class: 'qnext' }, h('small', null, '다음'), h('b', null, next ? `${cueLabel(L, k)} · ${next.memo || padName(next)}` : L.length ? '끝 — ▲로 되돌리기' : '—')),
