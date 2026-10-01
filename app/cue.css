@@ -211,3 +211,8 @@
 .qrow .qoff{font-size:10px;line-height:1.2;white-space:nowrap}
 /* 다음 차례 큐의 패드: 두꺼운 테두리(울리는 중 = 채움과 구별) */
 .pad.q-next{outline:3px solid var(--board);outline-offset:2px}
+/* 0.3.80: 번호·이름/정보는 왼쪽, 동작 단추(▶ ■ ◢)는 오른쪽 끝에 오른쪽 정렬 (2026-10-01 소유자) */
+.qrow,.qrow.q-ch{grid-template-columns:30px minmax(0,1fr) auto;grid-template-areas:"n main act";padding:6px 6px 6px 8px}
+.editing .qrow,.editing .qrow.q-ch{grid-template-columns:30px 30px minmax(0,1fr) auto;grid-template-areas:"ed n main act"}
+.qrow .qact{align-items:flex-end;text-align:right;max-width:96px}
+.qrow .qoff{text-align:right}

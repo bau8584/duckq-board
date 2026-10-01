@@ -361,7 +361,7 @@ window.Cue = (() => {
       (live.has(c.id) ? ' q-run' : '') + (pend.has(c.id) ? ' q-wait' : '') + (badOf(c) ? ' q-bad' : '') + (edit === c.id ? ' q-edit' : '') + (pick === c.id ? ' q-pick' : '') + (qsel.has(c.id) ? ' q-sel' : '');
     const selT = () => { if (qsel.has(c.id)) qsel.delete(c.id); else qsel.add(c.id); if (qsel.size && sel.size) clearSel(); paint(); renderSelBar(); };
     const r = h('div', { class: cls, 'data-i': i, 'data-id': c.id, role: 'button', 'aria-label': ed ? `${cueLabel(L, i)} ${padName(c)} — 고르기` : `${cueLabel(L, i)} ${padName(c)} — 다음으로` },
-      // 왼쪽부터 [고르기(편집 중)] · 동작 단추(누르면 말풍선 — 옛 ⋯) · 번호 · 이름/정보 (2026-10-01 소유자)
+      // 왼쪽부터 [고르기(편집 중)] · 번호 · 이름/정보 · (오른쪽 끝) 동작 단추 — 자리는 cue.css grid-area (2026-10-01 소유자)
       ed ? h('button', { class: 'qed qchk' + (qsel.has(c.id) ? ' on' : ''), 'aria-label': '이 줄 고르기', onclick: e => { e.stopPropagation(); selT(); } }, '✓') : '',
       // 맨 왼쪽 칸: 작은 동작 단추 + 그 아래 꺼짐 정보 (2026-10-01 소유자)
       h('span', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') },
