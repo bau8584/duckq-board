@@ -516,42 +516,43 @@ window.Cue = (() => {
     if (!at) { const k = cur(b); if (k >= L.length) at = L.length; else { at = k + 1; while (at < L.length && !isGo(L, at)) at++; } }
     return at;
   }
-  // 연결선(곡 생명선): 곡(패드)마다 왼쪽 색 세로선 — ▶에서 시작, ◢에 점, ■(또는 '언제 꺼짐')에서 끝. 화면 표시만 (2026-10-01 소유자: 3칸·패드 색)
-  const LANES = 3;
+  // 연결선: ▶ 줄과 그 곡을 끄는 줄(■ 또는 '언제 꺼짐'에 정한 줄)만 잇는다 — 끄는 줄이 없는 곡은 선 없음. 화면 표시만
+  // (2026-10-01 소유자: 3칸 · 칸마다 고정 색 — 장면마다 패드 색을 맞춰 쓰면 패드 색으로는 곡이 안 갈림)
+  const LANES = 3, LANE_C = ['#5B8DEF', '#F08C3A', '#4FBF8B'];
   function lanes(L) {
-    const lane = Array(LANES).fill(null), over = new Map(), out = [];   // lane[k] = {pid, endAt}, over = 칸이 모자란 곡
+    const ivs = [], open = new Map(), warn = new Set();   // ivs = {pid, s, e}, open = 패드 id → 아직 끄는 줄을 못 찾은 ▶ 줄
     L.forEach((c, i) => {
-      const r = { pass: lane.map(x => x && x.pid), seg: Array(LANES).fill(''), extra: '' };
-      lane.forEach((x, k) => { if (x && x.endAt === i) { r.seg[k] = 'end'; lane[k] = null; } });
-      over.forEach((e, pid) => { if (e === i) over.delete(pid); });
-      const pid = c.pad, p = pid && pid !== '*' && S.pads[pid], k = p ? lane.findIndex(x => x && x.pid === pid) : -1;
-      if (p) {
-        const act = c.act || 'play';
-        if (act === 'play') {
-          let endAt = Infinity;
-          if (c.off === 'go') endAt = nextGo(L, i);
-          else if (c.off === 'next') { endAt = L.findIndex((x, j) => j > i && (x.act || 'play') === 'play' && x.pad !== pid); if (endAt < 0) endAt = Infinity; }
-          else if (c.off) { const j = L.findIndex(x => 'q:' + x.id === c.off); if (j > i) endAt = j; }
-          let n = k >= 0 ? k : lane.findIndex(x => !x);
-          if (n < 0) { over.set(pid, endAt); r.extra = '+'; }
-          else { if (r.seg[n] !== 'end') r.seg[n] = k >= 0 ? 'dot' : 'start'; else r.seg[n] = 'restart'; lane[n] = { pid, endAt }; r.pass[n] = pid; }
-        } else if (act === 'stop') {
-          if (k >= 0) { r.seg[k] = 'end'; lane[k] = null; }
-          else if (over.has(pid)) over.delete(pid);
-          else { const w = r.seg.findIndex((s, j) => !lane[j] && !s); r.extra = '!'; if (w >= 0) r.seg[w] = 'warn'; }
-        } else if (k >= 0) r.seg[k] = 'dot';
+      const pid = c.pad, act = c.act || 'play';
+      if (!pid || pid === '*' || !S.pads[pid]) return;
+      if (act === 'play') {
+        let e = -1;
+        if (c.off === 'go') e = nextGo(L, i);
+        else if (c.off === 'next') e = L.findIndex((x, j) => j > i && (x.act || 'play') === 'play' && x.pad !== pid);
+        else if (c.off) e = L.findIndex(x => 'q:' + x.id === c.off);
+        if (e > i && e < L.length) { ivs.push({ pid, s: i, e }); open.delete(pid); } else open.set(pid, i);
+      } else if (act === 'stop') {
+        if (open.has(pid)) { ivs.push({ pid, s: open.get(pid), e: i }); open.delete(pid); }
+        else if (!ivs.some(v => v.pid === pid && v.e === i)) warn.add(i);
       }
-      out[i] = r;
     });
+    const end = Array(LANES).fill(-1), out = L.map(() => ({ seg: Array(LANES).fill(''), scene: Array(LANES).fill(false), extra: '' }));
+    ivs.sort((a, b) => a.s - b.s || a.e - b.e).forEach(v => {
+      const k = end.findIndex(x => x < v.s);
+      if (k < 0) { out[v.s].extra = '+'; return; }
+      end[k] = v.e;
+      for (let j = v.s; j <= v.e; j++) {
+        out[j].seg[k] = j === v.s ? 'start' : j === v.e ? 'end' : L[j].pad === v.pid && L[j].act !== 'stop' ? 'dot' : 'pass';
+        if (j > v.s) out[j].scene[k] = true;
+      }
+    });
+    warn.forEach(i => { out[i].extra = '!'; });
     return out;
   }
   function laneEl(r, scene) {
     if (!r) return '';
-    return h('span', { class: 'qln', 'aria-hidden': 'true' }, ...r.pass.map((pid, k) => {
-      const s = scene ? (r.seg[k] === 'start' || r.seg[k] === 'warn' ? '' : 'pass') : r.seg[k] || (pid ? 'pass' : '');
-      if (!s) return '';
-      const p = s !== 'warn' && S.pads[pid];
-      return h('i', { class: 'qln-' + s, style: `left:${k * 6}px` + (p ? `;--lc:${padHex(p)}` : '') });
+    return h('span', { class: 'qln', 'aria-hidden': 'true' }, ...r.seg.map((s, k) => {
+      if (scene) s = r.scene[k] ? 'pass' : '';
+      return s ? h('i', { class: 'qln-' + s, style: `right:${(LANES - 1 - k) * 6}px;--lc:${LANE_C[k]}` }) : '';
     }), !scene && r.extra ? h('b', { class: 'qln-x' + (r.extra === '!' ? ' warn' : '') }, r.extra) : '');
   }
   function list(b, box, mark) {
