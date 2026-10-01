@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.73 (2026-10-01)';
+const VER = 'DuckQ Board 0.3.74 (2026-10-01)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -580,7 +580,7 @@ Engine.on('play', id => {
 Engine.on('fade', id => logLine(`◢ ${nm(id)} 페이드아웃 시작`));
 Engine.on('end', (id, why) => {
   const p = S.pads[id], t = playT[id] ? ((performance.now() - playT[id]) / 1000).toFixed(1) : '?';
-  logLine(`■ ${nm(id)} ${WHY[why] || why} · ${t}초 들림` + (why === 'ended' && p && foutOf(p) && !p.loop ? ` · 끝 페이드 ${foutOf(p)}초 걸렸어야 함` : ''));
+  logLine(`■ ${nm(id)} ${WHY[why] || why} · ${t}초 들림` + (why === 'ended' && p && foutOf(p) && !p.loop ? ` · 끝 페이드 ${foutOf(p)}초` : ''));
   paintPad(id);
 });
 Engine.on('pause', () => { renderPause(); renderTop(); });
