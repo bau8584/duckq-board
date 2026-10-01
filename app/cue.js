@@ -43,10 +43,10 @@ window.Cue = (() => {
     ACTS.play + (c.fin != null ? ` 인${c.fin}초` : '') + (c.vol != null ? ` ${Math.round(c.vol * 100)}%` : '');
   const fadeOutOf = (c, p) => c.fout != null ? c.fout : foutOf(p);   // 끄기: 따로 없으면 패드를 다시 눌러 끌 때와 같게
   const padName = c => c.pad === '*' ? '랜덤 소리' : S.pads[c.pad] ? S.pads[c.pad].label || '(이름 없음)' : '(지운 패드)';
-  const OFFS = { go: '다음 GO 때', next: '다음 소리가 나올 때' };
+  // 언제 꺼짐: 따로 안 끔(값 없음) · 큐 N 나갈 때(go = 다음 큐, 'q:id' = 고른 큐) · 다른 소리 나오면(next, 패드 손 누름 포함)
   const offTxt = (c, L = cues()) => {
     if (!c.off || c.act !== 'play') return '';
-    if (OFFS[c.off]) return c.off === 'go' ? '꺼짐: 다음 GO' : '꺼짐: 다음 소리';
+    if (c.off === 'go' || c.off === 'next') return c.off === 'go' ? '꺼짐: 다음 큐' : '꺼짐: 다른 소리';
     const j = L.findIndex(x => 'q:' + x.id === c.off);
     return j < 0 ? '' : `꺼짐: ${cueLabel(L, j)}`;
   };
@@ -70,7 +70,10 @@ window.Cue = (() => {
   let lastIns = null;          // 담기: 방금 끼운 큐 id (다음은 그 뒤에)
   let sceneNext = null;        // 담기: [+ 장면]으로 적은 제목 — 다음에 담는 줄 위에 붙음
   const sceneShort = t => { const a = t.split('—')[0].trim(); return a.length > 7 ? a.slice(0, 7) + '…' : a; };
-  let adding = false, lastGo = 0, open = true, edit = null, help = false, editing = false;
+  let adding = false, lastGo = 0, open = true, edit = null, help = false;
+  // 편집 = 위쪽 전체 [편집](패드와 함께 큐 줄도 흔들림) — 줄 끌어 옮기기 · 오른쪽 칸 골라 복제·지우기
+  const editing = () => typeof editMode !== 'undefined' && editMode && !S.lock;
+  const qsel = new Set();
 
   function offNow(cid, why) {
     const o = offs.get(cid); if (!o) return; offs.delete(cid);
@@ -107,7 +110,7 @@ window.Cue = (() => {
       else if (status[pid] === 'ready') {
         if (p.solo) soloOthers(pid);
         if (!Engine.isPlaying(pid)) offBy('next', pid, null, s);
-        const o = playOpt(p); if (c.fin != null) o.fadeIn = c.fin;
+        const o = playOpt(p); if (c.fin != null) o.fadeIn = c.fin; if (c.fout != null) o.fadeOut = c.fout;
         if (c.vol != null) { Engine.setVolume(pid, c.vol); volOver.add(pid); } else if (volOver.delete(pid)) Engine.setVolume(pid, p.vol);
         if (Engine.play(pid, o)) { lastId = pid; p.played = true; S.lastUse = Date.now(); save(); live.set(c.id, pid); if (c.off) offs.set(c.id, { pid, off: c.off, seq: s, fout: c.fout }); if (c.duckO != null) duckOthers(c, pid); }
       }
@@ -166,7 +169,7 @@ window.Cue = (() => {
   }
   function go() {
     if (!on() || !started) return;
-    if (editing) return toast('편집 중이에요 — [✓ 편집 끝]을 누르면 GO가 돼요');
+    if (editing()) return toast('편집 중이에요 — 위쪽 [편집]을 다시 누르면 GO가 돼요');
     const t = performance.now(); if (t - lastGo < 350) return;   // 연타해도 한 칸씩
     lastGo = t;
     const b = board(), L = cues(b), k = cur(b);
@@ -189,7 +192,7 @@ window.Cue = (() => {
   $('btnFade').addEventListener('pointerdown', allOff('전체 페이드'));
   $('btnLock').addEventListener('click', () => {
     if (S.lock) {
-      adding = false; edit = null; editing = false; pick = null;
+      adding = false; edit = null; qsel.clear(); pick = null;
       const n = on() ? cues().filter(badOf).length : 0;
       if (n) { logLine(`공연 모드: 못 트는 큐 ${n}개`, 'w'); toast(`⚠ 못 트는 큐 ${n}개 — 큐보드에서 ⚠ 줄을 확인해요`, 5000); }
     }
@@ -252,26 +255,60 @@ window.Cue = (() => {
     if (e) s.push(`${Math.max(0, e.sec - (performance.now() - e.t0) / 1000).toFixed(1)}초 뒤 나감`);
     else if (live.has(c.id)) { const pid = live.get(c.id), d = Engine.dur(pid) || segLen(S.pads[pid]), rm = Math.max(0, d - Engine.pos(pid)); s.push(`♪ ${fmt(Math.ceil(rm))} 남음`); }
     if (i === cur() && !e) s.push('다음 차례 — GO');
-    if (!isGo(L, i)) s.push(c.when === 'with' ? '앞 줄과 동시에' : '앞 줄 소리가 끝나면');
-    if (c.wait > 0 && !e) s.push(`${c.wait}초 있다가`);
+    if (!isGo(L, i)) s.push(WHEN1[c.when] || WHEN1.end);
+    if (c.wait > 0 && !e) s.push(`+ ${c.wait}초`);
     if (c.at) s.push('⏰' + c.at);
     if (c.memo) s.push(c.memo);
     return s.join(' · ');
   }
-  // [편집] 줄 손질: 옮기기·복제·지우기·장면 제목 (말풍선에서 뺀 것)
-  function moveRow(b, L, i, d) {
-    const j = i + d; if (j < 0 || j >= L.length) return;
-    const sa = L[i].scene, sbb = L[j].scene; L.splice(j, 0, L.splice(i, 1)[0]);
-    [[i, sa], [j, sbb]].forEach(([k, v]) => { if (v) L[k].scene = v; else delete L[k].scene; });
-    if (cur(b) === i) sb[b.id] = j; logLine(`큐 줄 옮김 ${i + 1} → ${j + 1}`); save(); paint();
+  // 편집 줄 손질: 끌어 옮기기 · 골라서 복제·지우기·장면 제목. 장면 제목은 자리에 남음
+  function moveTo(b, L, i, j) {
+    if (j === i || j < 0 || j >= L.length) return;
+    const sc = L.map(c => c.scene), k = cur(b), kid = L[k] && L[k].id;
+    L.splice(j, 0, L.splice(i, 1)[0]);
+    L.forEach((c, n) => { if (sc[n]) c.scene = sc[n]; else delete c.scene; });
+    if (kid) sb[b.id] = L.findIndex(c => c.id === kid);
+    logLine(`큐 줄 옮김 ${i + 1} → ${j + 1}`); save(); paint();
   }
-  function dupRow(L, i) { const d = { ...L[i], id: uid() }; delete d.no; delete d.sub; delete d.scene; L.splice(i + 1, 0, d); logLine(`큐 줄 복제 ${i + 1}`); save(); paint(); }
-  function delRow(b, L, i) {
-    const c = L[i]; L.splice(i, 1);
-    if (c.scene && L[i] && !L[i].scene) L[i].scene = c.scene;
-    L.forEach(x => { if (x.off === 'q:' + c.id) delete x.off; });
-    if (cur(b) > i) sb[b.id]--; logLine(`큐 줄 지움 ${i + 1}`); save(); paint();
+  function dupSel(L) {
+    [...qsel].map(id => L.findIndex(c => c.id === id)).filter(i => i >= 0).sort((a, b) => b - a).forEach(i => {
+      const d = { ...L[i], id: uid() }; delete d.no; delete d.sub; delete d.scene; L.splice(i + 1, 0, d);
+    });
+    logLine(`큐 줄 복제 ${qsel.size}줄`); qsel.clear(); save(); paint();
   }
+  function delSel(b, L) {
+    const n = qsel.size; if (!n || !confirm(`큐 ${n}줄을 지울까요?`)) return;
+    const kid = L[cur(b)] && L[cur(b)].id;
+    [...qsel].map(id => L.findIndex(c => c.id === id)).filter(i => i >= 0).sort((a, b) => b - a).forEach(i => {
+      const c = L[i]; L.splice(i, 1);
+      if (c.scene && L[i] && !L[i].scene) L[i].scene = c.scene;
+      L.forEach(x => { if (x.off === 'q:' + c.id) delete x.off; });
+    });
+    const k = L.findIndex(c => c.id === kid); if (k >= 0) sb[b.id] = k; else sb[b.id] = Math.min(sb[b.id] || 0, L.length);
+    logLine(`큐 줄 지움 ${n}줄`); qsel.clear(); save(); paint();
+  }
+  // 줄을 끌어 위아래로: 6px 넘게 움직이면 끌기 시작, 손 뗀 줄 자리로
+  function dragRow(r, b, L, i) {
+    let y0 = 0, on = false, id = null;
+    r.addEventListener('pointerdown', e => { if (e.target.closest('.qchk')) return; y0 = e.clientY; on = false; id = e.pointerId; });
+    r.addEventListener('pointermove', e => {
+      if (id !== e.pointerId) return;
+      if (!on && Math.abs(e.clientY - y0) > 6) { on = true; pressed = true; r.setPointerCapture(id); r.classList.add('q-drag'); }
+      if (!on) return;
+      r.style.transform = `translateY(${e.clientY - y0}px)`;
+      const box = r.closest('.qlist'); box.querySelectorAll('.q-over').forEach(x => x.classList.remove('q-over'));
+      const t = rowAt(box, e.clientY); if (t && t !== r) t.classList.add('q-over');
+    });
+    const up = e => {
+      if (id !== e.pointerId) return; id = null;
+      if (!on) return; on = false;
+      const box = r.closest('.qlist'), t = rowAt(box, e.clientY);
+      r.classList.remove('q-drag'); r.style.transform = '';
+      if (t && t !== r) moveTo(b, L, i, +t.dataset.i); else paint();
+    };
+    r.addEventListener('pointerup', up); r.addEventListener('pointercancel', up);
+  }
+  const rowAt = (box, y) => [...box.querySelectorAll('.qrow')].find(x => { if (x.classList.contains('q-drag')) return false; const rr = x.getBoundingClientRect(); return y >= rr.top && y < rr.bottom; });
   function sceneAsk(L, i) {
     const c = L[i], v = prompt('장면 제목 (이 줄 위에 머리 줄 · 비우면 없앰)', c.scene || '');
     if (v == null) return;
@@ -279,19 +316,19 @@ window.Cue = (() => {
     logLine(`큐 장면 ${c.scene || '없앰'} (${i + 1}줄)`); save(); paint();
   }
   function rowEl(b, L, i) {
-    const c = L[i], k = cur(b), lock = S.lock, ed = editing && !lock;
+    const c = L[i], k = cur(b), lock = S.lock, ed = editing();
     const cls = 'qrow' + (isGo(L, i) ? ' q-go' : ' q-ch') + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : '') +
-      (live.has(c.id) ? ' q-run' : '') + (pend.has(c.id) ? ' q-wait' : '') + (badOf(c) ? ' q-bad' : '') + (edit === c.id ? ' q-edit' : '') + (pick === c.id ? ' q-pick' : '');
-    const tb = (t, label, fn, dis, cl = '') => h('button', { class: 'qt' + cl, 'aria-label': label, disabled: !!dis, onclick: e => { e.stopPropagation(); fn(); } }, t);
-    const r = h('div', { class: cls, 'data-i': i, 'data-id': c.id, role: 'button', 'aria-label': `${cueLabel(L, i)} ${padName(c)} — 다음으로` },
+      (live.has(c.id) ? ' q-run' : '') + (pend.has(c.id) ? ' q-wait' : '') + (badOf(c) ? ' q-bad' : '') + (edit === c.id ? ' q-edit' : '') + (pick === c.id ? ' q-pick' : '') + (qsel.has(c.id) ? ' q-sel' : '');
+    const selT = () => { if (qsel.has(c.id)) qsel.delete(c.id); else qsel.add(c.id); paint(); };
+    const r = h('div', { class: cls, 'data-i': i, 'data-id': c.id, role: 'button', 'aria-label': ed ? `${cueLabel(L, i)} ${padName(c)} — 고르기` : `${cueLabel(L, i)} ${padName(c)} — 다음으로` },
       h('span', { class: 'qn' + (isGo(L, i) && qno(L, i).length > 3 ? ' sm' : '') }, isGo(L, i) ? qno(L, i) : '↳'),
       h('span', { class: 'qmain' }, h('b', { class: 'qname' }, padName(c)), h('small', { class: 'qsub' }, subTxt(L, i, c))),
-      ed ? '' : h('span', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') }, actTxt(c), offTxt(c, L) ? h('small', { class: 'qoff' }, offTxt(c, L)) : ''),
-      ed ? h('span', { class: 'qtools' }, tb('▲', '위로', () => moveRow(b, L, i, -1), i === 0), tb('▼', '아래로', () => moveRow(b, L, i, 1), i === L.length - 1),
-        tb('■', '장면 제목', () => sceneAsk(L, i)), tb('⧉', '복제', () => dupRow(L, i)), tb('✕', '지우기', () => delRow(b, L, i), false, ' danger')) :
+      h('span', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') }, actTxt(c), offTxt(c, L) ? h('small', { class: 'qoff' }, offTxt(c, L)) : ''),
+      ed ? h('button', { class: 'qed qchk' + (qsel.has(c.id) ? ' on' : ''), 'aria-label': '이 줄 고르기', onclick: e => { e.stopPropagation(); selT(); } }, qsel.has(c.id) ? '✓' : '') :
       lock ? '' : h('button', { class: 'qed', 'aria-label': '이 큐 고치기', onclick: e => { e.stopPropagation(); openEdit(edit === c.id ? null : c.id, '', r); } }, edit === c.id ? '✕' : '⋯'),
       live.has(c.id) ? h('i', { class: 'qbar', style: `width:${prog(c.id)}%` }) : '');
-    r.onclick = () => { if (pressed) { pressed = false; return; } if (ed) return; lastIns = null; if (i !== k) setSb(i, '줄 누름'); };
+    r.onclick = () => { if (pressed) { pressed = false; return; } if (ed) return selT(); lastIns = null; if (i !== k) setSb(i, '줄 누름'); };
+    if (ed) dragRow(r, b, L, i);
     // 꾹 누르면 말풍선 (0.5초)
     if (!lock && !ed) {
       let t = 0, x0 = 0, y0 = 0;
@@ -521,13 +558,11 @@ window.Cue = (() => {
     nearSb = false;
     paintPop();
   }
-  // 패드 구석: 이 패드를 쓰는 큐 번호
+  // 패드 구석(페이드아웃 아래): 큐에 쓰이면 '큐' — 번호는 잘려서 뺌(소유자 2026-10-01)
   function padTags() {
     padEls.forEach(el => { const t = el.querySelector('.qtag'); if (t) t.remove(); });
     if (!on()) return;
-    const L = cues(), m = new Map();
-    L.forEach((c, i) => { if (!S.pads[c.pad]) return; const a = m.get(c.pad) || []; const n = qno(L, i); if (!a.includes(n)) a.push(n); m.set(c.pad, a); });
-    m.forEach((ns, id) => { const el = padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, '큐' + (ns.length > 2 ? ns.slice(0, 2).join('·') + '…' : ns.join('·')))); });
+    new Set(cues().map(c => c.pad)).forEach(id => { const el = S.pads[id] && padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, '큐')); });
   }
   function paintGo() {
     const ctl = document.querySelector('.bottom .ctl');
