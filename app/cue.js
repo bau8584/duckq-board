@@ -321,11 +321,13 @@ window.Cue = (() => {
       (live.has(c.id) ? ' q-run' : '') + (pend.has(c.id) ? ' q-wait' : '') + (badOf(c) ? ' q-bad' : '') + (edit === c.id ? ' q-edit' : '') + (pick === c.id ? ' q-pick' : '') + (qsel.has(c.id) ? ' q-sel' : '');
     const selT = () => { if (qsel.has(c.id)) qsel.delete(c.id); else qsel.add(c.id); if (qsel.size && sel.size) clearSel(); paint(); renderSelBar(); };
     const r = h('div', { class: cls, 'data-i': i, 'data-id': c.id, role: 'button', 'aria-label': ed ? `${cueLabel(L, i)} ${padName(c)} — 고르기` : `${cueLabel(L, i)} ${padName(c)} — 다음으로` },
+      // 왼쪽부터 [고르기(편집 중)] · 동작 단추(누르면 말풍선 — 옛 ⋯) · 번호 · 이름/정보 (2026-10-01 소유자)
+      ed ? h('button', { class: 'qed qchk' + (qsel.has(c.id) ? ' on' : ''), 'aria-label': '이 줄 고르기', onclick: e => { e.stopPropagation(); selT(); } }, '✓') : '',
+      h(lock || ed ? 'span' : 'button', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') + (lock || ed ? '' : ' qact-b') + (edit === c.id ? ' on' : ''),
+        ...(lock || ed ? {} : { 'aria-label': '이 큐 고치기', onclick: e => { e.stopPropagation(); openEdit(edit === c.id ? null : c.id, '', r); } }) },
+        actTxt(c), offTxt(c, L) ? h('small', { class: 'qoff' }, offTxt(c, L)) : ''),
       h('span', { class: 'qn' + (isGo(L, i) && qno(L, i).length > 3 ? ' sm' : '') }, isGo(L, i) ? qno(L, i) : '↳'),
       h('span', { class: 'qmain' }, h('b', { class: 'qname' }, padName(c)), h('small', { class: 'qsub' }, subTxt(L, i, c))),
-      h('span', { class: 'qact' + (own(c) || (c.act && c.act !== 'play') ? ' x' : '') }, actTxt(c), offTxt(c, L) ? h('small', { class: 'qoff' }, offTxt(c, L)) : ''),
-      ed ? h('button', { class: 'qed qchk' + (qsel.has(c.id) ? ' on' : ''), 'aria-label': '이 줄 고르기', onclick: e => { e.stopPropagation(); selT(); } }, '✓') :
-      lock ? '' : h('button', { class: 'qed', 'aria-label': '이 큐 고치기', onclick: e => { e.stopPropagation(); openEdit(edit === c.id ? null : c.id, '', r); } }, edit === c.id ? '✕' : '⋯'),
       live.has(c.id) ? h('i', { class: 'qbar', style: `width:${prog(c.id)}%` }) : '');
     r.onclick = () => { if (pressed) { pressed = false; return; } if (ed) return selT(); lastIns = null; if (i !== k) setSb(i, '줄 누름'); };
     if (ed) dragRow(r, b, L, i);
@@ -333,7 +335,7 @@ window.Cue = (() => {
     if (!lock && !ed) {
       let t = 0, x0 = 0, y0 = 0;
       const stop = () => { clearTimeout(t); t = 0; };
-      r.addEventListener('pointerdown', e => { if (e.target.closest('.qed')) return; x0 = e.clientX; y0 = e.clientY; stop(); t = setTimeout(() => { t = 0; pressed = true; openEdit(c.id, '꾹', r); }, 500); });
+      r.addEventListener('pointerdown', e => { if (e.target.closest('.qact-b')) return; x0 = e.clientX; y0 = e.clientY; stop(); t = setTimeout(() => { t = 0; pressed = true; openEdit(c.id, '꾹', r); }, 500); });
       r.addEventListener('pointermove', e => { if (t && Math.hypot(e.clientX - x0, e.clientY - y0) > 10) stop(); });
       ['pointerup', 'pointercancel', 'pointerleave'].forEach(n => r.addEventListener(n, stop));
       r.addEventListener('contextmenu', e => e.preventDefault());
@@ -458,7 +460,7 @@ window.Cue = (() => {
     ['+ 담기', '(위)를 누르고 패드를 차례로 누르면 ▼ 자리에 큐가 쌓여요 (켜 둔 소리를 또 누르면 끄기)'],
     ['GO', '(아래 단추)를 누르면 색칠된 줄("다음")이 나가요'],
     ['줄', '을 누르면 그 줄이 "다음"이 돼요 · ▲ ▼ 로도 옮겨요'],
-    ['⋯', '를 누르거나 줄을 꾹 누르면 말풍선에서 무엇을 · 언제 · 언제 꺼짐을 바꿔요'],
+    ['▶ 재생', ' 같은 동작 단추를 누르거나 줄을 꾹 누르면 말풍선에서 무엇을 · 언제 · 언제 꺼짐을 바꿔요'],
     ['편집', '(맨 위)을 켜면 큐 줄도 흔들려요 — 줄을 끌어 옮기고, 왼쪽 동그라미로 골라 복제·지우기·구분'],
     ['↳', ' 줄은 GO 없이 앞 줄을 따라 저절로 나가요'],
   ];
