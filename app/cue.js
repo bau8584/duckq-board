@@ -726,7 +726,7 @@ window.Cue = (() => {
     if (!open) {
       const goRows = L.map((c, i) => i).filter(i => isGo(L, i)), ns = nos(L);
       panel.replaceChildren(h('button', { class: 'qtog', 'aria-label': '큐보드 펼치기', onclick: () => { open = true; paint(); } }, '‹ 큐'), nav,
-        h('div', { class: 'qstrip' }, goRows.flatMap(i => [L[i].scene ? h('button', { class: 'qn qsc', 'aria-label': `${L[i].scene} 구분으로`, onclick: () => setSb(i, '구분 ' + L[i].scene) }, sceneShort(L[i].scene)) : null, h('button', { class: 'qn' + (ns[i].length > 3 ? ' sm' : '') + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : '') + (L.slice(i, nextGo(L, i)).some(c => live.has(c.id)) ? ' q-run' : ''), onclick: () => setSb(i, '줄 누름') }, ns[i])]).filter(Boolean)));
+        h('div', { class: 'qstrip' }, goRows.flatMap(i => [L[i].scene ? h('button', { class: 'qn qsc', 'aria-label': `${L[i].scene} 구분으로`, onclick: () => setSb(i, '구분 ' + L[i].scene) }, sceneShort(L[i].scene)) : null, h('button', { class: 'qn' + (ns[i].length > 3 ? ' sm' : '') + (i === k ? ' q-sb' : '') + (i < k ? ' q-done' : '') + (L.slice(i, nextGo(L, i)).some(c => live.has(c.id)) ? ' q-run' : ''), onclick: () => setSb(i, '줄 누름') }, ns[i])]).filter(Boolean)), goB);
       paintPop();
       return;
     }
@@ -748,7 +748,7 @@ window.Cue = (() => {
       help || !L.length ? helpBox() : '',
       box,
       h('div', { class: 'qfoot' }, nav, h('div', { class: 'qnext' }, h('small', null, '다음'), h('b', null, next ? `${cueLabel(L, k)} · ${next.memo || padName(next)}` : L.length ? '끝 — ▲로 되돌리기' : '—')),
-        next && L[nextGo(L, k)] ? h('div', { class: 'qnext q2' }, h('small', null, '그다음'), h('span', null, `${cueLabel(L, nextGo(L, k))} · ${L[nextGo(L, k)].memo || padName(L[nextGo(L, k)])}`)) : ''),
+        next && L[nextGo(L, k)] ? h('div', { class: 'qnext q2' }, h('small', null, '그다음'), h('span', null, `${cueLabel(L, nextGo(L, k))} · ${L[nextGo(L, k)].memo || padName(L[nextGo(L, k)])}`)) : '', goB),
       selBar(b, L));
     box.scrollTop = top;   // 다시 그려도 손으로 둔 자리 그대로
     if (center) {
@@ -771,12 +771,10 @@ window.Cue = (() => {
     new Set(cues().map(c => c.pad)).forEach(id => { const el = S.pads[id] && padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, '큐')); });
   }
   function paintGo() {
-    const ctl = document.querySelector('.bottom .ctl');
     if (!on()) { if (goB) { goB.remove(); goB = null; } return; }
     if (!goB) {
       goB = h('button', { class: 'cbtn qgo', 'aria-label': 'GO — 다음 큐 내보내기' }, h('b', null, 'GO'), h('small'));
-      goB.addEventListener('pointerdown', e => { e.preventDefault(); goB.classList.add('hit'); setTimeout(() => goB && goB.classList.remove('hit'), 90); go(); });
-      ctl.prepend(goB);
+      goB.addEventListener('pointerdown', e => { e.preventDefault(); goB.classList.add('hit'); setTimeout(() => goB && goB.classList.remove('hit'), 90); go(); });   // 자리는 큐박스 맨 아래(paint가 붙임) — 아래 조작줄에선 재생바를 가렸음(2026-10-03)
     }
     const b = board(), L = cues(b), k = cur(b), c = L[k];
     // 기다렸다가 나가는 줄이 있으면 GO 아래에 남은 초 — 반응이 없는 줄 알고 또 누르지 않게
