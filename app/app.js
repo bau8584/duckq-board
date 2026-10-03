@@ -738,18 +738,34 @@ async function addFiles(list) {
 // ＋ 추가 → [파일 넣기 / 녹음하기]. 브라우저 잡음 억제·에코 제거를 켜고 녹음 → WAV로 바꿔 새 패드로(파일 넣기와 같은 길).
 function openAddMenu() {
   if (S.lock) return;
-  openSheet('추가', body => body.append(
-    h('div', { class: 'row' }, h('label', null, '파일 넣기', h('span', { class: 'sub' }, '음악·효과음 파일')), h('button', { class: 'sbtn pri', onclick: () => { closeSheet(); pickFiles(); } }, '고르기')),
-    h('div', { class: 'row' }, h('label', null, '🎙 녹음하기', h('span', { class: 'sub' }, '마이크로 바로 녹음해 새 패드로')), h('button', { class: 'sbtn pri', onclick: () => { closeSheet(); startRecord(); } }, '녹음'))));
+  const old = document.querySelector('.add-pop'); if (old) return old._close();
+  const r = $('btnAdd').getBoundingClientRect();
+  const pop = h('div', { class: 'add-pop' },
+    h('button', { onclick: () => { close(); pickFiles(); } }, '📁 파일 넣기'),
+    h('button', { onclick: () => { close(); startRecord(); } }, '🎙 녹음하기'));
+  pop.style.top = (r.bottom + 10) + 'px'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px';
+  const out = e => { if (!pop.contains(e.target) && e.target !== $('btnAdd')) close(); };
+  function close() { pop.remove(); document.removeEventListener('pointerdown', out, true); }
+  pop._close = close;
+  document.body.append(pop);
+  setTimeout(() => document.addEventListener('pointerdown', out, true));
 }
 let recNow = null;
 async function startRecord() {
   if (S.lock || recNow) return;
-  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('이 기기·브라우저는 녹음을 못 해요', 4000);
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast(isSecureContext ? '이 기기·브라우저는 녹음을 못 해요' : '녹음은 https 주소(q.deokgu.com)에서만 돼요', 6000);
   recNow = {};
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true } }); }
-  catch (e) { recNow = null; logLine(`마이크 못 씀: ${e.name}`, 'e'); return toast(e.name === 'NotAllowedError' ? '마이크 허용이 필요해요 (설정 → 사파리 → 마이크)' : '마이크를 켤 수 없어요', 5000); }
+  catch (e) {
+    logLine(`마이크(잡음 억제) 못 씀: ${e.name} ${e.message}`, 'w');
+    if (e.name !== 'NotAllowedError') try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e2) { e = e2; logLine(`마이크(기본) 못 씀: ${e.name} ${e.message}`, 'e'); }
+    if (!stream) {
+      recNow = null;
+      const why = { NotAllowedError: '마이크 허용이 필요해요 (설정 → 사파리 → 마이크)', NotFoundError: '마이크를 찾지 못했어요 (마이크가 연결돼 있나요?)', NotReadableError: '다른 앱이 마이크를 쓰고 있어요 — 그 앱을 닫고 다시' }[e.name];
+      return toast(why || `마이크를 켤 수 없어요 (${e.name})`, 6000);
+    }
+  }
   const tr = stream.getAudioTracks()[0], st = tr.getSettings ? tr.getSettings() : {};
   logLine(`녹음 시작 · 잡음 억제 ${st.noiseSuppression ?? '?'} · 에코 제거 ${st.echoCancellation ?? '?'}`);
   const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find(t => MediaRecorder.isTypeSupported?.(t)) || '';

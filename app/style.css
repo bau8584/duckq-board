@@ -384,3 +384,8 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .rec-lv i{display:block;height:100%;width:0;background:#1d9e75;transition:width .08s}
 .rec-sub{font-size:12px;opacity:.7}
 .rec-stop{background:#c0392b;color:#fff;border:0;border-radius:12px;padding:16px;font-size:20px}
+/* ＋ 추가 말풍선 (파일 넣기 / 녹음하기) */
+.add-pop{position:fixed;z-index:45;background:var(--bg2);border:1px solid var(--line);border-radius:12px;padding:6px;display:flex;flex-direction:column;min-width:170px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.add-pop::before{content:'';position:absolute;top:-7px;right:22px;width:12px;height:12px;background:var(--bg2);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
+.add-pop button{background:none;border:0;color:var(--text);text-align:left;padding:12px 14px;font-size:16px;border-radius:8px}
+.add-pop button:active{background:rgba(255,255,255,.08)}
