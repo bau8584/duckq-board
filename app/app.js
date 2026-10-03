@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.105 (2026-10-03)';
+const VER = 'DuckQ Board 0.3.106 (2026-10-03)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -759,7 +759,7 @@ async function startRecord() {
   const AS = navigator.audioSession, setAS = t => { try { if (AS && AS.type !== t) { AS.type = t; logLine(`소리 종류: ${t}`); } } catch {} };
   setAS('play-and-record');
   let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true } }); }
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: false } }); }
   catch (e) {
     logLine(`마이크(잡음 억제) 못 씀: ${e.name} ${e.message}`, 'w');
     if (e.name !== 'NotAllowedError') try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e2) { e = e2; logLine(`마이크(기본) 못 씀: ${e.name} ${e.message}`, 'e'); }
@@ -780,9 +780,13 @@ async function startRecord() {
   const buf = new Uint8Array(an.fftSize);
   const time = h('b', { class: 'rec-time' }, '0:00'), fill = h('i'), stopBtn = h('button', { class: 'rec-stop' }, '■ 멈춤');
   const cancelBtn = h('button', { class: 'sbtn' }, '취소');
+  const dnBox = h('input', { type: 'checkbox' }); dnBox.checked = S.settings.recDenoise !== false;   // 값 없음 = 켬
+  dnBox.onchange = () => { S.settings.recDenoise = dnBox.checked; save(); };
+  if (S.settings.recDenoise !== false) Denoise.load().catch(() => {});   // 미리 불러 둠
   const ov = h('div', { class: 'rec-ov' }, h('div', { class: 'rec-box' },
     h('div', { class: 'rec-head' }, h('span', { class: 'rec-dot' }), '녹음 중', time),
     h('div', { class: 'rec-lv' }, fill), h('div', { class: 'rec-sub' }, '말할 때 초록 막대가 움직이면 잘 잡혀요'),
+    h('label', { class: 'rec-dn' }, dnBox, ' 잡음 거르기'),
     stopBtn, cancelBtn));
   document.body.append(ov);
   const t0 = performance.now(); let raf;
@@ -801,10 +805,12 @@ async function startRecord() {
     if (!keep) { logLine('녹음 취소'); return; }
     if (!chunks.length) return toast('녹음된 소리가 없어요', 3000);
     try {
-      const wav = await toWav(new Blob(chunks, { type: mr.mimeType || mime || 'audio/mp4' }));
+      const dn = dnBox.checked;
+      if (dn) toast('잡음 거르는 중…', 60000);
+      const wav = await toWav(new Blob(chunks, { type: mr.mimeType || mime || 'audio/mp4' }), dn);
       const d = new Date(), p2 = n => String(n).padStart(2, '0');
       const name = `녹음 ${d.getMonth() + 1}-${d.getDate()} ${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}.wav`;
-      logLine(`녹음 저장 "${name}" ${(wav.size / 1024).toFixed(0)}KB`);
+      logLine(`녹음 저장 "${name}" ${(wav.size / 1024).toFixed(0)}KB · 잡음 거르기 ${dn ? '켬' : '끔'}`);
       await addFiles([new File([wav], name, { type: 'audio/wav' })]);
     } catch (e) { logLine(`녹음 저장 실패: ${e.message}`, 'e'); toast('녹음을 저장하지 못했어요', 4000); }
   };
@@ -815,18 +821,51 @@ async function startRecord() {
   recNow = { end };
   try { mr.start(250); } catch (e) { logLine(`녹음 시작 실패: ${e.message}`, 'e'); await end(false); toast('녹음을 시작하지 못했어요 — 다시 눌러 보세요', 4000); }
 }
+// 녹음 잡음 거르기: ① 80Hz 아래(웅~ 울림) 자르기 → ② RNNoise(AI, 말소리만 남김). 48kHz 모노로 맞춰서.
+// 라이브러리: Jitsi rnnoise-wasm 0.2.1 (Apache-2.0, app/rnnoise.js·wasm). index.html에 미리 받기 줄이 있어 오프라인에도 담김.
+const Denoise = (() => {
+  let mod = null;
+  const url = f => new URL(`${f}?v=${APP_VER}`, location.href).href;
+  async function load() {
+    if (mod) return mod;
+    const make = (await import(url('rnnoise.js'))).default;
+    return (mod = await make({ locateFile: f => url(f) }));
+  }
+  async function run(ab) {
+    const t0 = performance.now(), m = await load();
+    const off = new OfflineAudioContext(1, Math.ceil(ab.duration * 48000), 48000);
+    const src = off.createBufferSource(), hp = off.createBiquadFilter();
+    src.buffer = ab; hp.type = 'highpass'; hp.frequency.value = 80;
+    src.connect(hp).connect(off.destination); src.start();
+    const x = (await off.startRendering()).getChannelData(0), N = 480, y = new Float32Array(x.length);
+    const st = m._rnnoise_create(), p = m._malloc(N * 4);
+    try {
+      for (let i = 0; i < x.length; i += N) {
+        const f = m.HEAPF32.subarray(p >> 2, (p >> 2) + N);
+        for (let k = 0; k < N; k++) f[k] = (x[i + k] || 0) * 32768;
+        m._rnnoise_process_frame(st, p, p);
+        const g = m.HEAPF32.subarray(p >> 2, (p >> 2) + N);
+        for (let k = 0; k < N && i + k < y.length; k++) y[i + k] = g[k] / 32768;
+      }
+    } finally { m._rnnoise_destroy(st); m._free(p); }
+    logLine(`잡음 거르기 ${ab.duration.toFixed(1)}초 · ${((performance.now() - t0) / 1000).toFixed(2)}초 걸림`);
+    return { rate: 48000, data: [y] };
+  }
+  return { load, run };
+})();
 // 녹음본(mp4/webm) → 16비트 WAV. 길이가 정확히 잡히고 어느 기기에서나 열린다.
-async function toWav(blob) {
+async function toWav(blob, dn) {
   const ac = new (window.AudioContext || window.webkitAudioContext)();
   try {
     const raw = await blob.arrayBuffer();
     const ab = await new Promise((ok, no) => ac.decodeAudioData(raw, ok, no));
-    const ch = Math.min(ab.numberOfChannels, 2), n = ab.length, rate = ab.sampleRate;
+    let rate = ab.sampleRate, data = [...Array(Math.min(ab.numberOfChannels, 2))].map((_, c) => ab.getChannelData(c));
+    if (dn) try { ({ rate, data } = await Denoise.run(ab)); } catch (e) { logLine(`잡음 거르기 실패 → 원본으로: ${e.message}`, 'e'); }
+    const ch = data.length, n = data[0].length;
     const out = new DataView(new ArrayBuffer(44 + n * ch * 2)), w = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
     w(0, 'RIFF'); out.setUint32(4, 36 + n * ch * 2, true); w(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
     out.setUint16(22, ch, true); out.setUint32(24, rate, true); out.setUint32(28, rate * ch * 2, true); out.setUint16(32, ch * 2, true); out.setUint16(34, 16, true);
     w(36, 'data'); out.setUint32(40, n * ch * 2, true);
-    const data = [...Array(ch)].map((_, c) => ab.getChannelData(c));
     for (let i = 0, o = 44; i < n; i++) for (let c = 0; c < ch; c++, o += 2) { const v = Math.max(-1, Math.min(1, data[c][i])); out.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); }
     return new Blob([out], { type: 'audio/wav' });
   } finally { ac.close().catch(() => {}); }
@@ -961,7 +1000,7 @@ async function saveBlob(blob, fname) {
   done('내보내기 다운로드 시작');
 }
 // 가져온 파일의 앱 전체 설정: 다르면 한 번 묻고, 기본은 지금 설정 그대로(기존 판을 안 바꾸는 약속)
-const SET_KO = { theme: '화면', cols: '패드 크기', labelSize: '패드 글자', fadeSec: '페이드 초', fadeOverride: '페이드 덮어쓰기', fadeMax: '페이드 최대', soloMode: '솔로 방식',
+const SET_KO = { recDenoise: '녹음 잡음 거르기', theme: '화면', cols: '패드 크기', labelSize: '패드 글자', fadeSec: '페이드 초', fadeOverride: '페이드 덮어쓰기', fadeMax: '페이드 최대', soloMode: '솔로 방식',
   newFin: '새 곡 페이드인', newFinSec: '새 곡 페이드인 초', newFout: '새 곡 페이드아웃', newFoutSec: '새 곡 페이드아웃 초', masterBoost: 'MASTER 키우기', cue: '큐' };
 async function importSettings(json) {
   const inc = json.settings && typeof json.settings === 'object' ? json.settings : null;

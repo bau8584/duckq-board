@@ -389,3 +389,5 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .add-pop::before{content:'';position:absolute;top:-7px;right:22px;width:12px;height:12px;background:var(--bg2);border-left:1px solid var(--line);border-top:1px solid var(--line);transform:rotate(45deg)}
 .add-pop button{background:none;border:0;color:var(--text);text-align:left;padding:12px 14px;font-size:16px;border-radius:8px}
 .add-pop button:active{background:rgba(255,255,255,.08)}
+.rec-dn{display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px}
+.rec-dn input{width:20px;height:20px}
