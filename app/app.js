@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.93 (2026-10-02)';
+const VER = 'DuckQ Board 0.3.94 (2026-10-03)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -152,7 +152,7 @@ function save() {
 const board = () => S.boards[S.cur];
 const addedAt = p => p.added || parseInt(p.id.slice(0, 8), 36) || 0;   // 옛 패드는 id 앞부분이 만든 시각
 const editedAt = p => p.edited || addedAt(p);
-const segLen = p => Math.max(0.05, ((p.end > (p.start || 0) ? p.end : p.dur) || 0) - (p.start || 0));   // 트림한 구간 길이
+const segLen = p => Math.max(0.05, ((p.end > (p.start || 0) ? p.end : p.dur) || 0) - (p.start || 0)) / (p.rate || 1);   // 트림한 구간 길이(배속 적용한 실제 초)
 const touchEdit = p => { p.edited = Date.now(); };
 
 // 실행 중에만 쓰는 것
@@ -588,7 +588,7 @@ const WHY = { ended: '트랙 끝', faded: '페이드 끝', stop: '바로 정지'
 var playT = {};   // id → 튼 시각(재생 줄 순서)
 Engine.on('play', id => {
   const p = S.pads[id]; playT[id] = performance.now(); lap[id] = { n: 0, pos: 0 };
-  if (p) logLine(`▶ ${nm(id)} 구간 ${Engine.dur(id).toFixed(1)}초 · 인 ${p.fin ? p.finSec + '초' : '끔'} · 아웃 ${foutOf(p) ? foutOf(p) + '초' : '끔'}${p.loop ? ' · 반복' + (loopTag(p) ? ' ' + loopTag(p) + ` (${loopStop(p).toFixed(1)}초에 멈춤)` : '') : ''}`);
+  if (p) logLine(`▶ ${nm(id)} 구간 ${Engine.dur(id).toFixed(1)}초${p.rate ? ' · ' + p.rate + '배' : ''} · 인 ${p.fin ? p.finSec + '초' : '끔'} · 아웃 ${foutOf(p) ? foutOf(p) + '초' : '끔'}${p.loop ? ' · 반복' + (loopTag(p) ? ' ' + loopTag(p) + ` (${loopStop(p).toFixed(1)}초에 멈춤)` : '') : ''}`);
   paintPad(id);
 });
 Engine.on('fade', id => logLine(`◢ ${nm(id)} 페이드아웃 시작`));
@@ -740,7 +740,7 @@ async function loadPad(id) {
   if (!rec) { status[id] = 'bad'; badWhy[id] = '파일 없음'; paintPad(id); return; }
   status[id] = 'wait'; paintPad(id);
   try {
-    const inf = await Engine.load(id, rec.blob, { dur: p.dur, volume: p.vol, loop: p.loop, pan: p.pan || 0, start: p.start || 0, end: p.end || 0 });
+    const inf = await Engine.load(id, rec.blob, { dur: p.dur, volume: p.vol, loop: p.loop, pan: p.pan || 0, start: p.start || 0, end: p.end || 0, rate: p.rate || 1 });
     if (!S.pads[id] || !inf) return;
     status[id] = 'ready';
     if (inf.dur > 0 && Math.abs(inf.dur - p.dur) > 0.3) { p.dur = inf.dur; save(); renderTop(); }
@@ -1004,7 +1004,7 @@ function cancelSheet() {
   const keepPlayed = id => S.pads[id] && S.pads[id].played;
   for (const id in o.pads) o.pads[id].played = keepPlayed(id) ?? o.pads[id].played;
   Object.assign(S, { boards: o.boards, pads: o.pads, settings: o.settings, cur: Math.min(o.cur, o.boards.length - 1) });
-  for (const id in S.pads) { const p = S.pads[id]; Engine.setVolume(id, p.vol); Engine.setPan(id, p.pan || 0); Engine.setLoop(id, p.loop); Engine.setTrim(id, p.start || 0, p.end || 0); }
+  for (const id in S.pads) { const p = S.pads[id]; Engine.setVolume(id, p.vol); Engine.setPan(id, p.pan || 0); Engine.setLoop(id, p.loop); Engine.setTrim(id, p.start || 0, p.end || 0); Engine.setRate(id, p.rate || 1); }
   Engine.setBoost(S.settings.masterBoost || 1); renderMaster();
   save(); logLine('설정 창 취소 → 열기 전으로');
   closeSheet(); applyTheme(); applyBoardColor(); renderAll();
@@ -1123,6 +1123,18 @@ const HELP = {
 // 볼륨·팬 한 줄: [?] 설명 + 조절 + [원래대로]
 const resetBtn = fn => h('button', { class: 'rst', onclick: fn, 'aria-label': '원래대로', title: '원래대로' }, '↺');   // 원래대로
 const volRow = (label, stp, def) => h('div', { class: 'row col' }, h('label', null, label), h('div', { class: 'end' }, stp, resetBtn(() => stp.set(def))));
+// 배속: 막대(50~200%) + 자주 쓰는 단계 단추. 막대는 단계 근처에 붙는다. 음정은 그대로(긴 트랙), 효과음은 음정도 같이 바뀜
+const RATE_STEPS = [0.75, 1, 1.25, 1.5];
+const RATE_MAP = { min: 50, max: 200, to: v => v, from: x => x, snap: v => { const k = [50, 75, 90, 100, 110, 125, 150, 175, 200].find(q => Math.abs(q - v) <= 3); return k ?? Math.round(v / 5) * 5; } };
+function rateRow(cur, onchange) {
+  const chips = h('div', { class: 'seg' });
+  const mark = r => [...chips.children].forEach((b, i) => b.classList.toggle('on', RATE_STEPS[i] === r));
+  const stp = stepper(Math.round(cur * 100), 50, 200, 5, v => (v / 100) + '배', v => { const r = v / 100; mark(r); onchange(r); }, false, RATE_MAP);
+  RATE_STEPS.forEach(r => chips.append(h('button', { onclick: () => stp.set(r * 100) }, r + '배')));
+  mark(cur);
+  return h('div', { class: 'row col' }, h('label', null, helpLabel('배속', '빠르기를 바꿔요. 1배 = 원래. 다음에 틀 때부터 바뀌어요. 긴 트랙은 음 높이 그대로 빠르기만, 짧은 효과음은 음 높이도 같이 바뀌어요.')),
+    chips, h('div', { class: 'end' }, stp, resetBtn(() => stp.set(100))));
+}
 const panTxt = v => v === 0 ? '가운데' : (v < 0 ? '왼쪽 ' : '오른쪽 ') + Math.abs(v);
 
 // 트림: 파일은 그대로, 시작·끝 지점만 기억. 파형(효과음) 위 두 손잡이 + 0.1초/1초 단추
@@ -1235,6 +1247,7 @@ function openPadSheet(id) {
       (trim = trimBox(id, () => { refresh(); renderTop(); }, preview)).el,
       volRow(helpLabel('볼륨', HELP.vol), stepper(Math.round(p.vol * 100), 0, 300, 5, volTxt, v => { p.vol = v / 100; Engine.setVolume(id, p.vol); touchEdit(p); save(); }, false, VOL_MAP), 100),
       volRow(helpLabel('팬', HELP.pan), stepper(Math.round((p.pan || 0) * 100), -100, 100, 10, panTxt, v => { p.pan = v / 100; Engine.setPan(id, p.pan); touchEdit(p); save(); }), 0),
+      rateRow(p.rate || 1, r => { if (r === 1) delete p.rate; else p.rate = r; Engine.setRate(id, r); refresh(); renderTop(); }),
       loopCtl(loopMode(p), p.loopN || 3, p.loopSec || 30, false, o => { applyLoop(p, o); refresh(); }),
       row(helpLabel('솔로', '이 트랙을 틀면 이미 울리던 다른 트랙을 끕니다.'), sw(p.solo, on => { p.solo = on; soloBox.hidden = !on; refresh(); })),
       soloBox,

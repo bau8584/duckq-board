@@ -91,7 +91,7 @@ const Engine = (() => {
     ensure();
     const had = tracks.get(id); if (had) return info(had);
     const tr = { id, blob, size: blob.size, dur: opt.dur || 0, volume: opt.volume ?? 1, loop: !!opt.loop, v: null, bytes: 0,
-      start: opt.start || 0, end: opt.end || 0, pan: opt.pan || 0 };
+      start: opt.start || 0, end: opt.end || 0, pan: opt.pan || 0, rate: opt.rate || 1 };
     tracks.set(id, tr);
     wire(tr);
     try {
@@ -127,7 +127,8 @@ const Engine = (() => {
     const D = tr.dur > 0 ? tr.dur : 0;
     const s = Math.min(Math.max(0, tr.start || 0), Math.max(0, D - 0.05));
     const e = tr.end > s ? Math.min(tr.end, D || tr.end) : D;
-    return { s, e, L: Math.max(0.05, e - s), cut: tr.end > s && tr.end < D - 0.01 };
+    const L = Math.max(0.05, e - s), r = tr.rate || 1;
+    return { s, e, L, r, W: L / r, cut: tr.end > s && tr.end < D - 0.01 };   // L = 파일 속 구간 초 · W = 배속 적용한 실제 재생 초
   }
 
   function unload(id) {
@@ -178,38 +179,42 @@ const Engine = (() => {
     if (paused) resumeAll();
     if (ctx.state !== 'running') ctx.resume().catch(() => {});
     if (tr.v) end(tr, 'restart');
-    const S = seg(tr), from = Math.min(Math.max(0, opt.from || 0), S.L - 0.05);
+    // 바깥(화면·큐)은 실제 재생 초(W)로 말하고, 파일 위치는 × r
+    const S = seg(tr), r = S.r, from = Math.min(Math.max(0, opt.from || 0), S.W - 0.05);
     let fi = opt.fadeIn || 0, fo = opt.fadeOut || 0;
     // 짧은 곡에 인+아웃이 곡 길이보다 길면 둘 다 비율대로 줄인다(안 그러면 아웃이 통째로 빠짐)
-    const len = S.L - from;
+    const len = S.W - from;
     if (!tr.loop && fi + fo > len && len > 0) { const k = len / (fi + fo); fi *= k; fo *= k; }
     const rise = Math.max(EDGE, fi), now = ctx.currentTime;
     const v = { g: ctx.createGain(), fading: false, rise, seg: S, fadeOut: fo };
     v.g.gain.value = 0; v.g.connect(tr.vol); tr.v = v;
     if (tr.kind === 'sfx') {
-      const src = ctx.createBufferSource(); src.buffer = tr.buffer; src.connect(v.g);
+      const src = ctx.createBufferSource(); src.buffer = tr.buffer; src.playbackRate.value = r; src.connect(v.g);
       v.g.gain.setValueAtTime(0, now); v.g.gain.linearRampToValueAtTime(1, now + rise);
       src.onended = () => { if (tr.v === v) end(tr, 'ended'); };
-      if (tr.loop) { src.loop = true; src.loopStart = S.s; src.loopEnd = S.e; src.start(now, S.s + from); }
-      else src.start(now, S.s + from, S.L - from);
+      if (tr.loop) { src.loop = true; src.loopStart = S.s; src.loopEnd = S.e; src.start(now, S.s + from * r); }
+      else src.start(now, S.s + from * r, S.L - from * r);
       v.src = src; v.t0 = now - from;
-      tailFade(tr, v, now + S.L - from);
-    } else if (tr.d) {
+      tailFade(tr, v, now + S.W - from);
+    } else if (tr.d && r === 1) {   // 배속이면 A로 — <audio>는 음정을 지키며 빠르기만 바꾼다
+      if (tr.el) dropEl(tr);
       v.ds = new DStream(tr, v, from);
     } else {
       const el = ensureEl(tr); el.loop = false;
       try { tr.node.disconnect(); } catch {}
       tr.node.connect(v.g); v.el = el;
-      el.currentTime = S.s + from;
+      el.preservesPitch = true; el.defaultPlaybackRate = el.playbackRate = r;
+      el.currentTime = S.s + from * r;
       v.g.gain.setValueAtTime(0, now); v.g.gain.linearRampToValueAtTime(1, now + rise);
       el.play().catch(e => { log(`play() 거부: ${e.message}`, 'e'); if (tr.v === v) end(tr, 'error'); });
       // A는 출구 시계와 따로 가서 미리 못 건다 → 곡 위치를 보다가 끝 페이드 시작
       if (S.cut || v.fadeOut > 0) v.watch = setInterval(() => {
         if (tr.v !== v) return;
         if (S.cut && el.currentTime >= S.e - 0.03) return aEdge(tr);
-        if (v.fadeOut > 0 && !tr.loop && !v.tail && !v.fading && el.currentTime >= S.e - v.fadeOut) {
-          v.tail = true; const t = ctx.currentTime, g = v.g.gain; v.fadeEnd = t + Math.max(0.01, S.e - el.currentTime);
-          g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + Math.max(0.01, S.e - el.currentTime));
+        if (v.fadeOut > 0 && !tr.loop && !v.tail && !v.fading && el.currentTime >= S.e - v.fadeOut * r) {
+          const left = Math.max(0.01, (S.e - el.currentTime) / r);
+          v.tail = true; const t = ctx.currentTime, g = v.g.gain; v.fadeEnd = t + left;
+          g.cancelScheduledValues(t); g.setValueAtTime(g.value, t); g.linearRampToValueAtTime(0, t + left);
         }
       }, 40);
     }
@@ -303,9 +308,9 @@ const Engine = (() => {
     const tr = tracks.get(id); if (!tr || !tr.v || !ctx) return 0;
     const v = tr.v;
     // 구간 안에서의 위치(0 ~ 구간 길이)
-    if (v.src) { const p = ctx.currentTime - v.t0; return tr.loop ? p % v.seg.L : Math.min(p, v.seg.L); }
+    if (v.src) { const p = ctx.currentTime - v.t0; return tr.loop ? p % v.seg.W : Math.min(p, v.seg.W); }
     if (v.ds) return v.ds.pos();
-    if (v.el) return Math.max(0, v.el.currentTime - v.seg.s);
+    if (v.el) return Math.max(0, (v.el.currentTime - v.seg.s) / v.seg.r);
     return 0;
   }
 
@@ -328,9 +333,15 @@ const Engine = (() => {
     const tr = tracks.get(id); if (!tr) return;
     tr.start = start || 0; tr.end = end || 0;
   }
+  // 배속(1 = 원래): 다음 재생부터
+  function setRate(id, r) {
+    const tr = tracks.get(id); if (!tr) return;
+    tr.rate = r > 0 ? r : 1;
+    if (tr.rate === 1 && tr.d && tr.el && !tr.v) dropEl(tr);   // D 곡 옆에 놀고 있는 <audio>를 남기지 않게
+  }
   function setLoop(id, on) {
     const tr = tracks.get(id); if (!tr) return;
-    const v = tr.v, rem = v ? v.seg.L - pos(id) : 0;
+    const v = tr.v, rem = v ? v.seg.W - pos(id) : 0;
     tr.loop = !!on;
     // 반복을 끄면 지금 바퀴 끝에서 멈춤. 켜는 건 다음 재생부터(효과음)
     if (v && v.src && !on && v.src.loop) { v.src.loop = false; try { v.src.stop(ctx.currentTime + rem); } catch {} }
@@ -721,11 +732,11 @@ const Engine = (() => {
     SFX_MAX_SEC,
     on(ev, f) { (ls[ev] || (ls[ev] = [])).push(f); },
     unlock, probeDuration, load, unload, play, stop, stopAll, pauseAll, resumeAll,
-    pos, setVolume, setPan, setTrim, setLoop, setMaster, setBoost, playingIds, peaks,
+    pos, setVolume, setPan, setTrim, setRate, setLoop, setMaster, setBoost, playingIds, peaks,
     isPlaying: id => !!(tracks.get(id) && tracks.get(id).v),
     volume: id => tracks.get(id) ? tracks.get(id).volume : null,   // 지금 송출 볼륨(큐가 바꾼 것 포함, 1=100%)
     isFading: id => !!(tracks.get(id) && tracks.get(id).v && tracks.get(id).v.fading),
-    dur: id => { const tr = tracks.get(id); return tr ? (tr.v ? tr.v.seg.L : seg(tr).L) : 0; },   // 구간 길이
+    dur: id => { const tr = tracks.get(id); return tr ? (tr.v ? tr.v.seg.W : seg(tr).W) : 0; },   // 구간 길이(배속 적용한 실제 초)
     fileDur: id => (tracks.get(id) || {}).dur || 0,
     get paused() { return paused; },
     get unlocked() { return unlocked; },
