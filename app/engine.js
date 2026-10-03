@@ -34,6 +34,8 @@ const Engine = (() => {
 
   // ---------- 소리 출구 ----------
   function makeCtx() {
+    // 아이패드 무음 스위치가 켜져 있어도 소리 나게(음악 앱처럼). iPadOS 17 이상만 지원
+    try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') { navigator.audioSession.type = 'playback'; log('소리 종류: 재생(무음 스위치 무시)'); } } catch {}
     ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
     master = ctx.createGain(); master.gain.value = masterVol;
     // MASTER 키우기: master → boost → (100% 넘길 설정이 있을 때만 리미터) → 출구
