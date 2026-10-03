@@ -780,8 +780,8 @@ window.Cue = (() => {
     let w = null; pend.forEach((e, id) => { const r = e.sec - (performance.now() - e.t0) / 1000; if (!w || r < w.r) w = { r, i: L.findIndex(x => x.id === id) }; });
     goB.classList.toggle('wait', !!w);
     const [g1, g2] = goB.lastChild.children, n2 = c && L[nextGo(L, k)];
-    g2.textContent = n2 ? `그다음 ${cueLabel(L, nextGo(L, k))} · ${n2.memo || padName(n2)}` : c ? '그다음 — 끝' : '';
-    g1.textContent = w ? `⏳ ${Math.max(1, Math.ceil(w.r))}초 뒤 ${w.i >= 0 ? qno(L, w.i) : ''}` : !L.length ? '큐 없음' : c ? `${cueLabel(L, k)} · ${c.memo || padName(c)}` : '끝';
+    g2.replaceChildren(...(n2 || c ? [h('em', null, '그다음')] : []), ...(n2 ? [`${cueLabel(L, nextGo(L, k))} · ${n2.memo || padName(n2)}`] : c ? ['끝'] : []));
+    g1.replaceChildren(...(c && !w ? [h('em', null, '다음')] : []), w ? `⏳ ${Math.max(1, Math.ceil(w.r))}초 뒤 ${w.i >= 0 ? qno(L, w.i) : ''}` : !L.length ? '큐 없음' : c ? `${cueLabel(L, k)} · ${c.memo || padName(c)}` : '끝');
   }
   setInterval(() => {
     if (!on() || !live.size) return;

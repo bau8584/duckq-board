@@ -79,6 +79,7 @@
 .cbtn.qgo .qgi small{font:800 15px/1.2 var(--font)}
 .cbtn.qgo .qgi i{font:600 12px/1.2 var(--font);color:var(--text-dim)}
 .cbtn.qgo .qgi i:empty{display:none}
+.cbtn.qgo .qgi em{display:inline-block;width:3.2em;font:700 11px var(--font);font-style:normal;color:var(--text-dim)}
 /* ⤒▲▼는 편집 때만 — 공연 중엔 GO만 (소유자 2026-10-03). 키보드 ←는 그대로 */
 body:not(.editing) .qpanel .qnav{display:none}
 .cbtn.qgo.wait .qgi small{opacity:1;font-weight:800;color:var(--board)}
