@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.94 (2026-10-03)';
+const VER = 'DuckQ Board 0.3.95 (2026-10-03)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1126,13 +1126,13 @@ const volRow = (label, stp, def) => h('div', { class: 'row col' }, h('label', nu
 // 배속: 막대(50~200%) + 자주 쓰는 단계 단추. 막대는 단계 근처에 붙는다. 음정은 그대로(긴 트랙), 효과음은 음정도 같이 바뀜
 const RATE_STEPS = [0.75, 1, 1.25, 1.5];
 const RATE_MAP = { min: 50, max: 200, to: v => v, from: x => x, snap: v => { const k = [50, 75, 90, 100, 110, 125, 150, 175, 200].find(q => Math.abs(q - v) <= 3); return k ?? Math.round(v / 5) * 5; } };
-function rateRow(cur, onchange) {
+function rateRow(cur, onchange, mixed) {
   const chips = h('div', { class: 'seg' });
   const mark = r => [...chips.children].forEach((b, i) => b.classList.toggle('on', RATE_STEPS[i] === r));
-  const stp = stepper(Math.round(cur * 100), 50, 200, 5, v => (v / 100) + '배', v => { const r = v / 100; mark(r); onchange(r); }, false, RATE_MAP);
+  const stp = stepper(Math.round(cur * 100), 50, 200, 5, v => (v / 100) + '배', v => { const r = v / 100; mark(r); onchange(r); }, mixed, RATE_MAP);
   RATE_STEPS.forEach(r => chips.append(h('button', { onclick: () => stp.set(r * 100) }, r + '배')));
-  mark(cur);
-  return h('div', { class: 'row col' }, h('label', null, helpLabel('배속', '빠르기를 바꿔요. 1배 = 원래. 다음에 틀 때부터 바뀌어요. 긴 트랙은 음 높이 그대로 빠르기만, 짧은 효과음은 음 높이도 같이 바뀌어요.')),
+  if (!mixed) mark(cur);
+  return h('div', { class: 'row col' }, h('label', null, helpLabel('배속', '빠르기를 바꿔요. 1배 = 원래. 다음에 틀 때부터 바뀌어요. 긴 트랙은 음 높이 그대로 빠르기만, 짧은 효과음은 음 높이도 같이 바뀌어요.'), mixed ? h('span', { class: 'sub mix' }, '지금 제각각') : null),
     chips, h('div', { class: 'end' }, stp, resetBtn(() => stp.set(100))));
 }
 const panTxt = v => v === 0 ? '가운데' : (v < 0 ? '왼쪽 ' : '오른쪽 ') + Math.abs(v);
@@ -1272,7 +1272,7 @@ function openBulkSheet(ids) {
   const same = k => ps.every(q => q[k] === ps[0][k]) ? ps[0][k] : undefined;
   const mixed = k => same(k) === undefined;
   const avg = k => ps.reduce((a, q) => a + (q[k] || 0), 0) / ps.length;
-  const set = fn => { ps.forEach(q => { fn(q); touchEdit(q); }); save(); logLine(`일괄 수정 ${ps.length}개 → ` + ps.map(q => `${q.label}(vol ${Math.round(q.vol * 100)} 인 ${q.fin ? q.finSec : '끔'} 아웃 ${q.fout ? q.foutSec : '끔'} 루프 ${q.loop ? 1 : 0} 색 ${q.color})`).join(', ')); };
+  const set = fn => { ps.forEach(q => { fn(q); touchEdit(q); }); save(); logLine(`일괄 수정 ${ps.length}개 → ` + ps.map(q => `${q.label}(vol ${Math.round(q.vol * 100)} 인 ${q.fin ? q.finSec : '끔'} 아웃 ${q.fout ? q.foutSec : '끔'} 루프 ${q.loop ? 1 : 0} 배속 ${q.rate || 1} 색 ${q.color})`).join(', ')); };
   const tag = k => mixed(k) ? h('span', { class: 'sub mix' }, '지금 제각각') : null;
   const lab = (name, ...k) => h('span', null, name, k.some(mixed) ? h('span', { class: 'sub mix' }, '지금 제각각') : null);
   const onoff = (k, extra) => seg([[true, '켬'], [false, '끔']], same(k), v => { set(q => { q[k] = v; extra && extra(q, v); }); });
@@ -1283,6 +1283,7 @@ function openBulkSheet(ids) {
     h('div', { class: 'row col' }, h('label', null, '색', tag('color')), colorChips(same('color'), true, k => set(q => { q.color = k; }))),
     volRow(h('span', null, helpLabel('볼륨', HELP.vol), mixed('vol') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('vol', 100, 0, 300, 5, volTxt, (q, v) => { q.vol = v / 100; Engine.setVolume(q.id, q.vol); }, VOL_MAP), 100),
     volRow(h('span', null, helpLabel('팬', HELP.pan), mixed('pan') ? h('span', { class: 'sub mix' }, '지금 제각각') : null), num('pan', 100, -100, 100, 10, panTxt, (q, v) => { q.pan = v / 100; Engine.setPan(q.id, q.pan); }), 0),
+    rateRow(ps[0].rate || 1, r => { set(q => { if (r === 1) delete q.rate; else q.rate = r; Engine.setRate(q.id, r); }); renderTop(); renderGrid(); }, ps.some(q => (q.rate || 1) !== (ps[0].rate || 1))),
     loopCtl(ps.every(q => loopMode(q) === loopMode(ps[0])) ? loopMode(ps[0]) : undefined, same('loopN') || 3, same('loopSec') || 30,
       ['loop', 'loopBy', 'loopN', 'loopSec'].some(mixed), o => set(q => applyLoop(q, o))),
     row(lab('솔로', 'solo'), onoff('solo')),
