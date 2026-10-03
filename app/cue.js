@@ -175,7 +175,8 @@ window.Cue = (() => {
   function go() {
     if (!on() || !started) return;
     if (editing()) return toast('편집 중이에요 — 위쪽 [편집]을 다시 누르면 GO가 돼요');
-    const t = performance.now(); if (t - lastGo < 350) return;   // 연타해도 한 칸씩
+    const t = performance.now(), gap = t - lastGo;   // 0.5초 안 두 번째 GO는 무시(10/03 연극: 손 떨려 다음 큐까지 나감)
+    if (gap < 500) return logLine(`GO 두 번 눌림 무시 (${(gap / 1000).toFixed(2)}초)`);
     lastGo = t;
     const b = board(), L = cues(b), k = cur(b);
     if (!L.length) return toast('큐가 없어요 — 큐보드의 [+ 담기]로 넣어요');

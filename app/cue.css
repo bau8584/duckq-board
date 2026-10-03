@@ -72,10 +72,11 @@
 .pad .qtag{position:absolute;right:12px;top:37px;width:22px;text-align:center;font-size:11px;font-weight:800;opacity:.7;pointer-events:none;white-space:nowrap}
 [data-cols="8"] .pad .qtag{top:32px;width:18px;font-size:10px}
 /* GO: 조작부 맨 앞, 다른 단추와 같은 높이 */
-.cbtn.qgo{width:132px;flex-direction:column;gap:1px;font:900 18px var(--font);letter-spacing:.06em}
-.cbtn.qgo small{font:600 11px var(--font);letter-spacing:0;opacity:.7;max-width:118px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cbtn.qgo{width:184px;flex-direction:column;gap:0;font:900 24px/1 var(--font);letter-spacing:.08em;border:2px solid var(--text)}
+.cbtn.qgo small{font:600 11px var(--font);letter-spacing:0;opacity:.7;max-width:168px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cbtn.qgo.wait small{opacity:1;font-weight:800;color:var(--board)}
-@media (max-width:900px){.cbtn.qgo{width:96px}.cbtn.qgo small{max-width:84px}}
+@media (max-width:900px){.cbtn.qgo{width:124px;font-size:21px}.cbtn.qgo small{max-width:112px}}
+@media (max-width:480px){.cbtn.qgo{width:96px}.cbtn.qgo small{max-width:84px}}   /* 폰 세로: 원래도 조작줄이 빠듯해 예전 폭 그대로 */
 /* 큐보드를 펼쳤을 때만 한 줄 패드 수를 줄임(줄 높이는 그대로) — 6→4, 8→6, 4→3. 접으면 원래대로 */
 .stage.qopen .grid[data-cols="6"]{--cols:4!important}
 .stage.qopen .grid[data-cols="8"]{--cols:6!important}
