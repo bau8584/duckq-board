@@ -372,3 +372,15 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .ask-in{height:44px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--text);font:inherit;font-size:16px}
 .ask-btns{display:flex;justify-content:flex-end;gap:8px}
 .ask-btns .sbtn{min-width:88px}
+
+/* 0.3.103 녹음 창 — 화면 전체를 덮어 녹음 중엔 다른 곳이 안 눌림 */
+.rec-ov{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:16px}
+.rec-box{background:var(--bg2);color:var(--text);border:1px solid var(--line);border-radius:16px;padding:22px;width:min(360px,100%);display:flex;flex-direction:column;gap:12px;text-align:center}
+.rec-head{font-size:18px;display:flex;align-items:center;justify-content:center;gap:10px}
+.rec-time{font-size:30px;font-variant-numeric:tabular-nums}
+.rec-dot{width:14px;height:14px;border-radius:50%;background:#e24b4a;animation:recb 1s infinite}
+@keyframes recb{50%{opacity:.2}}
+.rec-lv{height:10px;border-radius:5px;background:rgba(255,255,255,.12);overflow:hidden}
+.rec-lv i{display:block;height:100%;width:0;background:#1d9e75;transition:width .08s}
+.rec-sub{font-size:12px;opacity:.7}
+.rec-stop{background:#c0392b;color:#fff;border:0;border-radius:12px;padding:16px;font-size:20px}

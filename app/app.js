@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.102 (2026-10-03)';
+const VER = 'DuckQ Board 0.3.103 (2026-10-03)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -678,7 +678,7 @@ function idleClear() {
   if (was.length) { paintAll(); logLine(`6시간 안 써서 PLAYED ${was.length}개 지움`); }
 }
 setInterval(idleClear, 60000);
-$('btnAdd').onclick = () => pickFiles();
+$('btnAdd').onclick = () => openAddMenu();
 $('btnSet').onclick = () => { if (!S.lock) openSettings(); };
 
 function onTab(i) {
@@ -714,8 +714,8 @@ function sortBoard(name, cmp) {
 
 // ---------- 파일 넣기 ----------
 function pickFiles() { if (S.lock) return; $('files').click(); }
-$('files').addEventListener('change', async e => {
-  const list = [...e.target.files]; e.target.value = '';
+$('files').addEventListener('change', e => { const list = [...e.target.files]; e.target.value = ''; addFiles(list); });
+async function addFiles(list) {
   if (!list.length) return;
   const b = board(), bad = [];
   toast(`${list.length}개 넣는 중…`, 60000);
@@ -732,7 +732,86 @@ $('files').addEventListener('change', async e => {
     await loadPad(p.id);
   }
   toast(bad.length ? `못 넣은 파일 ${bad.length}개: ${bad.join(', ')}` : `${list.length - bad.length}개 넣었어요`, bad.length ? 6000 : 1800);
-});
+}
+
+// ---------- 보드에서 바로 녹음 (PLAN-record, B안: 화면을 덮는 녹음 창) ----------
+// ＋ 추가 → [파일 넣기 / 녹음하기]. 브라우저 잡음 억제·에코 제거를 켜고 녹음 → WAV로 바꿔 새 패드로(파일 넣기와 같은 길).
+function openAddMenu() {
+  if (S.lock) return;
+  openSheet('추가', body => body.append(
+    h('div', { class: 'row' }, h('label', null, '파일 넣기', h('span', { class: 'sub' }, '음악·효과음 파일')), h('button', { class: 'sbtn pri', onclick: () => { closeSheet(); pickFiles(); } }, '고르기')),
+    h('div', { class: 'row' }, h('label', null, '🎙 녹음하기', h('span', { class: 'sub' }, '마이크로 바로 녹음해 새 패드로')), h('button', { class: 'sbtn pri', onclick: () => { closeSheet(); startRecord(); } }, '녹음'))));
+}
+let recNow = null;
+async function startRecord() {
+  if (S.lock || recNow) return;
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast('이 기기·브라우저는 녹음을 못 해요', 4000);
+  recNow = {};
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true } }); }
+  catch (e) { recNow = null; logLine(`마이크 못 씀: ${e.name}`, 'e'); return toast(e.name === 'NotAllowedError' ? '마이크 허용이 필요해요 (설정 → 사파리 → 마이크)' : '마이크를 켤 수 없어요', 5000); }
+  const tr = stream.getAudioTracks()[0], st = tr.getSettings ? tr.getSettings() : {};
+  logLine(`녹음 시작 · 잡음 억제 ${st.noiseSuppression ?? '?'} · 에코 제거 ${st.echoCancellation ?? '?'}`);
+  const mime = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find(t => MediaRecorder.isTypeSupported?.(t)) || '';
+  const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined), chunks = [];
+  mr.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+  // 소리 크기 막대
+  const ac = new (window.AudioContext || window.webkitAudioContext)(), an = ac.createAnalyser(); an.fftSize = 512;
+  ac.createMediaStreamSource(stream).connect(an);
+  const buf = new Uint8Array(an.fftSize);
+  const time = h('b', { class: 'rec-time' }, '0:00'), fill = h('i'), stopBtn = h('button', { class: 'rec-stop' }, '■ 멈춤');
+  const cancelBtn = h('button', { class: 'sbtn' }, '취소');
+  const ov = h('div', { class: 'rec-ov' }, h('div', { class: 'rec-box' },
+    h('div', { class: 'rec-head' }, h('span', { class: 'rec-dot' }), '녹음 중', time),
+    h('div', { class: 'rec-lv' }, fill), h('div', { class: 'rec-sub' }, '말할 때 초록 막대가 움직이면 잘 잡혀요'),
+    stopBtn, cancelBtn));
+  document.body.append(ov);
+  const t0 = performance.now(); let raf;
+  const tick = () => {
+    const s = Math.floor((performance.now() - t0) / 1000); time.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+    an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128));
+    fill.style.width = Math.min(100, m / 128 * 160) + '%';
+    raf = requestAnimationFrame(tick);
+  };
+  tick();
+  const finish = () => new Promise(res => { if (mr.state === 'inactive') return res(); mr.onstop = res; mr.stop(); });
+  const end = async keep => {
+    if (!recNow) return; recNow = null;
+    cancelAnimationFrame(raf); document.removeEventListener('visibilitychange', onHide);
+    await finish(); stream.getTracks().forEach(t => t.stop()); ac.close().catch(() => {}); ov.remove();
+    if (!keep) { logLine('녹음 취소'); return; }
+    if (!chunks.length) return toast('녹음된 소리가 없어요', 3000);
+    try {
+      const wav = await toWav(new Blob(chunks, { type: mr.mimeType || mime || 'audio/mp4' }));
+      const d = new Date(), p2 = n => String(n).padStart(2, '0');
+      const name = `녹음 ${d.getMonth() + 1}-${d.getDate()} ${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}.wav`;
+      logLine(`녹음 저장 "${name}" ${(wav.size / 1024).toFixed(0)}KB`);
+      await addFiles([new File([wav], name, { type: 'audio/wav' })]);
+    } catch (e) { logLine(`녹음 저장 실패: ${e.message}`, 'e'); toast('녹음을 저장하지 못했어요', 4000); }
+  };
+  // 앱을 벗어나면(홈 버튼 등) 거기까지 저장
+  const onHide = () => { if (document.visibilityState === 'hidden') { end(true); toast('앱을 벗어나 녹음을 멈췄어요 — 거기까지 저장했어요', 6000); } };
+  document.addEventListener('visibilitychange', onHide);
+  stopBtn.onclick = () => end(true); cancelBtn.onclick = () => end(false);
+  recNow = { end };
+  try { mr.start(250); } catch (e) { logLine(`녹음 시작 실패: ${e.message}`, 'e'); await end(false); toast('녹음을 시작하지 못했어요 — 다시 눌러 보세요', 4000); }
+}
+// 녹음본(mp4/webm) → 16비트 WAV. 길이가 정확히 잡히고 어느 기기에서나 열린다.
+async function toWav(blob) {
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  try {
+    const raw = await blob.arrayBuffer();
+    const ab = await new Promise((ok, no) => ac.decodeAudioData(raw, ok, no));
+    const ch = Math.min(ab.numberOfChannels, 2), n = ab.length, rate = ab.sampleRate;
+    const out = new DataView(new ArrayBuffer(44 + n * ch * 2)), w = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+    w(0, 'RIFF'); out.setUint32(4, 36 + n * ch * 2, true); w(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
+    out.setUint16(22, ch, true); out.setUint32(24, rate, true); out.setUint32(28, rate * ch * 2, true); out.setUint16(32, ch * 2, true); out.setUint16(34, 16, true);
+    w(36, 'data'); out.setUint32(40, n * ch * 2, true);
+    const data = [...Array(ch)].map((_, c) => ab.getChannelData(c));
+    for (let i = 0, o = 44; i < n; i++) for (let c = 0; c < ch; c++, o += 2) { const v = Math.max(-1, Math.min(1, data[c][i])); out.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); }
+    return new Blob([out], { type: 'audio/wav' });
+  } finally { ac.close().catch(() => {}); }
+}
 
 async function loadPad(id) {
   const p = S.pads[id]; if (!p) return;
