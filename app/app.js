@@ -1158,7 +1158,8 @@ function trimBox(id, onchange, preview) {
   const stateEl = h('span', { class: 'sub' });
   const saveB = h('button', { class: 'sbtn pri', onclick: () => api.save() }, '저장'), cancelB = h('button', { class: 'sbtn', onclick: () => api.cancel() }, '취소');
   const mark = () => { const d = dirty(); saveB.disabled = cancelB.disabled = !d; stateEl.textContent = d ? '저장 안 됨' : ''; };
-  const commit = () => { if (dirty()) api.save(); };   // 바로 적용(창의 [취소]로 되돌림)
+  // 바로 적용(창의 [취소]로 되돌림) + 바꾼 쪽을 바로 3초 들려줌(시작 = 그 자리부터, 끝 = 끝 3초 전부터)
+  const commit = side => { if (!dirty()) return; api.save(); if (side) preview(side === 's' ? 0 : Math.max(0, Engine.dur(id) - 3), 3); };
   const api = {
     dirty,
     save() { logLine(`트림  ${nm(id)} ${ns()}~${ne() || '끝'}`); p.start = ns(); p.end = ne(); Engine.setTrim(id, p.start, p.end); touchEdit(p); save(); mark(); onchange(); },
@@ -1182,12 +1183,12 @@ function trimBox(id, onchange, preview) {
     bar.setPointerCapture(ev.pointerId); (which === 's' ? setS : setE)(t);
   });
   bar.addEventListener('pointermove', ev => { if (!which) return; const r = bar.getBoundingClientRect(); (which === 's' ? setS : setE)((ev.clientX - r.left) / r.width * D); });
-  const up = () => { if (which) { which = null; commit(); } };
+  const up = () => { if (which) { const w = which; which = null; commit(w); } };
   bar.addEventListener('pointerup', up); bar.addEventListener('pointercancel', up);
   // ◀▶: 한 번 = 0.1초, 누르고 있으면 반복하며 점점 크게(0.1 → 1초)
-  const nb = (label, fn) => {
+  const nb = (label, side, fn) => {
     const b = h('button', { class: 'nud', 'aria-label': label }, label); let tm = 0, n = 0;
-    const stop = () => { if (!tm) return; clearTimeout(tm); tm = 0; commit(); };
+    const stop = () => { if (!tm) return; clearTimeout(tm); tm = 0; commit(side); };
     const go = () => { fn(n < 8 ? 0.1 : n < 20 ? 0.5 : 1); n++; tm = setTimeout(go, n === 1 ? 400 : 90); };
     b.addEventListener('pointerdown', e => { e.preventDefault(); n = 0; go(); });
     ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
@@ -1196,11 +1197,11 @@ function trimBox(id, onchange, preview) {
   requestAnimationFrame(() => { wave(); draw(); });
   draw(); mark();
   api.el = h('div', { class: 'row col' },
-    h('label', null, helpLabel('구간(트림)', (Engine.peaks(id, 8) ? '막대의 손잡이를 끌거나' : '긴 트랙은 파형 없이 막대로. 손잡이를 끌거나') + ' 아래 ◀▶로 시작·끝을 맞춰요(누르고 있으면 빨라짐). ↺ = 트랙 전체로. 파일은 잘리지 않아요. 미리 듣기는 맞춘 구간으로 들려요.')),
+    h('label', null, helpLabel('구간(트림)', (Engine.peaks(id, 8) ? '막대의 손잡이를 끌거나' : '긴 트랙은 파형 없이 막대로. 손잡이를 끌거나') + ' 아래 ◀▶로 시작·끝을 맞춰요(누르고 있으면 빨라짐). ↺ = 트랙 전체로. 파일은 잘리지 않아요. 시작·끝을 바꾸면 그 자리를 바로 3초 들려줘요.')),
     bar,
     h('div', { class: 'tends' },
-      h('div', { class: 'tend' }, nb('◀', d => setS(s - d)), h('span', null, h('small', null, '시작'), sOut), nb('▶', d => setS(s + d))),
-      h('div', { class: 'tend' }, nb('◀', d => setE(e - d)), h('span', null, h('small', null, '끝'), eOut), nb('▶', d => setE(e + d)))),
+      h('div', { class: 'tend' }, nb('◀', 's', d => setS(s - d)), h('span', null, h('small', null, '시작'), sOut), nb('▶', 's', d => setS(s + d))),
+      h('div', { class: 'tend' }, nb('◀', 'e', d => setE(e - d)), h('span', null, h('small', null, '끝'), eOut), nb('▶', 'e', d => setE(e + d)))),
     h('div', { class: 'trow' }, lenOut, resetBtn(() => { s = 0; e = D; draw(); commit(); })),
     h('div', { class: 'trow' }, h('small', { class: 'plab' }, '미리 듣기'),
       h('button', { class: 'sbtn', onclick: () => preview(0) }, '▶ 처음부터'), h('button', { class: 'sbtn', onclick: () => preview(Math.max(0, Engine.dur(id) - 3)) }, '▶ 끝 3초'), h('button', { class: 'sbtn', onclick: () => Engine.stop(id, 0) }, '■')),
@@ -1214,10 +1215,14 @@ function openPadSheet(id) {
   const refresh = () => { touchEdit(p); save(); const el = padEls.get(id); if (el) { const n = b.pads.indexOf(id) + 1; el.replaceWith(makePad(id, n)); } };
   // 미리 듣기: 편집 모드에선 패드를 눌러도 설정이 열리므로 여기서 듣는다
   let heard = false;
-  const preview = from => {
+  // sec 있음 = 트림을 바꿔 자동으로 듣기(울리던 건 끊고 다시, sec초 뒤 정지). 없음 = 단추(누르면 켜고/끄기)
+  let auTm = 0;
+  const preview = (from, sec) => {
     if (status[id] !== 'ready' || !started) return;
-    if (Engine.isPlaying(id)) { Engine.stop(id, 0); return; }
+    clearTimeout(auTm);
+    if (Engine.isPlaying(id)) { Engine.stop(id, 0); if (!sec) return; }
     Engine.play(id, playOpt(p, from)); lastId = id; heard = true; paintPad(id);
+    if (sec) auTm = setTimeout(() => { if (Engine.isPlaying(id)) Engine.stop(id, 0.15); }, sec * 1000);
   };
   let trim = null;
   openSheet('패드 설정', body => {
@@ -1260,6 +1265,7 @@ function openPadSheet(id) {
   }, () => padEls.get(id), { pad: id });
   // 저장 안 한 트림은 닫을 때 묻는다. 미리 듣기로 튼 소리는 끔
   onSheetClose = () => {
+    clearTimeout(auTm);
     if (heard && Engine.isPlaying(id)) Engine.stop(id, 0);
   };
 }
