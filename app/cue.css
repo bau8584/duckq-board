@@ -74,15 +74,21 @@
 /* GO: 큐박스 맨 아래, 칸 폭 가득 (조작줄에선 재생바를 가렸음 2026-10-03) */
 .cbtn.qgo{width:100%;height:64px;flex:none;flex-direction:row;justify-content:flex-start;gap:12px;padding:0 14px;font:900 28px/1 var(--font);letter-spacing:.08em;border:2px solid var(--text)}
 .cbtn.qgo b{flex:none}
-.cbtn.qgo .qgi{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;text-align:left;padding-left:12px;border-left:1px solid var(--line);letter-spacing:0}
-.cbtn.qgo .qgi small,.cbtn.qgo .qgi i{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal}
-.cbtn.qgo .qgi small{font:800 15px/1.2 var(--font)}
-.cbtn.qgo .qgi i{font:600 12px/1.2 var(--font);color:var(--text-dim)}
-.cbtn.qgo .qgi i:empty{display:none}
-.cbtn.qgo .qgi em{display:inline-block;width:3.2em;font:700 11px var(--font);font-style:normal;color:var(--text-dim)}
+.cbtn.qgo .qgi{flex:1;min-width:0;display:flex;gap:8px;align-items:center;text-align:left;padding-left:12px;border-left:1px solid var(--line);letter-spacing:0}
+.cbtn.qgo .qgl{display:flex;flex-direction:column;flex:none}
+.cbtn.qgo .qgl[hidden]{display:none}
+.cbtn.qgo .qgl em{height:20px;font:700 11px/20px var(--font);font-style:normal;color:var(--text-dim)}
+.cbtn.qgo .qgw{flex:1;min-width:0;height:40px;overflow:hidden}
+.cbtn.qgo .qgk{display:flex;flex-direction:column}
+.cbtn.qgo .qgk div{height:20px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:600 12px/20px var(--font);color:var(--text-dim);transition:font-size .35s,color .35s,opacity .35s}
+.cbtn.qgo .qgk div.a{font:800 15px/20px var(--font);color:var(--text)}
+/* 밀어 올리기: 한 칸(20px) 위로 — 맨 위(나간 큐)는 흐려지며 사라지고, 둘째가 굵게 */
+.cbtn.qgo .qgk.roll{transform:translateY(-20px);transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+.cbtn.qgo .qgk.roll div:first-child{opacity:0}
+.cbtn.qgo .qgk.roll div:nth-child(2){font-size:15px;font-weight:800;color:var(--text)}
 /* ⤒▲▼는 편집 때만 — 공연 중엔 GO만 (소유자 2026-10-03). 키보드 ←는 그대로 */
 body:not(.editing) .qpanel .qnav{display:none}
-.cbtn.qgo.wait .qgi small{opacity:1;font-weight:800;color:var(--board)}
+.cbtn.qgo.wait .qgk div.a{opacity:1;font-weight:800;color:var(--board)}
 .stage.qon:not(.qopen) .qpanel .qgo{width:auto;height:88px;margin:4px;padding:0;justify-content:center;font-size:15px;letter-spacing:0}
 .stage.qon:not(.qopen) .qpanel .qgo .qgi{display:none}
 /* 큐보드를 펼쳤을 때만 한 줄 패드 수를 줄임(줄 높이는 그대로) — 6→4, 8→6, 4→3. 접으면 원래대로 */

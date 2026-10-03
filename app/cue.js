@@ -246,6 +246,7 @@ window.Cue = (() => {
   const panel = h('div', { class: 'qpanel' });
   const stage = document.querySelector('.stage');
   stage.insertBefore(panel, stage.querySelector('.side'));
+  let goK = null, goAnim = 0;   // GO 안 큐 이름 밀어 올리기: 지난 상태 · 움직이는 중
   let goB = null, tabBox = null, dirty = false, raf = 0;
   const soon = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; paint(); }); };
   // 입력 칸에 글자를 쓰는 중이면 다시 그리지 않고, 손 뗀 뒤에 그림
@@ -772,16 +773,27 @@ window.Cue = (() => {
   function paintGo() {
     if (!on()) { if (goB) { goB.remove(); goB = null; } return; }
     if (!goB) {
-      goB = h('button', { class: 'cbtn qgo', 'aria-label': 'GO — 다음 큐 내보내기' }, h('b', null, 'GO'), h('span', { class: 'qgi' }, h('small'), h('i')));   // 오른쪽: 다음 큐 / 그다음(옛 '다음·그다음' 줄을 합침 2026-10-03)
+      goB = h('button', { class: 'cbtn qgo', 'aria-label': 'GO — 다음 큐 내보내기' }, h('b', null, 'GO'), h('span', { class: 'qgi' }, h('span', { class: 'qgl' }, h('em', null, '다음'), h('em', null, '그다음')), h('span', { class: 'qgw' }, h('span', { class: 'qgk' }))));   // 오른쪽: 다음 큐 / 그다음(옛 '다음·그다음' 줄을 합침 2026-10-03)
       goB.addEventListener('pointerdown', e => { e.preventDefault(); goB.classList.add('hit'); setTimeout(() => goB && goB.classList.remove('hit'), 90); go(); });   // 자리는 큐박스 맨 아래(paint가 붙임) — 아래 조작줄에선 재생바를 가렸음(2026-10-03)
     }
     const b = board(), L = cues(b), k = cur(b), c = L[k];
     // 기다렸다가 나가는 줄이 있으면 GO 아래에 남은 초 — 반응이 없는 줄 알고 또 누르지 않게
     let w = null; pend.forEach((e, id) => { const r = e.sec - (performance.now() - e.t0) / 1000; if (!w || r < w.r) w = { r, i: L.findIndex(x => x.id === id) }; });
     goB.classList.toggle('wait', !!w);
-    const [g1, g2] = goB.lastChild.children, n2 = c && L[nextGo(L, k)];
-    g2.replaceChildren(...(n2 || c ? [h('em', null, '그다음')] : []), ...(n2 ? [`${cueLabel(L, nextGo(L, k))} · ${n2.memo || padName(n2)}`] : c ? ['끝'] : []));
-    g1.replaceChildren(...(c && !w ? [h('em', null, '다음')] : []), w ? `⏳ ${Math.max(1, Math.ceil(w.r))}초 뒤 ${w.i >= 0 ? qno(L, w.i) : ''}` : !L.length ? '큐 없음' : c ? `${cueLabel(L, k)} · ${c.memo || padName(c)}` : '끝');
+    const n2 = c && L[nextGo(L, k)];
+    const t1 = w ? `⏳ ${Math.max(1, Math.ceil(w.r))}초 뒤 ${w.i >= 0 ? qno(L, w.i) : ''}` : !L.length ? '큐 없음' : c ? `${cueLabel(L, k)} · ${c.memo || padName(c)}` : '끝';
+    const t2 = n2 ? `${cueLabel(L, nextGo(L, k))} · ${n2.memo || padName(n2)}` : c ? '끝' : '';
+    const [lab, win] = goB.lastChild.children, trk = win.firstChild;
+    lab.hidden = !c;
+    // GO로 앞으로 나가면: 이름표는 그대로, 큐 이름만 한 칸 밀려 올라감(나간 큐는 위로 사라지고, 새 그다음이 아래에서)
+    if (goAnim) return;
+    const key = b.id + ':' + k, fwd = goK && goK.id === b.id && k > goK.k && !w && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (goK && key !== goK.key && fwd && goK.t1) {
+      trk.replaceChildren(h('div', { class: 'a' }, goK.t1), h('div', null, goK.t2 || t1), h('div', null, t2));
+      void trk.offsetWidth; trk.classList.add('roll');
+      goAnim = setTimeout(() => { goAnim = 0; trk.classList.remove('roll'); paintGo(); }, 380);
+    } else trk.replaceChildren(h('div', { class: 'a' }, t1), h('div', null, t2));
+    goK = { id: b.id, k, key, t1: w ? '' : t1, t2 };
   }
   setInterval(() => {
     if (!on() || !live.size) return;
