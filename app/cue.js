@@ -747,8 +747,7 @@ window.Cue = (() => {
         sceneNext ? h('div', { class: 'qdim' }, `■ ${sceneNext} — 다음에 담는 줄 위에 붙어요`) : '') : '',
       help || !L.length ? helpBox() : '',
       box,
-      h('div', { class: 'qfoot' }, nav, h('div', { class: 'qnext' }, h('small', null, '다음'), h('b', null, next ? `${cueLabel(L, k)} · ${next.memo || padName(next)}` : L.length ? '끝 — ▲로 되돌리기' : '—')),
-        next && L[nextGo(L, k)] ? h('div', { class: 'qnext q2' }, h('small', null, '그다음'), h('span', null, `${cueLabel(L, nextGo(L, k))} · ${L[nextGo(L, k)].memo || padName(L[nextGo(L, k)])}`)) : '', goB),
+      h('div', { class: 'qfoot' }, nav, goB),
       selBar(b, L));
     box.scrollTop = top;   // 다시 그려도 손으로 둔 자리 그대로
     if (center) {
@@ -773,14 +772,16 @@ window.Cue = (() => {
   function paintGo() {
     if (!on()) { if (goB) { goB.remove(); goB = null; } return; }
     if (!goB) {
-      goB = h('button', { class: 'cbtn qgo', 'aria-label': 'GO — 다음 큐 내보내기' }, h('b', null, 'GO'), h('small'));
+      goB = h('button', { class: 'cbtn qgo', 'aria-label': 'GO — 다음 큐 내보내기' }, h('b', null, 'GO'), h('span', { class: 'qgi' }, h('small'), h('i')));   // 오른쪽: 다음 큐 / 그다음(옛 '다음·그다음' 줄을 합침 2026-10-03)
       goB.addEventListener('pointerdown', e => { e.preventDefault(); goB.classList.add('hit'); setTimeout(() => goB && goB.classList.remove('hit'), 90); go(); });   // 자리는 큐박스 맨 아래(paint가 붙임) — 아래 조작줄에선 재생바를 가렸음(2026-10-03)
     }
     const b = board(), L = cues(b), k = cur(b), c = L[k];
     // 기다렸다가 나가는 줄이 있으면 GO 아래에 남은 초 — 반응이 없는 줄 알고 또 누르지 않게
     let w = null; pend.forEach((e, id) => { const r = e.sec - (performance.now() - e.t0) / 1000; if (!w || r < w.r) w = { r, i: L.findIndex(x => x.id === id) }; });
     goB.classList.toggle('wait', !!w);
-    goB.lastChild.textContent = w ? `⏳ ${Math.max(1, Math.ceil(w.r))}초 뒤 ${w.i >= 0 ? qno(L, w.i) : ''}` : !L.length ? '큐 없음' : c ? `${qno(L, k)} ${c.memo || padName(c)}` : '끝';
+    const [g1, g2] = goB.lastChild.children, n2 = c && L[nextGo(L, k)];
+    g2.textContent = n2 ? `그다음 ${cueLabel(L, nextGo(L, k))} · ${n2.memo || padName(n2)}` : c ? '그다음 — 끝' : '';
+    g1.textContent = w ? `⏳ ${Math.max(1, Math.ceil(w.r))}초 뒤 ${w.i >= 0 ? qno(L, w.i) : ''}` : !L.length ? '큐 없음' : c ? `${cueLabel(L, k)} · ${c.memo || padName(c)}` : '끝';
   }
   setInterval(() => {
     if (!on() || !live.size) return;
