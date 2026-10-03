@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.104 (2026-10-03)';
+const VER = 'DuckQ Board 0.3.105 (2026-10-03)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -755,13 +755,16 @@ async function startRecord() {
   if (S.lock || recNow) return;
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return toast(isSecureContext ? '이 기기·브라우저는 녹음을 못 해요' : '녹음은 https 주소(q.deokgu.com)에서만 돼요', 6000);
   recNow = {};
+  // 0.3.102에서 소리 종류를 '재생'으로 둬서(무음 스위치 무시) 아이패드가 마이크를 막음(InvalidStateError) → 녹음하는 동안만 '재생+녹음'
+  const AS = navigator.audioSession, setAS = t => { try { if (AS && AS.type !== t) { AS.type = t; logLine(`소리 종류: ${t}`); } } catch {} };
+  setAS('play-and-record');
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { noiseSuppression: true, echoCancellation: true, autoGainControl: true } }); }
   catch (e) {
     logLine(`마이크(잡음 억제) 못 씀: ${e.name} ${e.message}`, 'w');
     if (e.name !== 'NotAllowedError') try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch (e2) { e = e2; logLine(`마이크(기본) 못 씀: ${e.name} ${e.message}`, 'e'); }
     if (!stream) {
-      recNow = null;
+      recNow = null; setAS('playback');
       const why = { NotAllowedError: '마이크 허용이 필요해요 (설정 → 사파리 → 마이크)', NotFoundError: '마이크를 찾지 못했어요 (마이크가 연결돼 있나요?)', NotReadableError: '다른 앱이 마이크를 쓰고 있어요 — 그 앱을 닫고 다시' }[e.name];
       return toast(why || `마이크를 켤 수 없어요 (${e.name})`, 6000);
     }
@@ -794,7 +797,7 @@ async function startRecord() {
   const end = async keep => {
     if (!recNow) return; recNow = null;
     cancelAnimationFrame(raf); document.removeEventListener('visibilitychange', onHide);
-    await finish(); stream.getTracks().forEach(t => t.stop()); ac.close().catch(() => {}); ov.remove();
+    await finish(); stream.getTracks().forEach(t => t.stop()); ac.close().catch(() => {}); ov.remove(); setAS('playback');
     if (!keep) { logLine('녹음 취소'); return; }
     if (!chunks.length) return toast('녹음된 소리가 없어요', 3000);
     try {
