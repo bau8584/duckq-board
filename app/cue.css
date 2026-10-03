@@ -250,3 +250,10 @@ body:not(.editing) .qpanel .qnav{display:none}
 .qrow.q-run .qln i{box-shadow:0 0 0 1px #0b0c0e}
 /* 말풍선 볼륨 막대: 폭이 좁아 −/＋·값 칸을 줄이고 막대를 패드 설정(130px)만큼 */
 .qpop .step{gap:6px}.qpop .step button{min-width:32px;height:34px;padding:0}.qpop .step output{min-width:46px;font-size:14px}.qpop .step input{min-width:110px}
+/* 여기부터 (고른 큐 줄의 작은 단추 + 창) */
+.qfh-b{display:block;margin-top:4px;padding:3px 8px;border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--text);font:inherit;font-size:12px;cursor:pointer}
+.qfh{display:flex;flex-direction:column;gap:6px;text-align:left;margin:6px 0}
+.qfh-r{display:grid;grid-template-columns:22px 1fr;column-gap:6px;align-items:center;cursor:pointer}
+.qfh-r small{grid-column:2;opacity:.7;font-size:12px}
+.qfh-r.dim b{opacity:.6}
+.qfh-w{font-size:13px;color:#e5484d}
