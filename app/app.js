@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.110 (2026-10-06)';
+const VER = 'DuckQ Board 0.3.111 (2026-10-06)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -907,14 +907,152 @@ async function toWav(blob, dn) {
     const ab = await new Promise((ok, no) => ac.decodeAudioData(raw, ok, no));
     let rate = ab.sampleRate, data = [...Array(Math.min(ab.numberOfChannels, 2))].map((_, c) => ab.getChannelData(c));
     if (dn) try { ({ rate, data } = await Denoise.run(ab)); } catch (e) { logLine(`잡음 거르기 실패 → 원본으로: ${e.message}`, 'e'); }
-    const ch = data.length, n = data[0].length;
-    const out = new DataView(new ArrayBuffer(44 + n * ch * 2)), w = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
-    w(0, 'RIFF'); out.setUint32(4, 36 + n * ch * 2, true); w(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
-    out.setUint16(22, ch, true); out.setUint32(24, rate, true); out.setUint32(28, rate * ch * 2, true); out.setUint16(32, ch * 2, true); out.setUint16(34, 16, true);
-    w(36, 'data'); out.setUint32(40, n * ch * 2, true);
-    for (let i = 0, o = 44; i < n; i++) for (let c = 0; c < ch; c++, o += 2) { const v = Math.max(-1, Math.min(1, data[c][i])); out.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); }
-    return new Blob([out], { type: 'audio/wav' });
+    return encWav(rate, data);
   } finally { ac.close().catch(() => {}); }
+}
+// 16비트 WAV로 묶기(녹음·목소리 바꾸기가 같이 씀)
+function encWav(rate, data) {
+  const ch = data.length, n = data[0].length;
+  const out = new DataView(new ArrayBuffer(44 + n * ch * 2)), w = (o, t) => [...t].forEach((c, i) => out.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); out.setUint32(4, 36 + n * ch * 2, true); w(8, 'WAVEfmt '); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
+  out.setUint16(22, ch, true); out.setUint32(24, rate, true); out.setUint32(28, rate * ch * 2, true); out.setUint16(32, ch * 2, true); out.setUint16(34, 16, true);
+  w(36, 'data'); out.setUint32(40, n * ch * 2, true);
+  for (let i = 0, o = 44; i < n; i++) for (let c = 0; c < ch; c++, o += 2) { const v = Math.max(-1, Math.min(1, data[c][i])); out.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true); }
+  return new Blob([out], { type: 'audio/wav' });
+}
+
+// ---------- 목소리 바꾸기 (PLAN-목소리효과): 패드 소리에 효과를 구워 새 패드로. 원본은 그대로 ----------
+// 브라우저 기본 소리 기능 + 직접 짠 음높이 바꾸기(WSOLA)만 씀 — 새 라이브러리 없음, 인터넷 없어도 됨.
+const VOICES = [['mic', '🎤', '마이크'], ['phone', '📞', '전화'], ['monster', '👹', '괴물'], ['echo', '⛰', '메아리'], ['robot', '🤖', '로봇'], ['chip', '🐿', '다람쥐']];
+const VOICE_MAX = 120;   // 초. 목소리용이라 그 이상은 앞 2분만
+const Voice = (() => {
+  const R = 48000;
+  // 파일 → 48kHz 모노, 패드에 트림한 구간만
+  async function decode(blob, from, to) {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    let ab; try { const raw = await blob.arrayBuffer(); ab = await new Promise((ok, no) => ac.decodeAudioData(raw, ok, no)); } finally { ac.close().catch(() => {}); }
+    const a = Math.min(from || 0, ab.duration), b = Math.min(to > a ? to : ab.duration, a + VOICE_MAX);
+    const off = new OfflineAudioContext(1, Math.max(1, Math.ceil((b - a) * R)), R), src = off.createBufferSource();
+    src.buffer = ab; src.connect(off.destination); src.start(0, a, b - a);
+    return (await off.startRendering()).getChannelData(0);
+  }
+  // 소리 연결망을 오프라인으로 돌림. len = 결과 길이(샘플), build(off, src) → src에서 destination까지 잇는다
+  async function graph(x, len, build, rate = 1) {
+    const off = new OfflineAudioContext(1, Math.max(1, len), R), buf = off.createBuffer(1, x.length, R);
+    buf.getChannelData(0).set(x);
+    const src = off.createBufferSource(); src.buffer = buf; src.playbackRate.value = rate;
+    build(off, src); src.start();
+    return (await off.startRendering()).getChannelData(0);
+  }
+  const bq = (off, type, f, g = 0, q = 0.7) => { const n = off.createBiquadFilter(); n.type = type; n.frequency.value = f; n.gain.value = g; n.Q.value = q; return n; };
+  const chain = (src, ...ns) => ns.reduce((a, n) => a.connect(n), src);
+  // 길이만 바꾸기(음높이 그대로) — WSOLA: 겹치는 조각을 앞 조각과 가장 잘 이어지는 자리에서 골라 붙임
+  function stretch(x, n) {
+    const N = 1536, Hs = N / 2, S = 384, Ha = (x.length - N) / Math.max(1, n - N) * Hs;
+    const w = Float32Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / N));
+    const y = new Float32Array(n + N), nm = new Float32Array(n + N);
+    let prev = 0;
+    for (let k = 0, o = 0; o < n; k++, o += Hs) {
+      const c = Math.round(k * Ha); let best = Math.max(0, Math.min(c, x.length - N));
+      if (k) {
+        const t = prev + Hs; let bv = -Infinity;
+        for (let d = -S; d <= S; d += 4) {
+          const s = c + d; if (s < 0 || s + N > x.length) continue;
+          let v = 0; for (let i = 0; i < N; i += 8) v += x[s + i] * (x[t + i] || 0);
+          if (v > bv) { bv = v; best = s; }
+        }
+      }
+      prev = best;
+      for (let i = 0; i < N; i++) { y[o + i] += (x[best + i] || 0) * w[i]; nm[o + i] += w[i]; }
+    }
+    for (let i = 0; i < n; i++) if (nm[i] > 1e-3) y[i] /= nm[i];
+    return y.subarray(0, n);
+  }
+  async function pitch(x, f) {   // f < 1 = 낮게. 늘어지게 틀어 음을 바꾼 뒤 원래 길이로 되돌림
+    const r = await graph(x, Math.ceil(x.length / f), (off, src) => src.connect(off.destination), f);
+    return stretch(r, x.length);
+  }
+  const FX = {
+    mic: x => graph(x, x.length, (off, src) => {
+      const c = off.createDynamicsCompressor(); c.threshold.value = -26; c.ratio.value = 4; c.attack.value = 0.005; c.release.value = 0.2;
+      chain(src, bq(off, 'highpass', 120), bq(off, 'peaking', 3000, 5, 1), bq(off, 'highshelf', 8000, 2), c, off.destination);
+    }),
+    phone: x => graph(x, x.length, (off, src) => {
+      const ws = off.createWaveShaper(); ws.curve = Float32Array.from({ length: 1024 }, (_, i) => Math.tanh(3 * (i / 511.5 - 1)) / Math.tanh(3));
+      chain(src, bq(off, 'highpass', 400), bq(off, 'highpass', 400), bq(off, 'lowpass', 3000), bq(off, 'lowpass', 3000), bq(off, 'peaking', 1500, 6, 1), ws, off.destination);
+    }),
+    monster: async x => graph(await pitch(x, 0.68), x.length, (off, src) => chain(src, bq(off, 'lowshelf', 180, 5), off.destination)),
+    echo: x => graph(x, x.length + Math.round(2.5 * R), (off, src) => {
+      const d = off.createDelay(1), fb = off.createGain(), wet = off.createGain();
+      d.delayTime.value = 0.32; fb.gain.value = 0.45; wet.gain.value = 0.6;
+      src.connect(off.destination);
+      chain(src, d, fb, bq(off, 'lowpass', 2500), d); d.connect(wet).connect(off.destination);
+    }),
+    robot: async x => {   // 낮은 떨림을 곱하고(링 변조) 10ms 짧은 울림을 겹침 — 쇳소리
+      const y = new Float32Array(x.length), D = Math.round(0.01 * R), k = 2 * Math.PI * 55 / R;
+      for (let i = 0; i < x.length; i++) y[i] = x[i] * (Math.sin(k * i) * 0.8 + 0.2) + (i >= D ? 0.5 * y[i - D] : 0);
+      return y;
+    },
+    chip: x => graph(x, Math.ceil(x.length / 1.5), (off, src) => src.connect(off.destination), 1.5),
+  };
+  // 가장 큰 소리를 0.89로 맞춤(효과마다 크기가 들쭉날쭉하지 않게)
+  function norm(y) { let m = 0; for (const v of y) m = Math.max(m, Math.abs(v)); if (m > 1e-4) { const g = 0.89 / m; for (let i = 0; i < y.length; i++) y[i] *= g; } return y; }
+  async function make(x, kind) {
+    const t0 = performance.now(), y = norm(Float32Array.from(await FX[kind](x)));
+    logLine(`목소리 바꾸기 ${kind} ${(x.length / R).toFixed(1)}초 · ${((performance.now() - t0) / 1000).toFixed(2)}초 걸림`);
+    return y;
+  }
+  return { R, decode, make };
+})();
+function openVoiceSheet(id) {
+  const p = S.pads[id], rec = p && files.get(p.file); if (!rec) return toast('파일이 없어요', 3000);
+  const b = board(), got = {};   // 효과 → 바꾼 소리(한 번 만든 건 다시 안 만듦)
+  let src = null, x = null, pick = null, busy = false;
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const stop = () => { if (src) { try { src.stop(); } catch {} src = null; } };
+  const play = y => { stop(); const ab = ac.createBuffer(1, y.length, Voice.R); ab.getChannelData(0).set(y); src = ac.createBufferSource(); src.buffer = ab; src.connect(ac.destination); src.start(); };
+  const saveBtn = h('button', { class: 'sbtn pri', disabled: true }, '새 패드로 저장');
+  const btns = VOICES.map(([k, ic, ko]) => h('button', { class: 'sbtn vx', onclick: () => tap(k) }, `${ic} ${ko}`));
+  const btnOrig = h('button', { class: 'sbtn vx', onclick: () => tap('') }, '원래 소리');
+  async function tap(k) {
+    if (busy) return;
+    ac.resume().catch(() => {});
+    if (pick === k && src) return stop();   // 같은 걸 다시 누르면 멈춤
+    busy = true; stop();
+    try {
+      if (!x) { toast('소리 여는 중…', 60000); x = await Voice.decode(rec.blob, p.start || 0, p.end || 0); }
+      if (k && !got[k]) { toast('목소리 바꾸는 중…', 60000); got[k] = await Voice.make(x, k); }
+      toast('목소리 미리 듣는 중 — 다시 누르면 멈춰요', 1500);
+      pick = k; [...btns, btnOrig].forEach(el => el.classList.remove('on'));
+      (k ? btns[VOICES.findIndex(v => v[0] === k)] : btnOrig).classList.add('on');
+      saveBtn.disabled = !k;
+      play(k ? got[k] : x);
+    } catch (e) { logLine(`목소리 바꾸기 실패 "${p.label}": ${e.message}`, 'e'); toast('이 소리는 바꾸지 못했어요', 4000); }
+    busy = false;
+  }
+  saveBtn.onclick = async () => {
+    if (!pick || busy) return; busy = true; stop();
+    const label = `${p.label}(${VOICES.find(v => v[0] === pick)[2]})`;
+    try {
+      const f = new File([encWav(Voice.R, [got[pick]])], label + '.wav', { type: 'audio/wav' });
+      const r = { id: uid(), name: f.name, size: f.size, type: f.type, blob: f };
+      await Store.putFile(r); files.set(r.id, r);
+      const q = newPad(r.id, label, got[pick].length / Voice.R);
+      q.color = p.color; q.vol = p.vol;
+      S.pads[q.id] = q; b.pads.splice(b.pads.indexOf(id) + 1, 0, q.id); save();
+      logLine(`목소리 바꿔 새 패드 "${label}" ${(f.size / 1024).toFixed(0)}KB`);
+      closeSheet(); renderTop(); renderGrid(); await loadPad(q.id);
+      toast(`"${label}" 패드를 만들었어요`);
+    } catch (e) { logLine(`목소리 패드 저장 실패: ${e.message}`, 'e'); toast('저장하지 못했어요', 4000); busy = false; }
+  };
+  const long = ((p.end || p.dur) - (p.start || 0)) > VOICE_MAX;
+  openSheet('목소리 바꾸기', body => {
+    body.append(
+      h('div', { class: 'row col' }, h('label', null, helpLabel('효과', `눌러서 들어 보고 마음에 들면 저장 — 옆에 새 패드가 생겨요. 원래 패드는 그대로예요. 트림한 구간만 바꿔요.${long ? ` 긴 소리는 앞 ${VOICE_MAX / 60}분만.` : ''}`)),
+        h('div', { class: 'vx-grid' }, ...btns, btnOrig)),
+      h('div', { class: 'row' }, h('span', { class: 'plab' }, `"${p.label}" → 새 패드`), h('div', { class: 'end' }, saveBtn)));
+  }, () => padEls.get(id), { pad: id });
+  onSheetClose = () => { stop(); ac.close().catch(() => {}); };
 }
 
 async function loadPad(id) {
@@ -1423,7 +1561,7 @@ function openPadSheet(id) {
       seg([['each', '트랙별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], p.soloMode || S.settings.soloMode, v => { p.soloMode = v; touchEdit(p); save(); }));
     const act = h('div', { class: 'hact' }, h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
-      } }, '복제'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: async () => {
+      } }, '복제'), h('button', { class: 'sbtn', onclick: () => openVoiceSheet(id) }, '목소리'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: async () => {
         if (!await ask(`"${p.label}" 패드를 지울까요?`, { ok: '지우기', danger: true })) return;
         removePad(id); save(); closeSheet(); renderTop();
       } }, '삭제'));
@@ -1838,10 +1976,10 @@ async function boot() {
 }
 boot();
 
-// ---------- 폰 세로 화면 (폭 600px 이하만 · 아이패드는 그대로) ----------
+// ---------- 폰 화면 (세로: 폭 600px 이하 · 가로: 높이 500px 이하 · 아이패드는 그대로) ----------
 // 아래 탭 [큐]/[패드] — 큐 탭 = 큐 목록 + 큰 GO, 패드 탭 = 패드 판. 큐보드를 꺼 두면 탭 없이 패드만.
 (() => {
-  const app = $('app'), mq = matchMedia('(max-width:600px)');
+  const app = $('app'), mq = matchMedia('(max-width:600px),(max-height:500px)');
   const set = v => {
     app.dataset.pv = v;
     $('ptabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v));

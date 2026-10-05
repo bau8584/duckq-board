@@ -392,9 +392,9 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .rec-dn{display:flex;align-items:center;justify-content:center;gap:8px;font-size:14px}
 .rec-dn input{width:20px;height:20px}
 
-/* 폰 세로 (폭 600px 이하만 — 아이패드는 이 아래 줄을 하나도 안 씀) */
+/* 폰 (세로: 폭 600px 이하 · 가로: 높이 500px 이하 — 아이패드는 이 아래 줄을 하나도 안 씀) */
 .ptabs{display:none}
-@media (max-width:600px){
+@media (max-width:600px),(max-height:500px){
   .app{grid-template-rows:auto 1fr auto auto;gap:8px;padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
   .top{gap:8px}
   .grp{gap:6px}
@@ -409,10 +409,6 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
   .app[data-pv="pad"] .stage.qon .qpanel{display:none}
   .app .stage.qon .qpanel .qtog{display:none}   /* 폰에선 늘 펼침 — 접기 대신 아래 탭 */
   .app .stage.qon .qpanel .qgo{height:80px}
-  /* 패드: 폰 폭에 맞춰 열 수 줄임 (크게 2 · 보통 3 · 작게 4) */
-  .app .stage .tray .grid[data-cols="4"]{--cols:2!important}
-  .app .stage .tray .grid[data-cols="6"]{--cols:3!important}
-  .app .stage .tray .grid[data-cols="8"]{--cols:4!important}
   .tray{padding:8px}
   /* 아래: 재생 줄은 한 줄 통째, 그 아래 전체화면 · 일시정지 · 정지 · 페이드 */
   .bottom{grid-template-columns:auto 1fr;gap:8px}
@@ -434,3 +430,28 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
   .ptabs button{height:44px;border-radius:12px;border:1px solid var(--line);background:var(--bg1);color:var(--text-dim);font:800 16px var(--font)}
   .ptabs button.on{background:var(--text);color:var(--bg0);border-color:var(--text)}
 }
+/* 폰 세로만: 패드 열 수 줄임 (크게 2 · 보통 3 · 작게 4) */
+@media (max-width:600px){
+  .app .stage .tray .grid[data-cols="4"]{--cols:2!important}
+  .app .stage .tray .grid[data-cols="6"]{--cols:3!important}
+  .app .stage .tray .grid[data-cols="8"]{--cols:4!important}
+}
+/* 폰 가로만: 높이가 귀하니 아래를 한 줄로 · 단추를 낮게 */
+@media (max-height:500px) and (min-width:601px){
+  .app{gap:6px;padding-top:max(6px,env(safe-area-inset-top));padding-bottom:max(6px,env(safe-area-inset-bottom))}
+  .bottom{grid-template-columns:auto 1fr auto}
+  .bottom #btnFull{grid-column:1;grid-row:1;height:44px}
+  .bottom .plays{grid-column:2;grid-row:1}
+  .plays:empty{display:block}
+  .bottom .ctl{grid-column:3;grid-row:1}
+  .cbtn{flex:none;width:72px;height:44px}
+  .app .stage.qon .qpanel .qgo{height:56px}
+  .ptabs button{height:36px}
+  .tray .pad{padding:6px 10px}   /* 패드가 납작해 번호 빼고 이름을 보임 */
+  .tray .pad .idx{display:none}
+  .selbar:not(.qsbar){bottom:calc(max(6px,env(safe-area-inset-bottom)) + 96px)}
+}
+/* 목소리 바꾸기: 효과 단추 판 */
+.vx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+.sbtn.vx{min-height:52px;font-size:16px}
+.sbtn.vx.on{background:var(--board);border-color:var(--board);color:#0b0c0e}
