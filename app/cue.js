@@ -945,7 +945,9 @@ window.Cue = (() => {
         h('button', { class: 'sbtn pri', onclick: printSheet }, '큐시트 (인쇄·PDF)'),
         h('button', { class: 'sbtn', onclick: () => { L.forEach(c => { c.when = 'go'; }); save(); logLine('큐 모두 GO로'); paint(); } }, '모두 GO로 나가게'),
         h('button', { class: 'sbtn danger', onclick: async () => { if (!L.length || !await ask(`큐 ${L.length}줄을 모두 지울까요?`, { ok: '모두 지우기', danger: true })) return; L.length = 0; sb[b.id] = 0; save(); logLine('큐 모두 지움'); paint(); } }, '모두 지우기')),
-      tabBox));
+      tabBox),
+      window.Reh ? row(helpLabel('리허설대로 알려 주기', '[● 리허설]로 기록한 보드에서, 다음 큐가 리허설 때와 같은 때(박수 끝나고 N초 · 조용 N초 · 앞 큐 +N초)가 되면 GO 단추가 깜빡여요. 누르는 건 사람. 박수·조용을 보려면 첫 GO 때 마이크를 한 번 켜고 큐가 끝날 때까지 둬요 — 녹음은 안 하고 소리 크기 숫자만, 이 기기 안에서만. 이 보드에만 적용'),
+        sw(!!b.rehHint, v => { if (v) b.rehHint = true; else { delete b.rehHint; Reh.hintOff(); } save(); logLine(`리허설대로 알려 주기 ${v ? '켬' : '끔'}`); })) : null);
     list(b, tabBox);
   }
 
@@ -964,5 +966,5 @@ window.Cue = (() => {
   }
 
   if (on()) paint();
-  return { open: () => { if (!open) { open = true; paint(); } }, label: cueLabel, tap, go, step, settingRow, tab, exportFix, importFix, paint: () => paint(), selN: () => editing() ? qsel.size : 0, clearSel: () => { if (qsel.size) { qsel.clear(); paint(); } } };
+  return { open: () => { if (!open) { open = true; paint(); } }, label: cueLabel, cur: b => cur(b), tap, go, step, settingRow, tab, exportFix, importFix, paint: () => paint(), selN: () => editing() ? qsel.size : 0, clearSel: () => { if (qsel.size) { qsel.clear(); paint(); } } };
 })();

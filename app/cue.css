@@ -267,3 +267,8 @@ body:not(.editing) .qpanel .qnav{display:none}
 .rh-t th{color:var(--text-dim);font-weight:700}
 .rh-t td:nth-child(-n+2){white-space:nowrap}
 .rh-lv{font-family:monospace;letter-spacing:-1px;white-space:nowrap}
+
+/* ② 리허설대로 알려 주기 — GO 깜빡임 */
+.cbtn.qgo.qhint{animation:qhint .7s ease-in-out infinite alternate}
+@keyframes qhint{from{background:var(--surface,transparent)}to{background:#f5b301;color:#111;border-color:#f5b301}}
+@media (prefers-reduced-motion: reduce){.cbtn.qgo.qhint{animation:none;background:#f5b301;color:#111}}
