@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.107 (2026-10-06)';
+const VER = 'DuckQ Board 0.3.108 (2026-10-06)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1837,3 +1837,18 @@ async function boot() {
   logLine(`복원 완료: 패드 ${order.length}개 · ${((performance.now() - t0) / 1000).toFixed(2)}초 · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB`);
 }
 boot();
+
+// ---------- 폰 세로 화면 (폭 600px 이하만 · 아이패드는 그대로) ----------
+// 아래 탭 [큐]/[패드] — 큐 탭 = 큐 목록 + 큰 GO, 패드 탭 = 패드 판. 큐보드를 꺼 두면 탭 없이 패드만.
+(() => {
+  const app = $('app'), mq = matchMedia('(max-width:600px)');
+  const set = v => {
+    app.dataset.pv = v;
+    $('ptabs').querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    if (v === 'cue' && mq.matches && window.Cue) Cue.open();
+    requestAnimationFrame(() => { sizeRows(); placeSelBar(); });
+  };
+  $('ptabs').addEventListener('click', e => { const b = e.target.closest('button'); if (b) set(b.dataset.v); });
+  addEventListener('load', () => set(app.dataset.pv || 'cue'));
+  mq.addEventListener('change', () => set(app.dataset.pv || 'cue'));
+})();

@@ -257,3 +257,13 @@ body:not(.editing) .qpanel .qnav{display:none}
 .qfh-r small{grid-column:2;opacity:.7;font-size:12px}
 .qfh-r.dim b{opacity:.6}
 .qfh-w{font-size:13px;color:#e5484d}
+/* 리허설 기록 (rehearse.js) */
+.qb.qreh-b{width:auto;padding:0 8px;font:700 12px var(--font);white-space:nowrap}
+.qb.qreh-b.on{background:#d33;color:#fff;border-color:#d33}
+.ask.rh{max-width:min(640px,94vw);max-height:86vh;overflow:auto}
+.rh-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.rh-t{width:100%;border-collapse:collapse;font:500 13px var(--font);margin:8px 0}
+.rh-t th,.rh-t td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line)}
+.rh-t th{color:var(--text-dim);font-weight:700}
+.rh-t td:nth-child(-n+2){white-space:nowrap}
+.rh-lv{font-family:monospace;letter-spacing:-1px;white-space:nowrap}

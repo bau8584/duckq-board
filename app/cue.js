@@ -182,6 +182,7 @@ window.Cue = (() => {
     if (!L.length) return toast('큐가 없어요 — 큐보드의 [+ 담기]로 넣어요');
     if (k >= L.length) { seq++; offBy('go', null, null, seq); logLine('GO → 끝'); return toast('마지막 큐까지 나갔어요 · ▲ 이전이나 ⤒ 처음으로'); }
     logLine(`GO ${cueLabel(L, k)}`);
+    if (window.Reh) Reh.mark(b, L[k], cueLabel(L, k));   // 리허설 기록 중이면 이 순간을 남김
     let j = k + 1; while (j < L.length && !isGo(L, j)) j++;
     sb[b.id] = j; lastIns = null;
     seq++; offBy('go', null, null, seq);
@@ -351,7 +352,7 @@ window.Cue = (() => {
   }
   function dupSel(L) {
     [...qsel].map(id => L.findIndex(c => c.id === id)).filter(i => i >= 0).sort((a, b) => b - a).forEach(i => {
-      const d = { ...L[i], id: uid() }; delete d.no; delete d.sub; delete d.scene; L.splice(i + 1, 0, d);
+      const d = { ...L[i], id: uid() }; delete d.no; delete d.sub; delete d.scene; delete d.rh; L.splice(i + 1, 0, d);
     });
     logLine(`큐 줄 복제 ${qsel.size}줄`); qsel.clear(); save(); paint(); renderSelBar();
   }
@@ -815,6 +816,8 @@ window.Cue = (() => {
         h('button', { class: 'qtog', 'aria-label': '큐보드 접기', onclick: () => { open = false; paint(); } }, '큐 ›'),
         h('span', null, L.length ? `GO ${goNo(L, L.length - 1)}개` : ''),
         ...addBtns(),
+        window.Reh ? h('button', { class: 'qb qreh-b' + (Reh.on() ? ' on' : ''), 'aria-label': Reh.on() ? '리허설 기록 끝내기' : '리허설 기록 시작', onclick: () => Reh.on() ? Reh.stop() : Reh.start() }, Reh.on() ? '● 끝' : '● 리허설') : '',
+        window.Reh && !Reh.on() && Reh.has(b) ? h('button', { class: 'qb qreh-b', 'aria-label': '리허설 보고', onclick: () => Reh.report(b) }, '보고') : '',
         h('button', { class: 'qb qhelp-b' + (help ? ' on' : ''), 'aria-label': '큐 사용법', onclick: () => { help = !help; paint(); } }, '?')),
       pick ? h('div', { class: 'qaddbar' }, h('div', null, '바꿀 소리의 패드를 누르세요 (소리 안 남)'),
         h('button', { class: 'qc', onclick: () => { pick = null; paint(); } }, '취소')) :
@@ -961,5 +964,5 @@ window.Cue = (() => {
   }
 
   if (on()) paint();
-  return { tap, go, step, settingRow, tab, exportFix, importFix, paint: () => paint(), selN: () => editing() ? qsel.size : 0, clearSel: () => { if (qsel.size) { qsel.clear(); paint(); } } };
+  return { open: () => { if (!open) { open = true; paint(); } }, label: cueLabel, tap, go, step, settingRow, tab, exportFix, importFix, paint: () => paint(), selN: () => editing() ? qsel.size : 0, clearSel: () => { if (qsel.size) { qsel.clear(); paint(); } } };
 })();
