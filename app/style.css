@@ -421,6 +421,13 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
   .ctl{justify-content:flex-end;gap:8px}
   .cbtn{width:auto;flex:1;height:56px}
   .ctl{min-width:0}
+  /* 설정 줄: 이름과 단추가 겹치면 단추를 아랫줄로 */
+  .sheet .row{flex-wrap:wrap}
+  .sheet .row>label,.sheet .row>.lab{flex:1 0 auto}
+  .sheet .row .end{flex:0 1 auto;margin-left:auto}
+  /* 패드 고르기 막대: 한 줄로(넘치면 옆으로 밀기) · 정지 단추 위에 */
+  .selbar:not(.qsbar){left:10px!important;right:10px;transform:none;max-width:none!important;flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;scrollbar-width:none;bottom:calc(max(12px,env(safe-area-inset-bottom)) + 124px)}
+  .selbar:not(.qsbar)>*{flex:none}
   /* 아래 탭 */
   .stage.qon~.bottom~.ptabs{display:grid}
   .ptabs{grid-template-columns:1fr 1fr;gap:6px}
