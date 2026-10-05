@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.106 (2026-10-03)';
+const VER = 'DuckQ Board 0.3.107 (2026-10-06)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -53,6 +53,8 @@ function logLine(msg, lv) {
 // PC로 자동 전송: q.deokgu.com(또는 PC의 log-server)에서 열었을 때만, 5초마다 → logs/app-날짜.txt. PC가 꺼져 있으면 밀린 것까지 다음에.
 let logTotal = 0, logSent = 0;
 const LOG_SEND = location.hostname === 'q.deokgu.com' || location.port === '8765';
+// 실험실(PLAN-실험실): 선생님 서버에서 열었을 때만. 공개 주소(github.io)에선 칸도 안 보이고 서버에 묻지도 않음
+const LAB = LOG_SEND;
 let flushing = false;   // 5초 타이머와 화면 숨김이 겹치면 같은 줄을 두 번 보냈음
 async function flushLog() {
   if (!LOG_SEND || logSent >= logTotal || flushing) return;
@@ -742,7 +744,8 @@ function openAddMenu() {
   const r = $('btnAdd').getBoundingClientRect();
   const pop = h('div', { class: 'add-pop' },
     h('button', { onclick: () => { close(); pickFiles(); } }, '📁 파일 넣기'),
-    h('button', { onclick: () => { close(); startRecord(); } }, '🎙 녹음하기'));
+    h('button', { onclick: () => { close(); startRecord(); } }, '🎙 녹음하기'),
+    LAB && S.settings.drawer ? h('button', { onclick: () => { close(); openDrawer(); } }, '🗄 음원 서랍') : null);
   pop.style.top = (r.bottom + 10) + 'px'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px';
   const out = e => { if (!pop.contains(e.target) && e.target !== $('btnAdd')) close(); };
   function close() { pop.remove(); document.removeEventListener('pointerdown', out, true); }
@@ -750,6 +753,49 @@ function openAddMenu() {
   document.body.append(pop);
   setTimeout(() => document.addEventListener('pointerdown', out, true));
 }
+// ---------- 음원 서랍 (실험실): PC에 모아 둔 음원을 어느 아이패드에서든 골라 패드로 ----------
+const DRAWER_URL = new URL('/drawer/', location.href).href;
+const mb = n => (n / 1048576).toFixed(1) + 'MB';
+async function openDrawer() {
+  if (!LAB || S.lock) return;
+  let list;
+  try { const r = await fetch(DRAWER_URL + 'list', { cache: 'no-store' }); if (!r.ok) throw new Error(r.status); list = await r.json(); }
+  catch (e) { logLine(`서랍 목록 못 받음: ${e && e.message}`, 'e'); return toast('서랍에 못 들어갔어요 — PC가 꺼졌거나 로그인이 풀렸어요(새로고침)', 6000); }
+  openSheet('음원 서랍', body => {
+    const up = h('input', { type: 'file', multiple: true, accept: 'audio/*,video/*,.m4a,.mp3,.wav,.aac,.ogg', class: 'vh' });
+    up.onchange = () => { const f = [...up.files]; up.value = ''; drawerUpload(f); };
+    body.append(up, row(helpLabel('서랍에 올리기', '이 아이패드의 음원 파일을 PC 서랍에 올려요. 다른 아이패드에서도 여기서 골라 쓸 수 있어요'),
+      h('button', { class: 'sbtn', onclick: () => up.click() }, '파일 고르기')));
+    if (!list.length) return body.append(h('div', { class: 'row' }, h('span', { class: 'plab' }, '서랍이 비었어요')));
+    list.forEach(it => body.append(row(h('span', null, it.name.replace(/\.[^.]+$/, ''), h('span', { class: 'sub' }, ` ${mb(it.size)}`)),
+      h('button', { class: 'sbtn', onclick: () => drawerTake(it) }, '넣기'))));
+  });
+}
+async function drawerTake(it) {
+  closeSheet();
+  toast(`"${it.name}" 받는 중…`, 60000);
+  try {
+    const r = await fetch(DRAWER_URL + 'f/' + encodeURIComponent(it.name));
+    if (!r.ok) throw new Error(r.status);
+    const b = await r.blob();
+    logLine(`서랍에서 넣기 "${it.name}" ${mb(b.size)}`);
+    await addFiles([new File([b], it.name, { type: b.type })]);
+  } catch (e) { logLine(`서랍 받기 실패 "${it.name}": ${e && e.message}`, 'e'); toast('서랍에서 못 받았어요 — 다시 해 보세요', 5000); }
+}
+async function drawerUpload(list) {
+  let ok = 0;
+  for (const f of list) {
+    toast(`"${f.name}" 올리는 중… (${ok + 1}/${list.length})`, 120000);
+    try {
+      const r = await fetch(DRAWER_URL + 'up?name=' + encodeURIComponent(f.name), { method: 'POST', body: f });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || r.status);
+      ok++; logLine(`서랍에 올림 "${j.name}" ${mb(f.size)}`);
+    } catch (e) { logLine(`서랍 올리기 실패 "${f.name}": ${e && e.message}`, 'e'); toast(`"${f.name}" 못 올렸어요: ${e && e.message}`, 6000); }
+  }
+  if (ok) { toast(`${ok}개 서랍에 올렸어요`, 1800); openDrawer(); }
+}
+
 let recNow = null;
 async function startRecord() {
   if (S.lock || recNow) return;
@@ -1001,7 +1047,7 @@ async function saveBlob(blob, fname) {
 }
 // 가져온 파일의 앱 전체 설정: 다르면 한 번 묻고, 기본은 지금 설정 그대로(기존 판을 안 바꾸는 약속)
 const SET_KO = { recDenoise: '녹음 잡음 거르기', theme: '화면', cols: '패드 크기', labelSize: '패드 글자', fadeSec: '페이드 초', fadeOverride: '페이드 덮어쓰기', fadeMax: '페이드 최대', soloMode: '솔로 방식',
-  newFin: '새 곡 페이드인', newFinSec: '새 곡 페이드인 초', newFout: '새 곡 페이드아웃', newFoutSec: '새 곡 페이드아웃 초', masterBoost: 'MASTER 키우기', cue: '큐' };
+  newFin: '새 곡 페이드인', newFinSec: '새 곡 페이드인 초', newFout: '새 곡 페이드아웃', newFoutSec: '새 곡 페이드아웃 초', masterBoost: 'MASTER 키우기', cue: '큐', drawer: '음원 서랍' };
 async function importSettings(json) {
   const inc = json.settings && typeof json.settings === 'object' ? json.settings : null;
   if (!inc) return;
@@ -1656,6 +1702,8 @@ function openSettings(tab = 'general', keep) {
         clearPlayed(); save(); paintAll(); toast('PLAYED 표시를 모두 지웠어요');
       } }, '모두 지우기')),
       window.Cue ? Cue.settingRow() : null,
+      LAB ? row(helpLabel('음원 서랍', '선생님 서버에서만 보여요. 켜면 ＋ 추가에 [음원 서랍]이 생겨 PC에 모아 둔 음원을 골라 넣을 수 있어요'),
+        sw(!!st.drawer, v => { st.drawer = v; save(); logLine(`음원 서랍 ${v ? '켬' : '끔'}`); })) : null,
       fileRow(),
       offRow(),
       h('div', { class: 'row col' }, h('div', { class: 'info', id: 'memInfo' }, `${VER} · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB · 소리 출구 ${Engine.state}`),
