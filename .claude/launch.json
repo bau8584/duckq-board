@@ -1,7 +1,61 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "static", "runtimeExecutable": "python", "runtimeArgs": ["test/log-server.py"], "port": 8765 },
-    { "name": "app", "runtimeExecutable": "python", "runtimeArgs": ["-m", "http.server", "8766", "--directory", "app"], "port": 8766 }
+    {
+      "name": "static",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "test/log-server.py"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "app",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8766",
+        "--directory",
+        "app"
+      ],
+      "port": 8766
+    },
+    {
+      "name": "app2",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8791",
+        "--directory",
+        "app"
+      ],
+      "port": 8791
+    },
+    {
+      "name": "app3",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8793",
+        "--directory",
+        "app"
+      ],
+      "port": 8793
+    },
+    {
+      "name": "app4",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8823",
+        "--directory",
+        "app"
+      ],
+      "port": 8823
+    }
   ]
 }
