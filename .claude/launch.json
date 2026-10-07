@@ -56,6 +56,18 @@
         "app"
       ],
       "port": 8823
+    },
+    {
+      "name": "app5",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "18432",
+        "--directory",
+        "app"
+      ],
+      "port": 18432
     }
   ]
 }

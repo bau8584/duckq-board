@@ -395,7 +395,7 @@ function soloOthers(id) {
 // 편집 모드: 짧게 누르면 고르기(여러 개), 꾹(0.25초) 누른 채 끌면 순서 바꾸기.
 const touches = new Map();
 let lastScroll = 0, drag = null;
-const MOVE_PX = 10, HOLD_MS = 250, LONG_MS = 500, RENAME_MS = 400;
+const MOVE_PX = 10, HOLD_MS = 250, LONG_MS = 500, RENAME_MS = 400, GHOST_MS = 50;
 // 패드 이름 바로 고치기: 이름 자리에 입력 칸을 띄움. 완료(Enter)·바깥 누름 = 저장, Esc = 취소
 // 이름 칸 오른쪽 작은 × — 누르면 이름을 다 지우고 바로 새로 쓰게(입력 칸에서 손이 안 떠나게 pointerdown에서 막음)
 function clearable(inp, cls = 'clr') {
@@ -429,7 +429,8 @@ grid.addEventListener('pointerdown', e => {
   const el = e.target.closest('.pad'); if (!el || !el.dataset.id) return;
   if (e.pointerType === 'mouse' && e.button !== 0) return;
   // 스크롤이 미끄러지는 중에 댄 손가락은 '멈추기'로 보고 소리 안 냄
-  const t = { el, id: el.dataset.id, x: e.clientX, y: e.clientY, dead: performance.now() - lastScroll < 120 };
+  const t = { el, id: el.dataset.id, x: e.clientX, y: e.clientY, dead: performance.now() - lastScroll < 120,
+    t0: performance.now(), pt: e.pointerType, w: Math.round(e.width || 0), pid: e.pointerId, tr: e.isTrusted };   // 유령 터치 추적용(로그에만)
   touches.set(e.pointerId, t);
   if (!t.dead) el.classList.add('press');
   // 편집 모드: 이름(밑줄)을 꾹 → 손 떼면 바로 이름 고치기 / 이름 밖을 꾹 → 끌어 옮기기
@@ -454,7 +455,10 @@ window.addEventListener('pointerup', e => {
   unpress(t.el); t.el.classList.remove('rn');
   if (t.dead) return;
   if (t.rename) return renamePad(t.id);   // 손 뗄 때(사용자 동작 안) 열어야 아이패드 자판이 뜬다
-  if (editMode) toggleSel(t.id); else { logLine(`짧게 누름 ${nm(t.id)}${S.lock ? ' (공연 모드)' : ''}`); tapPad(t.id); }
+  const why = ` [${((performance.now() - t.t0) / 1000).toFixed(2)}초 · ${t.pt}${t.tr ? '' : ' 가짜'} · 굵기 ${t.w} · 이동 ${Math.round(Math.hypot(e.clientX - t.x, e.clientY - t.y))}px · id ${t.pid} · 동시 ${touches.size + 1} · 뗀 곳 ${(e.target && (e.target.closest && e.target.closest('[id],.pad,.qrow') || e.target).id || e.target.className || '?')}]`;
+  // 0.05초보다 짧은 터치는 유령 터치(충전 중 화면 잡음)로 보고 소리 안 냄 (소유자 결정 2026-10-08)
+  if (!editMode && performance.now() - t.t0 < GHOST_MS) return logLine(`! 너무 짧은 터치 무시 ${nm(t.id)}${why}`, 'w');
+  if (editMode) toggleSel(t.id); else { logLine(`짧게 누름 ${nm(t.id)}${S.lock ? ' (공연 모드)' : ''}${why}`); tapPad(t.id); }
 });
 window.addEventListener('pointercancel', e => {
   const t = touches.get(e.pointerId); if (!t) return;
