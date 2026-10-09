@@ -50,11 +50,23 @@ const Engine = (() => {
     ctx.onstatechange = () => {
       emit('ctx', ctx.state);
       // 전화·시리 등으로 끊기면 알아서 다시 켠다. 일부러 멈춘(⏸) 동안은 두기.
+      // 한 번만 해 보고, 실패하거나 3초 안에 또 끊기면 다음 손 터치까지 기다린다(쉼 없이 되풀이하면 장치가 켜졌다 꺼졌다 하며 지지직, 2026-10-09)
       if (unlocked && !paused && !ousted && ctx.state !== 'running' && ctx.state !== 'closed') {
-        ctx.resume().then(() => log('소리 출구 자동 복귀'), e => log('자동 복귀 실패: ' + e.message, 'w'));
+        if (waitTap) return;
+        if (performance.now() - autoAt < 3000) { waitTap = true; log('소리 출구 또 끊김 — 다음 터치 때 다시 켬', 'w'); return; }
+        autoAt = performance.now(); const c = ctx;
+        c.resume().then(() => log('소리 출구 자동 복귀'), e => { if (ctx === c) waitTap = true; log('자동 복귀 실패: ' + e.message + ' — 다음 터치 때 다시 켬', 'w'); });
       }
     };
   }
+  let autoAt = -1e9, waitTap = false;
+  // 기다리던 중 아무 데나 손이 닿으면 그때 다시 켠다
+  document.addEventListener('pointerdown', () => {
+    if (!waitTap || !ctx) return;
+    waitTap = false; autoAt = performance.now();
+    if (ctx.state === 'running' || ctx.state === 'closed') return;
+    ctx.resume().then(() => log('소리 출구 터치로 복귀'), e => log('터치 복귀 실패: ' + e.message, 'w'));
+  }, true);
   function ensure() { if (!ctx) makeCtx(); return ctx; }
   const silent = () => { const b = ctx.createBuffer(1, 1, ctx.sampleRate), z = ctx.createBufferSource(); z.buffer = b; z.connect(ctx.destination); z.start(); };
 
@@ -71,7 +83,7 @@ const Engine = (() => {
     const s = performance.now();
     tracks.forEach(tr => { if (tr.v) end(tr, 'rebuild'); dropEl(tr); });
     const old = ctx; old.onstatechange = null; try { old.close(); } catch {}
-    makeCtx(); ctx.resume(); silent();
+    makeCtx(); waitTap = false; ctx.resume(); silent();
     tracks.forEach(wire);
     log(`소리 출구 새로 만듦 (${(performance.now() - s).toFixed(0)}ms)`);
     emit('rebuild');
