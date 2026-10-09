@@ -11,8 +11,9 @@ const Engine = (() => {
   const EDGE = 0.005;         // 페이드 없음이어도 5ms로 올리고 내림(딸깍 방지)
   const HUSH = 0.03;          // ⏸·이어서: 출구째 멈추기 전에 30ms 줄이고, 이어서 30ms 올림(지직 방지)
   let ctx = null, master = null, masterVol = 1, boost = 1, boostG = null, limiter = null;
-  // 100%를 넘길 수 있는 설정(MASTER 키우기 또는 패드 볼륨 100% 초과)이 하나라도 있으면 리미터를 거친다 → 찢어짐 대신 살짝 눌림.
-  // 전부 100% 이하면 리미터 없이 지금 소리 그대로.
+  // 100%를 넘길 수 있는 설정(MASTER 키우기 또는 패드 볼륨 100% 초과)이 하나라도 있으면 '찌그러뜨리기'를 거친다
+  // → 큰 순간은 천장에서 둥글게 눌리고 작은 부분이 올라와 귀로 확 커짐(지지직 감수, 2026-10-09 소유자 A안).
+  // 전부 100% 이하면 그대로.
   let viaLim = null;
   function routeBoost() {
     if (!boostG) return;
@@ -40,13 +41,14 @@ const Engine = (() => {
     master = ctx.createGain(); master.gain.value = masterVol;
     // MASTER 키우기: master → boost → (100% 넘길 설정이 있을 때만 리미터) → 출구
     viaLim = null;
-    boostG = ctx.createGain(); limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -3; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.001; limiter.release.value = 0.15;
-    // 리미터가 못 잡은 순간 튐은 마지막에 둥글게 깎는다(딱딱 잘리는 '띠딕' 대신). 0.8 아래는 손대지 않음
-    const clip = ctx.createWaveShaper(), N = 2048, cv = new Float32Array(N);
-    for (let i = 0; i < N; i++) { const x = i / (N - 1) * 2 - 1, a = Math.abs(x); cv[i] = a <= 0.8 ? x : Math.sign(x) * (0.8 + 0.2 * Math.tanh((a - 0.8) / 0.2)); }
-    clip.curve = cv; clip.oversample = '4x';
-    master.connect(boostG); limiter.connect(clip); clip.connect(ctx.destination); routeBoost();
+    boostG = ctx.createGain();
+    // 예전엔 리미터(-3dB, 20:1)였는데 원본이 이미 꽉 찬 소리(총소리)는 300%로 올려도 키운 만큼 다시 눌려 그대로였다.
+    // 찌그러뜨리기: 입력 ±4까지 받아(앞에서 1/4로 줄였다가) 0.98·tanh(x)로 둥글게 누름 → 300%면 확 커짐
+    limiter = ctx.createGain(); limiter.gain.value = 0.25;
+    const sat = ctx.createWaveShaper(), N = 4096, cv = new Float32Array(N);
+    for (let i = 0; i < N; i++) cv[i] = 0.98 * Math.tanh((i / (N - 1) * 2 - 1) * 4);
+    sat.curve = cv; sat.oversample = '4x';
+    master.connect(boostG); limiter.connect(sat); sat.connect(ctx.destination); routeBoost();
     ctx.onstatechange = () => {
       emit('ctx', ctx.state);
       // 전화·시리 등으로 끊기면 알아서 다시 켠다. 일부러 멈춘(⏸) 동안은 두기.
