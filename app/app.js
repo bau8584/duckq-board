@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.113 (2026-10-09)';
+const VER = 'DuckQ Board 0.3.114 (2026-10-09)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -456,9 +456,9 @@ window.addEventListener('pointerup', e => {
   if (t.dead) return;
   if (t.rename) return renamePad(t.id);   // 손 뗄 때(사용자 동작 안) 열어야 아이패드 자판이 뜬다
   const why = ` [${((performance.now() - t.t0) / 1000).toFixed(2)}초 · ${t.pt}${t.tr ? '' : ' 가짜'} · 굵기 ${t.w} · 이동 ${Math.round(Math.hypot(e.clientX - t.x, e.clientY - t.y))}px · id ${t.pid} · 동시 ${touches.size + 1} · 뗀 곳 ${(e.target && (e.target.closest && e.target.closest('[id],.pad,.qrow') || e.target).id || e.target.className || '?')}]`;
-  // 0.05초보다 짧은 터치는 유령 터치(충전 중 화면 잡음)로 보고 소리 안 냄 (소유자 결정 2026-10-08)
-  if (!editMode && performance.now() - t.t0 < GHOST_MS) return logLine(`! 너무 짧은 터치 무시 ${nm(t.id)}${why}`, 'w');
-  if (editMode) toggleSel(t.id); else { logLine(`짧게 누름 ${nm(t.id)}${S.lock ? ' (공연 모드)' : ''}${why}`); tapPad(t.id); }
+  // 0.05초 무시는 진짜 빠른 탭까지 막아 끔(2026-10-09). 유령 터치 가를 근거를 모으려고 짧은 터치 표시만 남김
+  const quick = performance.now() - t.t0 < GHOST_MS ? ' (0.05초 미만)' : '';
+  if (editMode) toggleSel(t.id); else { logLine(`짧게 누름 ${nm(t.id)}${quick}${S.lock ? ' (공연 모드)' : ''}${why}`); tapPad(t.id); }
 });
 window.addEventListener('pointercancel', e => {
   const t = touches.get(e.pointerId); if (!t) return;
