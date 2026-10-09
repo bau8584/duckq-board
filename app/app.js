@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.114 (2026-10-09)';
+const VER = 'DuckQ Board 0.3.115 (2026-10-09)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -1059,6 +1059,92 @@ function openVoiceSheet(id) {
   onSheetClose = () => { stop(); ac.close().catch(() => {}); };
 }
 
+// 파일 볼륨 키우기 — 이미 최대인 파일은 볼륨·MASTER를 올려도 리미터가 다시 눌러서 안 커짐.
+// 그래서 파일 자체를 키운 뒤 넘치는 부분만 눌러 담아 새 패드로(원본 그대로)
+const LOUDS = [['s', '조금', 6], ['m', '많이', 12], ['x', '최대', 18]];   // dB
+const LOUD_MAX = 600;   // 초
+const Loud = (() => {
+  const R = 48000;
+  async function decode(blob, from, to) {   // 채널(스테레오) 그대로, 트림한 구간만
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    let ab; try { const raw = await blob.arrayBuffer(); ab = await new Promise((ok, no) => ac.decodeAudioData(raw, ok, no)); } finally { ac.close().catch(() => {}); }
+    const a = Math.min(from || 0, ab.duration), b = Math.min(to > a ? to : ab.duration, a + LOUD_MAX), nc = Math.min(2, ab.numberOfChannels);
+    const off = new OfflineAudioContext(nc, Math.max(1, Math.ceil((b - a) * R)), R), src = off.createBufferSource();
+    src.buffer = ab; src.connect(off.destination); src.start(0, a, b - a);
+    const out = await off.startRendering();
+    return Array.from({ length: nc }, (_, c) => out.getChannelData(c));
+  }
+  // 키우고(dB) → 미리 보는 리미터(5ms 앞을 보고 줄임, 80ms에 걸쳐 풀림), 천장 -0.5dB
+  function make(chs, db) {
+    const t0 = performance.now(), n = chs[0].length, G = Math.pow(10, db / 20), C = 0.944;
+    const L = Math.round(0.005 * R), rel = 1 / (0.08 * R);
+    const need = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let m = 0; for (const x of chs) m = Math.max(m, Math.abs(x[i])); const v = m * G; need[i] = v > C ? C / v : 1; }
+    const g = new Float32Array(n);
+    // 뒤에서 앞으로: 큰 소리 L샘플 전부터 미리 내려가게(직선)
+    let cur = 1;
+    for (let i = n - 1; i >= 0; i--) { cur = Math.min(need[i], cur + 1 / L); g[i] = cur; }
+    // 앞에서 뒤로: 천천히 풀림
+    cur = g[0];
+    for (let i = 0; i < n; i++) { cur = Math.min(g[i], cur + rel); g[i] = cur; }
+    const out = chs.map(x => { const y = new Float32Array(n); for (let i = 0; i < n; i++) y[i] = Math.max(-C, Math.min(C, x[i] * G * g[i])); return y; });
+    logLine(`파일 볼륨 키우기 +${db}dB ${(n / R).toFixed(1)}초 · ${((performance.now() - t0) / 1000).toFixed(2)}초 걸림`);
+    return out;
+  }
+  return { R, decode, make };
+})();
+function openLoudSheet(id) {
+  const p = S.pads[id], rec = p && files.get(p.file); if (!rec) return toast('파일이 없어요', 3000);
+  const b = board(), got = {};
+  let src = null, x = null, pick = null, busy = false;
+  const ac = new (window.AudioContext || window.webkitAudioContext)();
+  const stop = () => { if (src) { try { src.stop(); } catch {} src = null; } };
+  const play = ys => { stop(); const ab = ac.createBuffer(ys.length, ys[0].length, Loud.R); ys.forEach((y, c) => ab.getChannelData(c).set(y)); src = ac.createBufferSource(); src.buffer = ab; src.connect(ac.destination); src.start(); };
+  const saveBtn = h('button', { class: 'sbtn pri', disabled: true }, '새 패드로 저장');
+  const warn = h('div', { style: 'display:none;color:#e0a040;font-size:13px;margin-top:6px' }, '최대는 소리가 거칠어질 수 있어요');
+  const btns = LOUDS.map(([k, ko]) => h('button', { class: 'sbtn vx', onclick: () => tap(k) }, ko));
+  const btnOrig = h('button', { class: 'sbtn vx', onclick: () => tap('') }, '원래 소리');
+  async function tap(k) {
+    if (busy) return;
+    ac.resume().catch(() => {});
+    if (pick === k && src) return stop();
+    busy = true; stop();
+    try {
+      if (!x) { toast('소리 여는 중…', 60000); x = await Loud.decode(rec.blob, p.start || 0, p.end || 0); }
+      if (k && !got[k]) { toast('키우는 중…', 60000); got[k] = Loud.make(x, LOUDS.find(v => v[0] === k)[2]); }
+      toast('미리 듣는 중 — 다시 누르면 멈춰요', 1500);
+      pick = k; [...btns, btnOrig].forEach(el => el.classList.remove('on'));
+      (k ? btns[LOUDS.findIndex(v => v[0] === k)] : btnOrig).classList.add('on');
+      saveBtn.disabled = !k; warn.style.display = k === 'x' ? '' : 'none';
+      play(k ? got[k] : x);
+    } catch (e) { logLine(`파일 볼륨 키우기 실패 "${p.label}": ${e.message}`, 'e'); toast('이 소리는 키우지 못했어요', 4000); }
+    busy = false;
+  }
+  saveBtn.onclick = async () => {
+    if (!pick || busy) return; busy = true; stop();
+    const label = `${p.label} ${LOUDS.find(v => v[0] === pick)[1]}`;
+    try {
+      const f = new File([encWav(Loud.R, got[pick])], label + '.wav', { type: 'audio/wav' });
+      const r = { id: uid(), name: f.name, size: f.size, type: f.type, blob: f };
+      await Store.putFile(r); files.set(r.id, r);
+      const q = newPad(r.id, label, got[pick][0].length / Loud.R);
+      q.color = p.color; q.vol = 1;
+      S.pads[q.id] = q; b.pads.splice(b.pads.indexOf(id) + 1, 0, q.id); save();
+      logLine(`볼륨 키워 새 패드 "${label}" ${(f.size / 1024).toFixed(0)}KB`);
+      closeSheet(); renderTop(); renderGrid(); await loadPad(q.id);
+      toast(`"${label}" 패드를 만들었어요`);
+    } catch (e) { logLine(`볼륨 패드 저장 실패: ${e.message}`, 'e'); toast('저장하지 못했어요', 4000); busy = false; }
+  };
+  const long = ((p.end || p.dur) - (p.start || 0)) > LOUD_MAX;
+  openSheet('파일 볼륨 키우기', body => {
+    body.append(
+      h('div', { class: 'row col' }, h('label', null, helpLabel('크기', `볼륨을 올려도 안 커지는 소리(이미 꽉 찬 파일)를 파일째 키워요. 눌러서 들어 보고 저장 — 옆에 새 패드가 생기고 원래 패드는 그대로예요.${long ? ` 긴 소리는 앞 ${LOUD_MAX / 60}분만.` : ''}`)),
+        h('div', { class: 'vx-grid' }, ...btns, btnOrig), warn),
+      h('div', { class: 'row' }, h('span', { class: 'plab' }, `"${p.label}" → 새 패드`), h('div', { class: 'end' }, saveBtn)));
+  }, () => padEls.get(id), { pad: id });
+  onSheetClose = () => { stop(); ac.close().catch(() => {}); };
+}
+
 async function loadPad(id) {
   const p = S.pads[id]; if (!p) return;
   const rec = files.get(p.file);
@@ -1565,7 +1651,7 @@ function openPadSheet(id) {
       seg([['each', '트랙별 페이드로'], ['fade', '◣ 시간으로'], ['stop', '바로 정지']], p.soloMode || S.settings.soloMode, v => { p.soloMode = v; touchEdit(p); save(); }));
     const act = h('div', { class: 'hact' }, h('button', { class: 'sbtn', onclick: () => {
         const nid = clonePad(id); b.pads.splice(b.pads.indexOf(id) + 1, 0, nid); save(); toast('복제했어요'); closeSheet();
-      } }, '복제'), h('button', { class: 'sbtn', onclick: () => openVoiceSheet(id) }, '목소리'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: async () => {
+      } }, '복제'), h('button', { class: 'sbtn', onclick: () => openVoiceSheet(id) }, '목소리'), h('button', { class: 'sbtn', onclick: () => openLoudSheet(id) }, '볼륨 키우기'), S.boards.length > 1 ? moveSel : null, h('button', { class: 'sbtn danger', onclick: async () => {
         if (!await ask(`"${p.label}" 패드를 지울까요?`, { ok: '지우기', danger: true })) return;
         removePad(id); save(); closeSheet(); renderTop();
       } }, '삭제'));
