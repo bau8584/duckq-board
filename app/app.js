@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.116 (2026-10-09)';
+const VER = 'DuckQ Board 0.3.117 (2026-10-12)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -50,6 +50,36 @@ function logLine(msg, lv) {
   logTotal++;
   if (LOG.length > 300) LOG.shift();
 }
+// ---------- 렉 재기: 오래 걸린 일·화면이 멈춘 순간을 최근 기록에 남김 (PLAN-성능) ----------
+// 느림 = 재는 일 하나가 50ms 넘음. 멈춤 = 0.1초 시계가 0.15초 넘게 밀림(재지 않는 일까지 잡음) → 직전에 한 일을 같이 적음
+const Perf = window.Perf = (() => {
+  let what = '시작', slowUntil = 0, last = performance.now();
+  const seen = {};
+  function wrap(name, fn, info) {
+    return function (...a) {
+      const t = performance.now();
+      try { return fn.apply(this, a); } finally {
+        const end = performance.now(), ms = end - t;
+        what = name;
+        if (ms > 50) {
+          slowUntil = end;
+          const k = seen[name] || (seen[name] = { at: 0, n: 0 });   // 같은 일이 계속 느리면 2초에 한 줄만(기록 300줄이 덮이지 않게)
+          if (end - k.at < 2000) k.n++;
+          else {
+            logLine(`느림: ${name} ${Math.round(ms)}ms${info ? ' · ' + info() : ''}${k.n ? ` · 그 사이 ${k.n}번 더` : ''}`, 'w');
+            k.at = end; k.n = 0;
+          }
+        }
+      }
+    };
+  }
+  setInterval(() => {
+    const now = performance.now(), gap = now - last - 100; last = now;
+    if (gap > 150 && document.visibilityState === 'visible' && now - slowUntil > gap) logLine(`멈춤: ${((gap + 100) / 1000).toFixed(2)}초 · 직전 일 ${what}`, 'w');
+  }, 100);
+  document.addEventListener('visibilitychange', () => { last = performance.now(); });
+  return { wrap, mark: n => { what = n; } };
+})();
 // PC로 자동 전송: q.deokgu.com(또는 PC의 log-server)에서 열었을 때만, 5초마다 → logs/app-날짜.txt. PC가 꺼져 있으면 밀린 것까지 다음에.
 let logTotal = 0, logSent = 0;
 const LOG_SEND = location.hostname === 'q.deokgu.com' || location.port === '8765';
@@ -355,6 +385,12 @@ function renderPause() {
 }
 
 function renderAll() { applyTheme(); applyBoardColor(); renderTop(); renderTabs(); renderGrid(); renderMaster(); renderPlays(); renderPause(); }
+// 렉 재기: 자주 불리고 패드 수만큼 커지는 일
+const padCount = () => `패드 ${board().pads.length}개`;
+save = Perf.wrap('저장', save, () => `설정 ${Math.round((localStorage.getItem(Store.KEY || 'duckq-board-v1') || '').length / 1024)}KB`);
+renderGrid = Perf.wrap('패드 판 다시 그리기', renderGrid, padCount);
+renderAll = Perf.wrap('화면 전체 다시 그리기', renderAll, padCount);
+paintAll = Perf.wrap('패드 전부 칠하기', paintAll, padCount);
 
 // 재생 중인 패드만 1초에 4번 갱신 (DESIGN §6)
 setInterval(() => {
@@ -2061,7 +2097,13 @@ async function boot() {
   recs.forEach(r => dropFileIfUnused(r.id));   // 넣다가 꺼진 파일 정리
   // 지금 보드 먼저, 나머지 보드는 뒤에
   const order = [...board().pads, ...S.boards.flatMap((b, i) => i === S.cur ? [] : b.pads)];
-  for (const id of order) await loadPad(id);
+  let worst = 0, worstName = '';
+  for (const id of order) {
+    Perf.mark('소리 불러오기'); const t = performance.now();
+    await loadPad(id);
+    const ms = performance.now() - t; if (ms > worst) { worst = ms; worstName = (S.pads[id] && S.pads[id].label) || id; }
+  }
+  if (order.length) logLine(`가장 오래 걸린 소리: ${worstName} ${(worst / 1000).toFixed(2)}초`);
   logLine(`복원 완료: 패드 ${order.length}개 · ${((performance.now() - t0) / 1000).toFixed(2)}초 · 올려 둔 소리 ${(Engine.loadedBytes / 1048576).toFixed(1)}MB`);
 }
 boot();

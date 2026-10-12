@@ -848,6 +848,7 @@ window.Cue = (() => {
     if (k < L.length) L.slice(k, nextGo(L, k)).forEach(c => { const el = c.pad !== '*' && S.pads[c.pad] && padEls.get(c.pad); if (el) el.classList.add('q-next'); });
     new Set(cues().map(c => c.pad)).forEach(id => { const el = S.pads[id] && padEls.get(id); if (el) el.append(h('div', { class: 'qtag' }, '큐')); });
   }
+  if (window.Perf) paint = Perf.wrap('큐 화면 그리기', paint, () => `큐 ${(S.boards[S.cur].cues || []).length}개`);
   function paintGo() {
     if (!on()) { if (goB) { goB.remove(); goB = null; } return; }
     if (!goB) {
