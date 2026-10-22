@@ -68,6 +68,18 @@
         "app"
       ],
       "port": 18432
+    },
+    {
+      "name": "perf",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "18433",
+        "--directory",
+        "."
+      ],
+      "port": 18433
     }
   ]
 }
