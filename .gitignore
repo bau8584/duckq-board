@@ -2,3 +2,7 @@ docs/reference/
 duckq-board/
 logs/
 __pycache__/
+
+# 개인 음원·내보낸 설정 — 저장소에 넣지 않음
+*.wav
+*.duckq.zip
