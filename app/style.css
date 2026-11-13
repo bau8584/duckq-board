@@ -455,3 +455,4 @@ select.sel{height:40px;border-radius:10px;border:1px solid var(--line);backgroun
 .vx-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
 .sbtn.vx{min-height:52px;font-size:16px}
 .sbtn.vx.on{background:var(--board);border-color:var(--board);color:#0b0c0e}
+.yt-row{gap:8px}.yt-in{flex:1;min-width:0;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:inherit;font:15px var(--font);padding:0 12px}

@@ -1,6 +1,6 @@
 // DuckQ Board 화면. 소리는 전부 Engine(engine.js), 저장은 Store(store.js)에 맡긴다.
 'use strict';
-const VER = 'DuckQ Board 0.3.117 (2026-10-12)';
+const VER = 'DuckQ Board 0.3.118 (2026-11-13)';
 const COLORS = { gray: '#9AA3AF', purple: '#B57EDC', orange: '#F08C3A', green: '#4FBF8B', red: '#EF5B5B', blue: '#5B8DEF', yellow: '#F2C94C', sky: '#4FC3E0' };
 const COLOR_KO = { gray: '회', purple: '자주', orange: '주황', green: '초록', red: '빨강', blue: '파랑', yellow: '노랑', sky: '하늘' };
 const COLOR_KEYS = Object.keys(COLORS);
@@ -785,6 +785,7 @@ function openAddMenu() {
   const pop = h('div', { class: 'add-pop' },
     h('button', { onclick: () => { close(); pickFiles(); } }, '📁 파일 넣기'),
     h('button', { onclick: () => { close(); startRecord(); } }, '🎙 녹음하기'),
+    YT_OK ? h('button', { onclick: () => { close(); openYt(); } }, '▶ 유튜브 링크') : null,
     LAB && S.settings.drawer ? h('button', { onclick: () => { close(); openDrawer(); } }, '🗄 음원 서랍') : null);
   pop.style.top = (r.bottom + 10) + 'px'; pop.style.right = Math.max(8, innerWidth - r.right) + 'px';
   const out = e => { if (!pop.contains(e.target) && e.target !== $('btnAdd')) close(); };
@@ -792,6 +793,42 @@ function openAddMenu() {
   pop._close = close;
   document.body.append(pop);
   setTimeout(() => document.addEventListener('pointerdown', out, true));
+}
+// ---------- 유튜브 링크로 넣기 (PLAN-youtube 2차): 우리 서버(q.deokgu.com/yt 뽑기 상자)에서만 보임 ----------
+const YT_OK = location.hostname === 'q.deokgu.com' || (location.hostname === 'localhost' && /[?&]yt\b/.test(location.search));   // 로컬 시험: ?yt
+const YT_RE = /^https?:\/\/(www\.|m\.|music\.)?(youtube\.com|youtu\.be)\//i;
+function openYt() {
+  if (!YT_OK || S.lock) return;
+  openSheet('유튜브 링크로 넣기', body => {
+    const inp = h('input', { type: 'url', class: 'yt-in', placeholder: '여기에 유튜브 링크 붙여 넣기', autocomplete: 'off' });
+    const go = () => { const u = inp.value.trim(); if (!YT_RE.test(u)) return toast('유튜브 링크를 붙여 넣어 주세요', 3000); closeSheet(); ytTake(u); };
+    inp.onkeydown = e => { if (e.key === 'Enter') go(); };
+    inp.onpaste = () => setTimeout(() => { if (YT_RE.test(inp.value.trim())) go(); });   // 붙여 넣으면 바로 시작
+    body.append(h('div', { class: 'row yt-row' }, inp, h('button', { class: 'sbtn', onclick: go }, '넣기')),
+      h('div', { class: 'row' }, h('span', { class: 'plab' }, '붙여 넣으면 바로 소리 파일로 바꿔 새 패드로 넣어요. 긴 영상은 1분쯤 걸려요')));
+    setTimeout(() => inp.focus());
+    navigator.clipboard?.readText?.().then(t => { t = (t || '').trim(); if (YT_RE.test(t) && !inp.value) inp.value = t; }).catch(() => {});
+  });
+}
+async function ytTake(url) {
+  toast('유튜브에서 소리 뽑는 중…', 600000);
+  try {
+    const r = await (await fetch('/yt/job', { method: 'POST', body: JSON.stringify({ url }) })).json();
+    if (!r.id) throw new Error(r.err || '시작 못 함');
+    let j;
+    for (let i = 0; i < 400; i++) {
+      await new Promise(ok => setTimeout(ok, 1500));
+      j = await (await fetch('/yt/job/' + r.id, { cache: 'no-store' })).json();
+      if (j.state !== 'run') break;
+    }
+    if (!j || j.state !== 'done') throw new Error((j && j.err) || '너무 오래 걸려요');
+    toast('받는 중…', 60000);
+    const res = await fetch('/yt/file/' + r.id);
+    if (!res.ok) throw new Error('파일 받기 실패 ' + res.status);
+    const b = await res.blob();
+    logLine(`유튜브에서 넣기 "${j.name}" ${mb(b.size)}`);
+    await addFiles([new File([b], j.name, { type: 'audio/mp4' })]);
+  } catch (e) { logLine(`유튜브 넣기 실패: ${e && e.message}`, 'e'); toast('못 넣었어요 — ' + (e && e.message), 7000); }
 }
 // ---------- 음원 서랍 (실험실): PC에 모아 둔 음원을 어느 아이패드에서든 골라 패드로 ----------
 const DRAWER_URL = new URL('/drawer/', location.href).href;
